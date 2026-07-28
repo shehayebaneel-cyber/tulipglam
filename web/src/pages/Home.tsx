@@ -59,10 +59,10 @@ export function Home() {
           <div className="order-2 lg:order-1">
             <p className="eyebrow">Premium beauty · Delivered across Lebanon</p>
             <h1 className="serif mt-3 text-[2rem] font-medium leading-[1.07] tracking-[-0.01em] text-ink sm:text-[2.5rem] lg:text-[2.85rem]">
-              Your beauty favourites, <span className="italic text-plum">all in one place.</span>
+              Where Tulips Bloom, <span className="italic text-plum">Glam Begins.</span>
             </h1>
             <p className="mt-4 max-w-md text-[15px] leading-relaxed text-ink/70">
-              Discover makeup, skincare, haircare and fragrance from the brands you love.
+              Premium makeup, skincare, haircare and fragrance from the world’s favourite beauty brands.
             </p>
             <div className="mt-6 flex flex-wrap items-center gap-x-5 gap-y-3">
               <Link to="/shop" className="btn btn-primary btn-cta px-8 py-3.5">Shop now</Link>
