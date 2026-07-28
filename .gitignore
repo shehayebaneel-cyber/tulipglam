@@ -1,0 +1,18 @@
+node_modules
+dist
+.env
+.env.*
+!.env.example
+*.local
+
+# local sqlite (dev only)
+server/dev.db
+server/dev.db-journal
+server/prisma/dev.db
+server/prisma/dev.db-journal
+
+# runtime uploads (ephemeral)
+server/uploads
+_backups
+.DS_Store
+_design

@@ -1,0 +1,29 @@
+# Render Blueprint — TulipGlam
+# One web service builds the React app + runs the Express API, which also serves
+# the built site (server/src/index.ts has the web/dist fallthrough).
+# Database is Neon Postgres — set the URLs + secrets in the Render dashboard.
+services:
+  - type: web
+    name: tulipglam
+    runtime: node
+    plan: free # upgrade to "starter" ($7) to remove cold-starts once selling
+    region: ohio # Neon is us-east-2 (Ohio)
+    branch: main
+    # --include=dev forces the build tools (vite, tsc, tsx, prisma) to install
+    # even though Render sets NODE_ENV=production.
+    buildCommand: >-
+      cd server && npm install --include=dev && npx prisma generate &&
+      cd ../web && npm install --include=dev && npm run build
+    startCommand: cd server && npm run start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: DATABASE_URL
+        sync: false # Neon pooled URL (…-pooler…?sslmode=require&pgbouncer=true)
+      - key: DIRECT_URL
+        sync: false # Neon direct URL (no -pooler, ?sslmode=require)
+      - key: ADMIN_KEY
+        sync: false # admin dashboard password (in server/.env locally)
+      - key: JWT_SECRET
+        sync: false # customer login token secret

@@ -1,0 +1,208 @@
+@import "tailwindcss";
+
+/* ============================================================
+   TulipGlam — "Blanc Tulipe" design system
+   Crisp near-white paper, a confident grotesque, one decisive
+   tulip-plum accent, and a soft serif reserved for prices.
+   Deliberately light-only: a bright beauty-boutique world.
+   Mobile-first — every value is tuned for the 390px phone.
+   ============================================================ */
+@theme {
+  /* neutrals — cool paper, plum-biased muted (chosen, not defaulted) */
+  --color-paper: #fcfcfb; /* page background */
+  --color-surface: #ffffff; /* cards / sheets */
+  --color-soft: #f4f2f5; /* image beds, hover, tints */
+  --color-ink: #1a1a1e; /* text */
+  --color-muted: #8b8790; /* secondary text */
+  --color-line: #eae7ec; /* hairlines */
+  --color-line-strong: #ddd8e0;
+
+  /* accent — tulip plum */
+  --color-plum: #6c2a55;
+  --color-plum-dark: #52203f;
+  --color-plum-soft: #f5e9f0;
+
+  /* semantic (separate from accent) */
+  --color-sale: #b23a3a;
+  --color-ok: #2f8a5b;
+
+  --font-sans: "Hanken Grotesk", system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+  --font-serif: "Fraunces", Georgia, "Times New Roman", serif;
+
+  --shadow-card: 0 1px 2px rgba(26, 26, 30, 0.04), 0 16px 44px -24px rgba(26, 26, 30, 0.28);
+  --shadow-pop: 0 2px 6px rgba(26, 26, 30, 0.06), 0 24px 60px -28px rgba(26, 26, 30, 0.4);
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  background: var(--color-paper);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+::selection {
+  background: var(--color-plum-soft);
+  color: var(--color-plum-dark);
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-plum);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ---- layout ---- */
+.wrap {
+  width: 100%;
+  max-width: 76rem;
+  margin-inline: auto;
+  padding-inline: 1.25rem;
+}
+@media (min-width: 768px) {
+  .wrap {
+    padding-inline: 2rem;
+  }
+}
+
+.eyebrow {
+  font-size: 0.6875rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  font-weight: 600;
+  color: var(--color-plum);
+}
+
+.serif {
+  font-family: var(--font-serif);
+}
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+.no-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* ---- buttons ---- */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  font-weight: 600;
+  font-size: 0.8125rem;
+  letter-spacing: 0.02em;
+  border-radius: 999px;
+  transition: background-color 0.18s ease, color 0.18s ease, border-color 0.18s ease, transform 0.12s ease;
+  cursor: pointer;
+  border: 1px solid transparent;
+  white-space: nowrap;
+  user-select: none;
+}
+.btn:active {
+  transform: translateY(0.5px) scale(0.99);
+}
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.btn-primary {
+  background: var(--color-plum);
+  color: #fff;
+}
+.btn-primary:hover {
+  background: var(--color-plum-dark);
+}
+.btn-ink {
+  background: var(--color-ink);
+  color: var(--color-paper);
+}
+.btn-ink:hover {
+  background: #000;
+}
+.btn-ghost {
+  background: var(--color-surface);
+  color: var(--color-ink);
+  border-color: var(--color-line-strong);
+}
+.btn-ghost:hover {
+  border-color: var(--color-ink);
+}
+
+/* pill uppercase label used for CTAs on hero etc. */
+.btn-cta {
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-size: 0.75rem;
+}
+
+/* ---- form fields ---- */
+.field {
+  width: 100%;
+  border-radius: 0.75rem;
+  border: 1px solid var(--color-line-strong);
+  background: var(--color-surface);
+  padding: 0.75rem 0.9rem;
+  font-size: 0.875rem;
+  color: var(--color-ink);
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.field::placeholder {
+  color: var(--color-muted);
+}
+.field:focus {
+  border-color: var(--color-plum);
+  box-shadow: 0 0 0 3px var(--color-plum-soft);
+}
+
+/* ---- filter checkbox / radio rows ---- */
+.filter-row {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  font-size: 0.8125rem;
+  color: color-mix(in srgb, var(--color-ink) 80%, transparent);
+  cursor: pointer;
+  padding: 0.1rem 0;
+}
+.filter-row:hover {
+  color: var(--color-plum);
+}
+.filter-row input {
+  height: 0.95rem;
+  width: 0.95rem;
+  flex-shrink: 0;
+}
+
+/* ---- long-form copy ---- */
+.prose-tg p {
+  margin: 0;
+  white-space: pre-line;
+}

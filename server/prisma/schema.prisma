@@ -1,0 +1,245 @@
+// TulipGlam — data model
+// Local dev uses SQLite (zero setup). To deploy: switch provider to
+// "postgresql", set DATABASE_URL (+ DIRECT_URL for migrations), `prisma db push`.
+// Kept portable on purpose: statuses/tags are Strings (no enums, no arrays),
+// so the Postgres switch is clean.
+//
+// BUSINESS MODEL — no physical inventory. The owner sources to order, so there
+// are NO stock counts. A product's sellability is a single `status` string:
+//   active | hidden | unavailable | discontinued
+// Availability is confirmed per-order after checkout (see Order.status).
+
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "debian-openssl-3.0.x", "rhel-openssl-3.0.x"]
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL") // Neon pooled (runtime)
+  directUrl = env("DIRECT_URL") // Neon direct (migrations / db push)
+}
+
+// ------------------------------------------------------------------ taxonomy
+model Category {
+  id        Int        @id @default(autoincrement())
+  slug      String     @unique
+  name      String
+  blurb     String     @default("")
+  glyph     String     @default("jar") // ProductGlyph kind: bottle|dropper|jar|tube|lipstick|compact|mist
+  tint      String     @default("#f5e9f0") // soft bg used on category cards
+  sortOrder Int        @default(0)
+  active    Boolean    @default(true)
+  parentId  Int?
+  parent    Category?  @relation("Subcats", fields: [parentId], references: [id])
+  children  Category[] @relation("Subcats")
+  products  Product[]
+  createdAt DateTime   @default(now())
+}
+
+model Brand {
+  id        Int       @id @default(autoincrement())
+  slug      String    @unique
+  name      String
+  blurb     String    @default("")
+  featured  Boolean   @default(false)
+  sortOrder Int       @default(0)
+  active    Boolean   @default(true)
+  products  Product[]
+  createdAt DateTime  @default(now())
+}
+
+// ------------------------------------------------------------------ catalogue
+model Product {
+  id          Int      @id @default(autoincrement())
+  slug        String   @unique
+  name        String
+  status      String   @default("active") // active|hidden|unavailable|discontinued
+  priceCents  Int // display/base price in USD cents
+  saleCents   Int? // if set (< priceCents) product is on sale
+  shortDesc   String   @default("")
+  description String   @default("")
+  howToUse    String   @default("")
+  ingredients String   @default("")
+
+  // merchandising
+  glyph       String  @default("bottle") // fallback silhouette when no photo
+  tint        String  @default("#f5e9f0") // image-bed background
+  isBestSeller Boolean @default(false)
+  isNewMode   String  @default("auto") // auto|always|never (New badge, like mundo)
+  concerns    String  @default("") // comma tags: hydration,acne,brightening...
+  attributes  String  @default("") // comma tags: vegan,clean,cruelty-free,mini,refillable
+
+  categoryId Int
+  category   Category @relation(fields: [categoryId], references: [id])
+  brandId    Int?
+  brand      Brand?   @relation(fields: [brandId], references: [id])
+
+  videoUrl String @default("") // optional product video (self-hosted mp4)
+
+  images   ProductImage[]
+  variants ProductVariant[]
+  reviews  Review[]
+  orderItems OrderItem[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model ProductImage {
+  id        Int     @id @default(autoincrement())
+  productId Int
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  url       String
+  alt       String  @default("")
+  sortOrder Int     @default(0)
+}
+
+// Shades / sizes. type = "shade" (has hex swatch) | "size" (has label).
+model ProductVariant {
+  id         Int     @id @default(autoincrement())
+  productId  Int
+  product    Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  type       String  @default("shade") // shade|size
+  label      String // "Rosewood", "50ml"
+  hex        String  @default("") // swatch colour for shades
+  priceCents Int? // optional override of base price
+  available  Boolean @default(true)
+  sortOrder  Int     @default(0)
+}
+
+model Review {
+  id         Int      @id @default(autoincrement())
+  productId  Int
+  product    Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  author     String
+  rating     Int      @default(5)
+  title      String   @default("")
+  text       String
+  approved   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+}
+
+// ------------------------------------------------------------------ customers
+model Customer {
+  id           Int       @id @default(autoincrement())
+  email        String    @unique
+  passwordHash String
+  fullName     String
+  phone        String    @default("")
+  createdAt    DateTime  @default(now())
+  addresses    Address[]
+  orders       Order[]
+}
+
+model Address {
+  id         Int      @id @default(autoincrement())
+  customerId Int
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  label      String   @default("Home")
+  fullName   String   @default("")
+  phone      String   @default("")
+  area       String   @default("")
+  city       String   @default("")
+  address    String   @default("")
+  isDefault  Boolean  @default(false)
+}
+
+// ------------------------------------------------------------------ orders
+model Order {
+  id          Int      @id @default(autoincrement())
+  number      String   @unique // TG-XXXXXX, shown to customer
+  status      String   @default("received")
+  // customer
+  customerId  Int?
+  customer    Customer? @relation(fields: [customerId], references: [id])
+  fullName    String
+  phone       String
+  whatsapp    String   @default("")
+  email       String   @default("")
+  // delivery
+  area        String   @default("") // Lebanon governorate/area
+  city        String   @default("")
+  address     String   @default("")
+  notes       String   @default("")
+  // money (USD cents)
+  subtotalCents Int
+  discountCents Int    @default(0)
+  giftCardCents Int    @default(0)
+  couponCode    String @default("")
+  giftCardCode  String @default("")
+  deliveryCents Int    @default(0)
+  totalCents    Int
+  paymentMethod String @default("cod")
+  items       OrderItem[]
+  events      OrderEvent[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// ------------------------------------------------------------------ promotions
+model Coupon {
+  id           Int      @id @default(autoincrement())
+  code         String   @unique
+  type         String   @default("percent") // percent|fixed
+  value        Int      @default(0) // percent (0-100) or fixed USD cents
+  minOrderCents Int     @default(0)
+  maxUses      Int?     // null = unlimited
+  usedCount    Int      @default(0)
+  expiresAt    DateTime?
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+}
+
+model GiftCard {
+  id            Int      @id @default(autoincrement())
+  code          String   @unique
+  initialCents  Int
+  balanceCents  Int
+  recipientName String   @default("")
+  senderName    String   @default("")
+  message       String   @default("")
+  active        Boolean  @default(true)
+  createdAt     DateTime @default(now())
+}
+
+model OrderItem {
+  id          Int     @id @default(autoincrement())
+  orderId     Int
+  order       Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId   Int?
+  product     Product? @relation(fields: [productId], references: [id])
+  // snapshot so the order is stable even if the product later changes
+  name        String
+  brandName   String  @default("")
+  variantLabel String @default("")
+  glyph       String  @default("bottle")
+  tint        String  @default("#f5e9f0")
+  imageUrl    String  @default("")
+  priceCents  Int
+  qty         Int     @default(1)
+}
+
+model OrderEvent {
+  id        Int      @id @default(autoincrement())
+  orderId   Int
+  order     Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  status    String
+  note      String   @default("")
+  createdAt DateTime @default(now())
+}
+
+// ------------------------------------------------------------------ config
+model Setting {
+  key   String @id
+  value String @default("")
+}
+
+// Lebanon delivery areas + fee (USD cents). Phase-2 UI, seeded now.
+model DeliveryArea {
+  id        Int     @id @default(autoincrement())
+  name      String
+  feeCents  Int     @default(300)
+  active    Boolean @default(true)
+  sortOrder Int     @default(0)
+}
