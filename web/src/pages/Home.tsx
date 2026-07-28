@@ -119,20 +119,23 @@ export function Home() {
         <SectionHead eyebrow="Shop by category" title="Where do you want to glow?" />
         <div className="grid grid-cols-2 gap-3.5 sm:grid-cols-3 sm:gap-5">
           {categories.map((c) => (
-            <Link key={c.slug} to={`/category/${c.slug}`} className="group overflow-hidden rounded-2xl border border-line bg-surface transition-colors hover:border-plum/40">
-              <div className="relative aspect-[16/10] overflow-hidden" style={{ background: c.tint }}>
-                {CATEGORY_IMG[c.slug] ? (
+            <Link key={c.slug} to={`/category/${c.slug}`} className="group block overflow-hidden rounded-2xl border border-line bg-surface transition-colors hover:border-plum/40">
+              {CATEGORY_IMG[c.slug] ? (
+                // self-contained card image (label + tagline are baked into the artwork)
+                <div className="aspect-[3/2] overflow-hidden" style={{ background: c.tint }}>
                   <img src={CATEGORY_IMG[c.slug]} alt={c.name} loading="lazy" className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105" />
-                ) : (
-                  <div className="grid h-full w-full place-items-center">
+                </div>
+              ) : (
+                <>
+                  <div className="relative grid aspect-[16/10] place-items-center overflow-hidden" style={{ background: c.tint }}>
                     <ProductGlyph kind={c.glyph} className="h-20 w-20 text-plum/45 transition-transform duration-300 group-hover:scale-110" />
                   </div>
-                )}
-              </div>
-              <div className="px-3.5 py-3">
-                <h3 className="text-[15px] font-semibold text-ink">{c.name}</h3>
-                <p className="mt-0.5 text-[11px] text-muted">{c.blurb}</p>
-              </div>
+                  <div className="px-3.5 py-3">
+                    <h3 className="text-[15px] font-semibold text-ink">{c.name}</h3>
+                    <p className="mt-0.5 text-[11px] text-muted">{c.blurb}</p>
+                  </div>
+                </>
+              )}
             </Link>
           ))}
         </div>
