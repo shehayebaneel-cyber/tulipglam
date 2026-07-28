@@ -4,8 +4,12 @@ import { useStore } from "../lib/store";
 import { useFetch } from "../lib/hooks";
 import { ProductCard } from "../components/ProductCard";
 import { ProductGlyph } from "../components/ProductGlyph";
-import { TulipMark, Stars, ArrowRight, ChevronRight, Spinner } from "../components/ui";
+import { TulipMark, Stars, ArrowRight, Spinner } from "../components/ui";
 import type { Card } from "../lib/api";
+
+// Hero image — swap this path to change the photo (files live in web/public/hero/):
+//   hero-fragrance.webp · hero-perfume-flatlay.webp · hero-makeup.webp
+const HERO_IMG = "/hero/hero-fragrance.webp";
 
 function SectionHead({ eyebrow, title, to }: { eyebrow: string; title: string; to?: string }) {
   return (
@@ -46,30 +50,37 @@ export function Home() {
   return (
     <div className="pb-6">
       {/* ---------------- HERO ---------------- */}
-      <section className="wrap pt-4 sm:pt-8">
-        <div className="grid items-center gap-6 overflow-hidden rounded-[26px] border border-line bg-gradient-to-br from-plum-soft via-paper to-soft p-7 sm:p-10 lg:grid-cols-2 lg:p-14">
-          <div className="relative z-10 order-2 lg:order-1">
-            <p className="eyebrow">The beauty edit · Lebanon</p>
-            <h1 className="serif mt-3 text-[2.4rem] font-medium leading-[1.02] tracking-[-0.01em] text-ink sm:text-5xl lg:text-[3.4rem]">
-              Beauty, <span className="italic text-plum">edited</span> down to what works.
+      <section className="wrap pt-4 sm:pt-6">
+        <div
+          className="grid items-center gap-7 overflow-hidden rounded-[24px] border border-line p-6 sm:p-8 lg:grid-cols-[1.05fr_1fr] lg:gap-10 lg:p-11"
+          style={{ background: "linear-gradient(135deg,#f4e1eb 0%,#faf3ef 54%,#f1e9e4 100%)" }}
+        >
+          {/* text */}
+          <div className="order-2 lg:order-1">
+            <p className="eyebrow">Premium beauty · Delivered across Lebanon</p>
+            <h1 className="serif mt-3 text-[2rem] font-medium leading-[1.07] tracking-[-0.01em] text-ink sm:text-[2.5rem] lg:text-[2.85rem]">
+              Your beauty favourites, <span className="italic text-plum">all in one place.</span>
             </h1>
-            <p className="mt-4 max-w-md text-[15px] leading-relaxed text-muted">
-              Makeup, skincare, hair and fragrance from the brands you love — curated, honestly priced in USD, and delivered across Lebanon.
+            <p className="mt-4 max-w-md text-[15px] leading-relaxed text-ink/70">
+              Discover makeup, skincare, haircare and fragrance from the brands you love.
             </p>
-            <div className="mt-7 flex flex-wrap items-center gap-3">
-              <Link to="/shop" className="btn btn-ink btn-cta px-7 py-3.5">Shop now</Link>
-              <Link to="/new" className="inline-flex items-center gap-1 text-[13px] font-semibold text-ink hover:text-plum">
-                New arrivals <ChevronRight className="h-4 w-4" />
+            <div className="mt-6 flex flex-wrap items-center gap-x-5 gap-y-3">
+              <Link to="/shop" className="btn btn-primary btn-cta px-8 py-3.5">Shop now</Link>
+              <Link to="/new" className="inline-flex items-center gap-1 text-[12px] font-semibold uppercase tracking-[0.12em] text-ink hover:text-plum">
+                New arrivals <ArrowRight className="h-4 w-4" />
               </Link>
             </div>
+            <p className="mt-6 text-[12px] text-muted">Authentic products · USD pricing · Delivery across Lebanon</p>
           </div>
-          <div className="relative order-1 grid place-items-center lg:order-2">
-            <div className="absolute h-56 w-56 rounded-full bg-white/60 blur-2xl sm:h-72 sm:w-72" />
-            <TulipMark className="pointer-events-none absolute h-64 w-64 text-plum/12 sm:h-80 sm:w-80" />
-            <div className="relative flex items-end gap-4">
-              <div className="grid h-40 w-28 place-items-center rounded-2xl bg-surface shadow-card sm:h-52 sm:w-36"><ProductGlyph kind="bottle" className="h-full w-full p-6 text-plum/50" /></div>
-              <div className="grid h-52 w-32 place-items-center rounded-2xl bg-surface shadow-card sm:h-64 sm:w-40"><ProductGlyph kind="dropper" className="h-full w-full p-6 text-plum/55" /></div>
-              <div className="grid h-36 w-24 place-items-center rounded-2xl bg-surface shadow-card sm:h-44 sm:w-32"><ProductGlyph kind="jar" className="h-full w-full p-5 text-plum/45" /></div>
+          {/* image */}
+          <div className="order-1 lg:order-2">
+            <div className="overflow-hidden rounded-[18px] shadow-pop">
+              <img
+                src={HERO_IMG}
+                alt="Premium makeup, skincare and fragrance"
+                loading="eager"
+                className="h-[240px] w-full object-cover object-center sm:h-[340px] lg:h-[430px]"
+              />
             </div>
           </div>
         </div>
