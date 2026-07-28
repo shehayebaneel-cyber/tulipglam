@@ -13,6 +13,7 @@ export function Footer() {
   const { site } = useStore();
   const wa = site?.settings.whatsappNumber ?? "";
   const ig = site?.settings.instagramUrl ?? "";
+  const email = site?.settings.contactEmail ?? "";
 
   return (
     <footer className="mt-16 border-t border-line bg-surface pb-24 lg:pb-12">
@@ -23,6 +24,7 @@ export function Footer() {
           <div className="mt-4 flex gap-2">
             {wa && <a href={waLink(wa, "Hi TulipGlam!")} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 rounded-full border border-line px-3.5 py-1.5 text-xs font-semibold hover:border-ink"><WhatsAppIcon className="h-4 w-4" /> WhatsApp</a>}
             {ig && <a href={ig} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 rounded-full border border-line px-3.5 py-1.5 text-xs font-semibold hover:border-ink"><InstagramIcon className="h-4 w-4" /> Instagram</a>}
+            {email && <a href={`mailto:${email}`} className="inline-flex items-center gap-1.5 rounded-full border border-line px-3.5 py-1.5 text-xs font-semibold hover:border-ink">✉ Email</a>}
           </div>
         </div>
         {COLS.map((col) => (

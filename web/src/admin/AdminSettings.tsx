@@ -8,6 +8,7 @@ const FIELDS: [string, string, string?][] = [
   ["announcement", "Announcement bar text"],
   ["whatsappNumber", "WhatsApp number", "e.g. 9613000000 (country code, no +)"],
   ["instagramUrl", "Instagram URL"],
+  ["contactEmail", "Contact email", "shown on the Contact page + footer"],
   ["freeDeliveryThresholdCents", "Free delivery over (USD cents)", "6000 = $60"],
   ["defaultDeliveryCents", "Default delivery fee (USD cents)", "300 = $3"],
   ["newArrivalDays", "New badge lasts (days)", "auto products newer than this show New"],

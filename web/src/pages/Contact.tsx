@@ -7,6 +7,7 @@ export function Contact() {
   const { site } = useStore();
   const wa = site?.settings.whatsappNumber ?? "";
   const ig = site?.settings.instagramUrl ?? "";
+  const email = site?.settings.contactEmail ?? "";
 
   return (
     <div className="wrap py-6 sm:py-8">
@@ -25,6 +26,14 @@ export function Contact() {
             <a href={ig} target="_blank" rel="noreferrer" className="flex items-center gap-3 rounded-2xl border border-line bg-surface p-5 transition-colors hover:border-plum/40">
               <span className="grid h-11 w-11 place-items-center rounded-full bg-plum-soft text-plum"><InstagramIcon className="h-6 w-6" /></span>
               <div><p className="text-[14px] font-semibold text-ink">Instagram</p><p className="text-[12px] text-muted">Follow for new arrivals</p></div>
+            </a>
+          )}
+          {email && (
+            <a href={`mailto:${email}`} className="flex items-center gap-3 rounded-2xl border border-line bg-surface p-5 transition-colors hover:border-plum/40">
+              <span className="grid h-11 w-11 place-items-center rounded-full bg-plum-soft text-plum">
+                <svg viewBox="0 0 24 24" className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="5" width="18" height="14" rx="2" /><path d="m3.5 7 8.5 6 8.5-6" /></svg>
+              </span>
+              <div className="min-w-0"><p className="text-[14px] font-semibold text-ink">Email</p><p className="truncate text-[12px] text-muted">{email}</p></div>
             </a>
           )}
           <Link to="/track" className="flex items-center gap-3 rounded-2xl border border-line bg-surface p-5 transition-colors hover:border-plum/40">
