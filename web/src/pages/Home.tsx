@@ -11,6 +11,17 @@ import type { Card } from "../lib/api";
 //   hero-tulipglam.webp (blush) · hero-tulipglam-lilac.webp (purple)
 const HERO_IMG = "/hero/hero-tulipglam-lilac.webp";
 
+// Category card photos by slug (files in web/public/category/). Slugs without an
+// entry fall back to the line-art glyph.
+const CATEGORY_IMG: Record<string, string> = {
+  makeup: "/category/makeup.webp",
+  skincare: "/category/skincare.webp",
+  "bath-body": "/category/bath-body.webp",
+  hair: "/category/hair.webp",
+  fragrance: "/category/fragrance.webp",
+  "gift-sets": "/category/gift-sets.webp",
+};
+
 function SectionHead({ eyebrow, title, to }: { eyebrow: string; title: string; to?: string }) {
   return (
     <div className="mb-5 flex items-end justify-between gap-4">
@@ -109,8 +120,14 @@ export function Home() {
         <div className="grid grid-cols-2 gap-3.5 sm:grid-cols-3 sm:gap-5">
           {categories.map((c) => (
             <Link key={c.slug} to={`/category/${c.slug}`} className="group overflow-hidden rounded-2xl border border-line bg-surface transition-colors hover:border-plum/40">
-              <div className="relative grid aspect-[16/10] place-items-center" style={{ background: c.tint }}>
-                <ProductGlyph kind={c.glyph} className="h-20 w-20 text-plum/45 transition-transform duration-300 group-hover:scale-110" />
+              <div className="relative aspect-[16/10] overflow-hidden" style={{ background: c.tint }}>
+                {CATEGORY_IMG[c.slug] ? (
+                  <img src={CATEGORY_IMG[c.slug]} alt={c.name} loading="lazy" className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105" />
+                ) : (
+                  <div className="grid h-full w-full place-items-center">
+                    <ProductGlyph kind={c.glyph} className="h-20 w-20 text-plum/45 transition-transform duration-300 group-hover:scale-110" />
+                  </div>
+                )}
               </div>
               <div className="px-3.5 py-3">
                 <h3 className="text-[15px] font-semibold text-ink">{c.name}</h3>
