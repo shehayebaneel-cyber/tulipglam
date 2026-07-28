@@ -7,8 +7,9 @@ import { ProductGlyph } from "../components/ProductGlyph";
 import { TulipMark, Stars, ArrowRight, Spinner } from "../components/ui";
 import type { Card } from "../lib/api";
 
-// Hero image — swap this path to change the photo (files live in web/public/hero/).
-const HERO_IMG = "/hero/hero-tulipglam.webp";
+// Hero image — swap this path to change the photo (files live in web/public/hero/):
+//   hero-tulipglam.webp (blush) · hero-tulipglam-lilac.webp (purple)
+const HERO_IMG = "/hero/hero-tulipglam-lilac.webp";
 
 function SectionHead({ eyebrow, title, to }: { eyebrow: string; title: string; to?: string }) {
   return (
