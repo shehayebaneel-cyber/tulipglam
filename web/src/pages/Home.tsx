@@ -1,10 +1,11 @@
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import { Link } from "react-router-dom";
 import { api, usd } from "../lib/api";
 import { useStore } from "../lib/store";
 import { useFetch } from "../lib/hooks";
 import { ProductCard } from "../components/ProductCard";
 import { ProductGlyph } from "../components/ProductGlyph";
-import { TulipMark, Stars, ArrowRight, Spinner } from "../components/ui";
+import { TulipMark, Stars, ArrowRight, ChevronRight, Spinner } from "../components/ui";
 import type { Card } from "../lib/api";
 
 // Hero image — swap this path to change the photo (files live in web/public/hero/):
@@ -20,6 +21,13 @@ const CATEGORY_IMG: Record<string, string> = {
   hair: "/category/hair.webp",
   fragrance: "/category/fragrance.webp",
   "gift-sets": "/category/gift-sets.webp",
+};
+
+// Zoom per category card. 1 = the artwork as exported; higher crops the pale outer
+// margin so the products sit larger in the frame. Keep it modest — the label is
+// baked into the image, so a big number will clip the text.
+const CATEGORY_ZOOM: Record<string, number> = {
+  makeup: 1.15,
 };
 
 function SectionHead({ eyebrow, title, to }: { eyebrow: string; title: string; to?: string }) {
@@ -38,13 +46,65 @@ function SectionHead({ eyebrow, title, to }: { eyebrow: string; title: string; t
   );
 }
 
+// Horizontal scroller at every breakpoint. Card widths still divide into the old
+// 3-up / 4-up rhythm, so the row reads like the grid it replaced — it just keeps
+// going sideways instead of wrapping. Arrows appear on pointer devices (md+),
+// where the scrollbar is hidden and there's nothing to swipe.
 function Row({ items }: { items: Card[] }) {
+  const track = useRef<HTMLDivElement>(null);
+  const [more, setMore] = useState({ left: false, right: false });
+
+  const sync = useCallback(() => {
+    const el = track.current;
+    if (!el) return;
+    const max = el.scrollWidth - el.clientWidth;
+    setMore({ left: el.scrollLeft > 8, right: el.scrollLeft < max - 8 });
+  }, []);
+
+  useEffect(() => {
+    const el = track.current;
+    if (!el) return;
+    sync();
+    const ro = new ResizeObserver(sync);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [sync, items.length]);
+
+  const nudge = (dir: 1 | -1) => {
+    const el = track.current;
+    if (!el) return;
+    el.scrollBy({ left: dir * Math.round(el.clientWidth * 0.8), behavior: "smooth" });
+  };
+
   return (
-    <div className="no-scrollbar -mx-5 flex snap-x snap-mandatory gap-3.5 overflow-x-auto px-5 sm:mx-0 sm:grid sm:grid-cols-3 sm:gap-5 sm:overflow-visible sm:px-0 lg:grid-cols-4">
-      {items.map((p) => (
-        <div key={p.id} className="w-[45%] shrink-0 snap-start sm:w-auto">
-          <ProductCard p={p} />
-        </div>
+    <div className="relative">
+      <div
+        ref={track}
+        onScroll={sync}
+        className="no-scrollbar -mx-5 flex snap-x snap-mandatory gap-3.5 overflow-x-auto scroll-px-5 px-5 sm:gap-5 md:-mx-8 md:scroll-px-8 md:px-8"
+      >
+        {items.map((p) => (
+          <div
+            key={p.id}
+            className="w-[45%] shrink-0 snap-start sm:w-[calc((100%_-_2_*_1.25rem)_/_3)] lg:w-[calc((100%_-_3_*_1.25rem)_/_4)]"
+          >
+            <ProductCard p={p} />
+          </div>
+        ))}
+      </div>
+
+      {([["left", -1], ["right", 1]] as const).map(([side, dir]) => (
+        more[side] && (
+          <button
+            key={side}
+            type="button"
+            onClick={() => nudge(dir)}
+            aria-label={side === "left" ? "Scroll back" : "Scroll forward"}
+            className={`absolute top-[37%] z-10 hidden h-10 w-10 -translate-y-1/2 place-items-center rounded-full border border-line bg-surface/95 text-ink shadow-pop backdrop-blur transition-colors hover:border-plum/40 hover:text-plum md:grid ${side === "left" ? "-left-3" : "-right-3"}`}
+          >
+            <ChevronRight className={`h-4 w-4 ${side === "left" ? "rotate-180" : ""}`} />
+          </button>
+        )
       ))}
     </div>
   );
@@ -123,7 +183,13 @@ export function Home() {
               {CATEGORY_IMG[c.slug] ? (
                 // self-contained card image (label + tagline are baked into the artwork)
                 <div className="aspect-[3/2] overflow-hidden" style={{ background: c.tint }}>
-                  <img src={CATEGORY_IMG[c.slug]} alt={c.name} loading="lazy" className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105" />
+                  <img
+                    src={CATEGORY_IMG[c.slug]}
+                    alt={c.name}
+                    loading="lazy"
+                    className="zoom-img h-full w-full object-cover"
+                    style={{ "--zoom": CATEGORY_ZOOM[c.slug] ?? 1 } as CSSProperties}
+                  />
                 </div>
               ) : (
                 <>
