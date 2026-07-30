@@ -60,6 +60,68 @@ const asyncH =
   (req: express.Request, res: express.Response) =>
     fn(req, res).catch((e) => { console.error(e); res.status(500).json({ error: "Something went wrong." }); });
 
+/** Products a shopper can reach. Everything customer-facing filters through this. */
+const VISIBLE: Prisma.ProductWhereInput = { status: { in: ["active", "unavailable"] } };
+
+// Brand and category ordering. Every list of brands in the app must agree, so the key and the
+// collator live here rather than being re-derived per call site.
+const COLLATOR = new Intl.Collator("en", { sensitivity: "base", numeric: true });
+/** Trim, collapse inner runs of space, and drop leading articles/punctuation before sorting. */
+export const sortKey = (name: string) =>
+  name.trim().replace(/\s+/g, " ").replace(/^(the|a|an)\s+/i, "").replace(/^[^\p{L}\p{N}]+/u, "");
+
+/**
+ * Trust-bar items, Settings-driven so an unsupportable claim can be removed without a deploy.
+ * Stored as `trustItems` — one "Headline | supporting text" pair per line.
+ *
+ * The shipped defaults deliberately describe only what exists. The previous hardcoded copy
+ * claimed "fast, tracked dispatch", but there is no tracking system — only a 13-step status
+ * timeline someone updates by hand.
+ */
+const DEFAULT_TRUST = [
+  "Cash on delivery|Pay when it arrives, anywhere in Lebanon",
+  "Check your order anytime|Track by order number, no login needed",
+  "Sourced to order|We confirm every item with you before dispatch",
+];
+/**
+ * Take `limit` products while letting no single brand occupy more than `perBrand` slots,
+ * preserving the incoming order (recency) and backfilling from other brands.
+ *
+ * Without this the newest 12 active products were Lattafa ×12, so the homepage's "New arrivals"
+ * row showed one brand five times. If the cap cannot be met — a genuinely thin catalogue — the
+ * remaining slots are filled in order rather than left blank.
+ */
+function spreadBrands<T extends { brandId: number | null }>(items: T[], limit: number, perBrand: number): T[] {
+  const used = new Map<number | null, number>();
+  const picked: T[] = [];
+  for (const item of items) {
+    if (picked.length >= limit) break;
+    const n = used.get(item.brandId) ?? 0;
+    if (n >= perBrand) continue;
+    used.set(item.brandId, n + 1);
+    picked.push(item);
+  }
+  if (picked.length < limit) {
+    const have = new Set(picked);
+    for (const item of items) {
+      if (picked.length >= limit) break;
+      if (!have.has(item)) picked.push(item);
+    }
+  }
+  return picked;
+}
+
+function trustItems(settings: Record<string, string>): { title: string; body: string }[] {
+  const raw = (settings.trustItems ?? "").trim();
+  const lines = (raw ? raw.split("\n") : DEFAULT_TRUST).map((l) => l.trim()).filter(Boolean);
+  return lines
+    .map((l) => {
+      const [title, ...rest] = l.split("|");
+      return { title: (title ?? "").trim(), body: rest.join("|").trim() };
+    })
+    .filter((i) => i.title);
+}
+
 function requireAdmin(req: express.Request, res: express.Response, next: express.NextFunction) {
   if (req.header("x-admin-key") !== ADMIN_KEY) return res.status(401).json({ error: "Access denied." });
   next();
@@ -98,14 +160,47 @@ app.get("/api/health", (_req, res) => res.json({ ok: true }));
 
 // header/footer/home bootstrap: settings + categories + featured brands + areas
 app.get("/api/site", asyncH(async (_req, res) => {
-  const [settings, categories, brands, areas] = await Promise.all([
+  const [settings, tops, brands, areas, saleCount, audienceCounts] = await Promise.all([
     getSettings(),
-    db.category.findMany({ where: { active: true, parentId: null }, orderBy: { sortOrder: "asc" },
-      include: { _count: { select: { products: { where: { status: { in: ["active", "unavailable"] } } } } } } }),
-    db.brand.findMany({ where: { active: true }, orderBy: [{ featured: "desc" }, { sortOrder: "asc" }] }),
+    // full two-level tree: the nav needs children to build its dropdown panels
+    db.category.findMany({ where: { active: true }, orderBy: { sortOrder: "asc" },
+      include: { _count: { select: { products: { where: VISIBLE } } } } }),
+    db.brand.findMany({ where: { active: true }, include: { _count: { select: { products: { where: VISIBLE } } } } }),
     db.deliveryArea.findMany({ where: { active: true }, orderBy: { sortOrder: "asc" } }),
+    db.product.count({ where: { AND: [VISIBLE, { saleCents: { not: null } }] } }),
+    db.product.groupBy({ by: ["audience"], where: VISIBLE, _count: { _all: true } }),
   ]);
-  res.json({ settings, categories, brands, areas, statuses: ORDER_STATUSES });
+
+  const shape = (c: (typeof tops)[number]) => ({
+    id: c.id, slug: c.slug, name: c.name, blurb: c.blurb, glyph: c.glyph, tint: c.tint,
+    sortOrder: c.sortOrder, _count: c._count,
+  });
+  // Full two-level tree. `name` is the single source of truth for every label — nav, cards,
+  // breadcrumbs, filters and page titles all read it, so they can no longer disagree the way
+  // "Fragrance"/"Fragrances" and "Hair"/"Haircare" did when card labels lived inside images.
+  const categories = tops
+    .filter((c) => c.parentId === null)
+    .map((c) => ({ ...shape(c), children: tops.filter((k) => k.parentId === c.id).map(shape) }));
+
+  const audience = Object.fromEntries(audienceCounts.map((a) => [a.audience || "unisex", a._count._all]));
+
+  res.json({
+    settings,
+    categories,
+    // Sorted on a normalized, locale-aware key. Previously ordered by sortOrder with no name
+    // tiebreak, and 403 brands share sortOrder=50 — so Postgres returned heap order and
+    // "Dr Pawpaw" landed between "Lakme" and "Lazartigue".
+    brands: brands.sort((a, b) => COLLATOR.compare(sortKey(a.name), sortKey(b.name))),
+    areas,
+    statuses: ORDER_STATUSES,
+    // Feature flags so the client never advertises a section that would come back empty.
+    flags: {
+      hasSale: saleCount > 0,
+      menCount: audience.men ?? 0,
+      womenCount: audience.women ?? 0,
+    },
+    trust: trustItems(settings),
+  });
 }));
 
 // home collections
@@ -114,17 +209,19 @@ app.get("/api/home", asyncH(async (_req, res) => {
   const newDays = num(settings.newArrivalDays, 30);
   const [best, fresh, reviews] = await Promise.all([
     db.product.findMany({ where: { status: "active", isBestSeller: true }, include: cardInclude, take: 8, orderBy: { updatedAt: "desc" } }),
-    db.product.findMany({ where: { status: "active" }, include: cardInclude, orderBy: { createdAt: "desc" }, take: 12 }),
+    // Over-fetched so spreadBrands() has something to backfill from: the newest 12 products
+    // were all Lattafa, which made "New arrivals" read like a bug.
+    db.product.findMany({ where: { status: "active" }, include: cardInclude, orderBy: { createdAt: "desc" }, take: 120 }),
     db.review.findMany({ where: { approved: true }, orderBy: { createdAt: "desc" }, take: 6, include: { product: { select: { name: true } } } }),
   ]);
-  const newArrivals = fresh.filter((p) => computeIsNew(p, newDays)).slice(0, 8);
+  const newArrivals = spreadBrands(fresh.filter((p) => computeIsNew(p, newDays)), 8, 2);
   // Resolved server-side against real rows; null means the homepage renders no promo at
   // all. The client must not fall back to any copy of its own.
   const { promo } = await resolvePromo(db, settings);
   res.json({
     promo,
     bestSellers: best.map((p) => cardOf(p, newDays)),
-    newArrivals: (newArrivals.length ? newArrivals : fresh.slice(0, 8)).map((p) => cardOf(p, newDays)),
+    newArrivals: (newArrivals.length ? newArrivals : spreadBrands(fresh, 8, 2)).map((p) => cardOf(p, newDays)),
     reviews: reviews.map((r) => ({ id: r.id, author: r.author, rating: r.rating, text: r.text, title: r.title, product: r.product?.name ?? "" })),
   });
 }));
@@ -146,9 +243,37 @@ app.get("/api/products", asyncH(async (req, res) => {
     if (!cat) return res.json({ products: [], total: 0 });
     and.push({ categoryId: { in: [cat.id, ...cat.children.map((c) => c.id)] } });
   }
-  if (req.query.brand) and.push({ brand: { slug: str(req.query.brand) } });
+  // Brand is multi-select: a filter that only allows one brand at a time is not a filter.
+  // Accepts `brand=a&brand=b` or `brand=a,b`.
+  const brandSlugs = [...new Set(
+    ([] as string[])
+      .concat(Array.isArray(req.query.brand) ? (req.query.brand as string[]) : req.query.brand ? [str(req.query.brand)] : [])
+      .flatMap((s) => s.split(","))
+      .map((s) => s.trim())
+      .filter(Boolean),
+  )];
+  if (brandSlugs.length) and.push({ brand: { slug: { in: brandSlugs } } });
+
   if (bool(req.query.sale)) and.push({ AND: [{ saleCents: { not: null } }] });
   if (bool(req.query.best)) and.push({ isBestSeller: true });
+
+  // Who it's for. Men's and women's product spans every department, so this is a field rather
+  // than a category. "unisex" is included in both so a unisex fragrance still shows on /men.
+  const audience = str(req.query.audience);
+  if (audience === "men" || audience === "women") and.push({ audience: { in: [audience, "unisex"] } });
+  else if (audience === "men-only" || audience === "women-only") and.push({ audience: audience.replace("-only", "") });
+
+  // Availability. Defaults ON for shoppers — see the `available` param below.
+  if (req.query.available !== "0") and.push({ status: "active" });
+
+  const priceMin = str(req.query.priceMin).trim();
+  const priceMax = str(req.query.priceMax).trim();
+  if (priceMin || priceMax) {
+    const range: Prisma.IntFilter = {};
+    if (priceMin) range.gte = toCents(priceMin);
+    if (priceMax) range.lte = toCents(priceMax);
+    and.push({ priceCents: range });
+  }
   for (const c of list(str(req.query.concerns))) and.push({ concerns: { contains: c } });
   for (const a of list(str(req.query.attributes))) and.push({ attributes: { contains: a } });
   if (q) {
@@ -166,12 +291,19 @@ app.get("/api/products", asyncH(async (req, res) => {
   if (and.length) where.AND = and;
 
   const sort = str(req.query.sort, "featured");
+  // "Featured" is now a deliberate ordering, not insertion order: anything a shopper cannot
+  // buy sinks to the bottom, then best-sellers, then recency. Previously `/category/makeup`
+  // had 3 unavailable items in its first 8 and `/category/nails` had 5, so a shopper's first
+  // impression was a wall of things they could not order.
+  //
+  // `status: "asc"` puts "active" before "unavailable" and "discontinued" alphabetically,
+  // which happens to be exactly the priority we want — asserted in the sort tests.
   const orderBy: Prisma.ProductOrderByWithRelationInput[] =
-    sort === "price-asc" ? [{ priceCents: "asc" }]
-    : sort === "price-desc" ? [{ priceCents: "desc" }]
-    : sort === "newest" ? [{ createdAt: "desc" }]
-    : sort === "name" ? [{ name: "asc" }]
-    : [{ isBestSeller: "desc" }, { createdAt: "desc" }];
+    sort === "price-asc" ? [{ status: "asc" }, { priceCents: "asc" }]
+    : sort === "price-desc" ? [{ status: "asc" }, { priceCents: "desc" }]
+    : sort === "newest" ? [{ status: "asc" }, { createdAt: "desc" }]
+    : sort === "name" ? [{ status: "asc" }, { name: "asc" }]
+    : [{ status: "asc" }, { isBestSeller: "desc" }, { createdAt: "desc" }];
 
   // "New arrivals" used to be filtered in JS after the query, which can't work with
   // pagination — page 1 would drop most of its rows. Same rule as computeIsNew(),
@@ -191,12 +323,45 @@ app.get("/api/products", asyncH(async (req, res) => {
   const limit = Math.min(Math.max(num(req.query.limit, 48), 1), 96);
   const page = Math.max(num(req.query.page, 1), 1);
 
-  const [total, products] = await Promise.all([
+  // Facets are computed from the same WHERE as the results, minus the facet's own filter, so
+  // counts stay meaningful and zero-result options can be hidden. Previously /category/nails
+  // offered all 405 brands including ones with no nail products at all.
+  const facetWhere = (exclude: "brand" | "price" | null): Prisma.ProductWhereInput => {
+    const kept = and.filter((clause) => {
+      if (exclude === "brand" && "brand" in clause) return false;
+      if (exclude === "price" && "priceCents" in clause) return false;
+      return true;
+    });
+    return kept.length ? { ...where, AND: kept } : { status: where.status };
+  };
+
+  const wantFacets = req.query.facets === "1";
+  const [total, products, brandFacet, priceAgg] = await Promise.all([
     db.product.count({ where }),
     db.product.findMany({ where, include: cardInclude, orderBy, skip: (page - 1) * limit, take: limit }),
+    wantFacets
+      ? db.product.groupBy({ by: ["brandId"], where: facetWhere("brand"), _count: { _all: true }, orderBy: { _count: { brandId: "desc" } }, take: 500 })
+      : Promise.resolve([]),
+    wantFacets ? db.product.aggregate({ where: facetWhere("price"), _min: { priceCents: true }, _max: { priceCents: true } }) : Promise.resolve(null),
   ]);
+
+  let facets: unknown = undefined;
+  if (wantFacets) {
+    const ids = brandFacet.map((b) => b.brandId).filter((v): v is number => v !== null);
+    const brandRows = ids.length ? await db.brand.findMany({ where: { id: { in: ids } }, select: { id: true, slug: true, name: true } }) : [];
+    const nameById = new Map(brandRows.map((b) => [b.id, b]));
+    facets = {
+      brands: brandFacet
+        .filter((b) => b.brandId !== null && nameById.has(b.brandId))
+        .map((b) => ({ ...nameById.get(b.brandId!)!, count: b._count._all }))
+        .sort((a, b) => COLLATOR.compare(sortKey(a.name), sortKey(b.name))),
+      price: { minCents: priceAgg?._min.priceCents ?? 0, maxCents: priceAgg?._max.priceCents ?? 0 },
+    };
+  }
+
   res.json({
     products: products.map((p) => cardOf(p, newDays)),
+    facets,
     total,
     page,
     pages: Math.max(1, Math.ceil(total / limit)),
@@ -613,6 +778,15 @@ admin.post("/products/bulk", asyncH(async (req, res) => {
     return res.json({ ok: true, count: r.count });
   }
 
+  if (action === "audience") {
+    const value = str(req.body.audience);
+    if (!["unisex", "men", "women"].includes(value)) return res.status(400).json({ error: "Audience must be unisex, men or women." });
+    // Setting it by hand locks it, so neither an importer nor the classifier can undo the
+    // decision on a later run.
+    const r = await db.product.updateMany({ where: { id: { in: ids } }, data: { audience: value, audienceLocked: true } });
+    return res.json({ ok: true, count: r.count });
+  }
+
   if (action === "delete") {
     // Past orders keep their name/price snapshot; only the link is dropped.
     await db.orderItem.updateMany({ where: { productId: { in: ids } }, data: { productId: null } });
@@ -621,6 +795,25 @@ admin.post("/products/bulk", asyncH(async (req, res) => {
   }
 
   res.status(400).json({ error: "Unknown bulk action." });
+}));
+
+/**
+ * Hide every product of a brand in one action, and deactivate the brand so it also leaves the
+ * directory and the filters. Scoped by brandId — the only bulk path that is not id-scoped,
+ * which is the point of it, so it names the brand back in the response for confirmation.
+ */
+admin.post("/brands/:id/hide", asyncH(async (req, res) => {
+  const brandId = num(req.params.id);
+  const brand = await db.brand.findUnique({ where: { id: brandId }, select: { id: true, name: true } });
+  if (!brand) return res.status(404).json({ error: "Brand not found." });
+  const status = str(req.body.status, "hidden");
+  if (!STATUS_PRODUCT.includes(status)) return res.status(400).json({ error: "Bad status." });
+
+  const [products] = await db.$transaction([
+    db.product.updateMany({ where: { brandId }, data: { status } },),
+    db.brand.update({ where: { id: brandId }, data: { active: status === "active" } }),
+  ]);
+  res.json({ ok: true, brand: brand.name, count: products.count, status });
 }));
 
 admin.get("/products/:id", asyncH(async (req, res) => {

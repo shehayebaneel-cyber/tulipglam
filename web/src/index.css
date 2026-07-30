@@ -13,11 +13,15 @@
   --color-surface: #ffffff; /* cards / sheets */
   --color-soft: #f4f2f5; /* image beds, hover, tints */
   --color-ink: #1a1a1e; /* text */
-  --color-muted: #8b8790; /* secondary text */
+  /* Secondary text. Was #8b8790, which measures 3.52:1 on surface, 3.43:1 on paper and
+     3.16:1 on soft — all below the 4.5:1 needed for body text, and it was used for secondary
+     copy across the whole storefront. Darkened to a neutral grey of the same family that
+     measures 5.57:1 / 5.44:1 / 5.00:1. Still clearly secondary against ink's 17.35:1. */
+  --color-muted: #6b6673;
   --color-line: #eae7ec; /* hairlines */
   --color-line-strong: #ddd8e0;
-  /* `muted` is ~3.5:1 on white — fine for large display text, short of 4.5:1 for the
-     small meta text and column headers used throughout the admin tables. */
+  /* Kept as an alias so existing `text-muted-strong` usages keep working; identical to
+     `muted` now that muted itself is accessible. Prefer `muted`. */
   --color-muted-strong: #6b6673;
 
   /* accent — tulip plum */
@@ -26,8 +30,14 @@
   --color-plum-soft: #f5e9f0;
 
   /* semantic (separate from accent) */
-  --color-sale: #b23a3a;
-  --color-ok: #2f8a5b;
+  --color-sale: #b23a3a; /* 5.90:1 on surface — reserved strictly for sale prices */
+  /* was #2f8a5b at 4.28:1, below AA for small text; darkened to 5.31:1 */
+  --color-ok: #27714b;
+  /* Status-badge amber. The only additional hue, and the minimum needed for a four-state
+     product badge: 5.05:1 for the text on its own tint. */
+  --color-warn: #8a5f0c;
+  --color-warn-soft: #fdf1dd;
+  --color-warn-line: #e5c890;
 
   --font-sans: "Hanken Grotesk", system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
   --font-serif: "Fraunces", Georgia, "Times New Roman", serif;

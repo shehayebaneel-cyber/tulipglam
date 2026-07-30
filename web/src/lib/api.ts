@@ -29,10 +29,22 @@ export type Brand = { id: number; slug: string; name: string; blurb: string; fea
 export type Area = { id: number; name: string; feeCents: number; active: boolean };
 export type StatusMeta = { key: string; label: string; hint: string; tone: string; terminal?: boolean };
 
+/** One trust-bar claim. Settings-driven so an unsupportable one can be removed without a deploy. */
+export type TrustItem = { title: string; body: string };
+
+/**
+ * Feature flags resolved on the server. The client uses these to avoid advertising a section
+ * that would come back empty — a "Sale" link leading to nothing is worse than no link.
+ */
+export type SiteFlags = { hasSale: boolean; menCount: number; womenCount: number };
+
 export type SiteData = {
   settings: Record<string, string>;
-  categories: (Category & { _count: { products: number } })[];
+  /** Two-level tree. `name` is the single source of truth for every label in the UI. */
+  categories: (Category & { _count: { products: number }; children: (Category & { _count: { products: number } })[] })[];
   brands: Brand[]; areas: Area[]; statuses: StatusMeta[];
+  flags: SiteFlags;
+  trust: TrustItem[];
 };
 
 export type OrderItem = { id: number; name: string; brandName: string; variantLabel: string; glyph: Glyph; tint: string; imageUrl: string; priceCents: number; qty: number };

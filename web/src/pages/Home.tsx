@@ -109,14 +109,16 @@ export function Home() {
   const categories = site?.categories ?? [];
   const brands = site?.brands ?? [];
   const promo = data?.promo ?? null;
+  const trust = site?.trust ?? [];
 
   return (
     <div className="pb-6">
       {/* ---------------- HERO ---------------- */}
       <section className="wrap pt-4 sm:pt-6">
         <div
-          className="grid items-center gap-7 overflow-hidden rounded-[24px] border border-line p-6 sm:p-8 lg:grid-cols-[1.05fr_1fr] lg:gap-10 lg:p-11"
-          style={{ background: "linear-gradient(135deg,#f4e1eb 0%,#faf3ef 54%,#f1e9e4 100%)" }}
+          // Flat plum-soft bed. The previous three-stop gradient introduced #f4e1eb, #faf3ef
+          // and #f1e9e4 — none in the palette — and the system is explicitly gradient-free.
+          className="grid items-center gap-7 overflow-hidden rounded-[24px] border border-line bg-plum-soft p-6 sm:p-8 lg:grid-cols-[1.05fr_1fr] lg:gap-10 lg:p-11"
         >
           {/* text */}
           <div className="order-2 lg:order-1">
@@ -149,22 +151,23 @@ export function Home() {
         </div>
       </section>
 
-      {/* ---------------- TRUST STRIP ---------------- */}
-      <section className="wrap mt-4">
-        <div className="grid grid-cols-2 gap-px overflow-hidden rounded-2xl border border-line bg-line text-center sm:grid-cols-4">
-          {[
-            ["Free delivery", "on orders over $60"],
-            ["Cash on delivery", "pay when it arrives"],
-            ["100% authentic", "genuine brands only"],
-            ["All of Lebanon", "fast, tracked dispatch"],
-          ].map(([a, b]) => (
-            <div key={a} className="bg-surface px-3 py-4">
-              <p className="text-[13px] font-semibold text-ink">{a}</p>
-              <p className="mt-0.5 text-[11px] text-muted">{b}</p>
-            </div>
-          ))}
-        </div>
-      </section>
+      {/* ---------------- TRUST STRIP ----------------
+          Settings-driven (`trustItems`, one "Headline | supporting text" per line) so a claim
+          that turns out to be unsupportable can be removed without a deploy. The old hardcoded
+          copy promised "fast, tracked dispatch" — there is no tracking system, only a status
+          timeline updated by hand — and "100% authentic", which nothing in the data evidences. */}
+      {trust.length > 0 && (
+        <section className="wrap mt-4" aria-label="What to expect">
+          <div className="grid grid-cols-2 gap-px overflow-hidden rounded-2xl border border-line bg-line text-center sm:grid-cols-4">
+            {trust.map((t) => (
+              <div key={t.title} className="bg-surface px-3 py-4">
+                <p className="text-[13px] font-semibold text-ink">{t.title}</p>
+                {t.body && <p className="mt-0.5 text-[11px] text-muted">{t.body}</p>}
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* ---------------- SHOP BY CATEGORY ---------------- */}
       <section className="wrap mt-14">

@@ -81,6 +81,13 @@ export async function resolvePromo(db: PrismaClient, s: Record<string, string>):
   // null unless the sale price is strictly below the base price (see productData()).
   const text = val("promoText");
   let discountText = val("promoDiscountText");
+
+  // The business holds no inventory, so copy implying stock levels is always false —
+  // "while stocks last", "only 3 left", "selling fast". Refuse it outright rather than
+  // rewriting the owner's words.
+  const stocky = [title, text, discountText].find(mentionsStock);
+  if (stocky) return { promo: null, reason: "the wording implies stock levels, and this store holds no inventory." };
+
   const claimsDiscount = [discountText, title, text].some(mentionsDiscount);
 
   if (claimsDiscount) {
@@ -107,6 +114,25 @@ export async function resolvePromo(db: PrismaClient, s: Record<string, string>):
  * Does this copy promise money off? Catches "30% off", "up to 30%", "save $10", "half price",
  * "-20%". Used to refuse a promo whose wording cannot be backed by an actual sale price.
  */
+/**
+ * Does this copy imply inventory? This store sources to order and holds none, so any such
+ * claim is false by construction.
+ */
+function mentionsStock(s: string): boolean {
+  if (!s) return false;
+  const t = s.toLowerCase();
+  return (
+    /\bwhile\s+stocks?\s+last\b/.test(t) ||
+    /\b(in|out\s+of|low)\s+stock\b/.test(t) ||
+    /\bstock(s|ed)?\s+(up|running|low)\b/.test(t) ||
+    /\bonly\s+\d+\s+(left|remaining)\b/.test(t) ||
+    /\b\d+\s+(left|remaining)\s+in\b/.test(t) ||
+    /\bselling\s+(fast|out)\b/.test(t) ||
+    /\blimited\s+(stock|quantities|units)\b/.test(t) ||
+    /\balmost\s+gone\b/.test(t)
+  );
+}
+
 function mentionsDiscount(s: string): boolean {
   if (!s) return false;
   const t = s.toLowerCase();

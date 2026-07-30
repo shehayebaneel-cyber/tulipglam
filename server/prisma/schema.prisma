@@ -60,6 +60,18 @@ model Product {
   // Feel22 is a retailer that carries Beesline as a vendor, so both imports would
   // otherwise claim the same brand's products and delete each other's work.
   source      String   @default("")
+
+  // Who the product is for: "unisex" | "men" | "women".
+  //
+  // Deliberately a field rather than a 13th department, because men's product spans Fragrance,
+  // Skincare, Deodorant, Hair and Bath & Body simultaneously — a Collistar men's moisturiser
+  // has to appear under BOTH /category/skincare and /men. A department would force a choice.
+  //
+  // Defaults to unisex so nothing is mis-claimed before the classifier has been reviewed.
+  // Importers must never overwrite a value set by hand (see audienceLocked).
+  audience       String  @default("unisex")
+  /** Set when a human chose the audience. Importers and the classifier must leave these alone. */
+  audienceLocked Boolean @default(false)
   status      String   @default("active") // active|hidden|unavailable|discontinued
   priceCents  Int // display/base price in USD cents
   saleCents   Int? // if set (< priceCents) product is on sale
@@ -100,6 +112,8 @@ model Product {
   @@index([priceCents])
   @@index([updatedAt])
   @@index([name])
+  // /men and /women filter on this across every department
+  @@index([audience])
 }
 
 model ProductImage {

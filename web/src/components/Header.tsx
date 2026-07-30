@@ -70,7 +70,12 @@ export function Header() {
             <NavLink key={c.slug} to={`/category/${c.slug}`} className={link}>{c.name}</NavLink>
           ))}
           <NavLink to="/brands" className={link}>Brands</NavLink>
-          <NavLink to="/sale" className={({ isActive }) => `text-[13px] font-semibold tracking-wide text-sale hover:opacity-80 ${isActive ? "opacity-80" : ""}`}>Sale</NavLink>
+          {/* Only shown when something is actually reduced. Zero products have a sale price, so
+              this link previously led to an empty page — and it was the one element allowed to
+              use the sale red, which made the emptiness louder. */}
+          {site?.flags?.hasSale && (
+            <NavLink to="/sale" className={({ isActive }) => `text-[13px] font-semibold tracking-wide text-sale hover:opacity-80 ${isActive ? "opacity-80" : ""}`}>Sale</NavLink>
+          )}
         </nav>
       </div>
 
@@ -92,7 +97,16 @@ export function Header() {
                 </Link>
               ))}
               <hr className="my-2 border-line" />
-              {[["/new", "New Arrivals"], ["/bestsellers", "Best Sellers"], ["/sale", "Sale"], ["/brands", "Brands"], ["/gift-cards", "Gift Cards"], ["/track", "Order Tracking"], ["/contact", "Contact"]].map(([to, label]) => (
+              {([
+                ["/new", "New Arrivals"],
+                ["/bestsellers", "Best Sellers"],
+                // same rule as desktop: no Sale entry unless something is reduced
+                ...(site?.flags?.hasSale ? [["/sale", "Sale"]] : []),
+                ["/brands", "Brands"],
+                ["/gift-cards", "Gift Cards"],
+                ["/track", "Order Tracking"],
+                ["/contact", "Contact"],
+              ] as [string, string][]).map(([to, label]) => (
                 <Link key={to} to={to} onClick={() => setMenu(false)} className="block rounded-xl px-3 py-2.5 text-[15px] hover:bg-soft">{label}</Link>
               ))}
             </nav>
