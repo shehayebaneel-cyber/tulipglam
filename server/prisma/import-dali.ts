@@ -229,15 +229,17 @@ async function main() {
   // Order items point at products optionally; null the link first so the delete
   // can't fail on a foreign key. Each item already stores its own name/price
   // snapshot, so past orders still render correctly.
-  const mine = { OR: [{ brandId: dali.id }, { brandId: null }] };
+  // Scoped by `source`, not by brand: Feel22 is a retailer that carries Dali as a
+  // vendor, so a brand-scoped delete would destroy the Feel22 import's rows too.
+  const mine = { OR: [{ source: "dali" }, { AND: [{ source: "" }, { brandId: null }] }] };
   const oldIds = (await db.product.findMany({ where: mine, select: { id: true } })).map((p) => p.id);
   if (oldIds.length) {
     const relinked = await db.orderItem.updateMany({ where: { productId: { in: oldIds } }, data: { productId: null } });
     const gone = await db.product.deleteMany({ where: mine });
-    console.log(`Removed ${gone.count} previous Dali/brandless products (images, variants and reviews cascaded; ${relinked.count} order items unlinked but intact).`);
+    console.log(`Removed ${gone.count} previous Dali products (images, variants and reviews cascaded; ${relinked.count} order items unlinked but intact).`);
   }
-  const others = await db.product.count({ where: { brandId: { notIn: [dali.id] } } });
-  if (others) console.log(`Left ${others} products from other brands untouched.`);
+  const others = await db.product.count({ where: { source: { not: "dali" } } });
+  if (others) console.log(`Left ${others} products from other sources untouched.`);
 
   // -- insert the real catalogue ------------------------------------------
   let nProducts = 0, nVariants = 0, nImages = 0, nHexSwatch = 0, nPhotoSwatch = 0;
@@ -257,6 +259,7 @@ async function main() {
         slug: p.slug,
         name: p.name,
         sku: p.sku,
+        source: "dali",
         status: "active",
         priceCents: cents(p.price_retail), // regular price; supplier's 20% off deliberately not carried over
         saleCents: null,

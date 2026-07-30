@@ -9,6 +9,7 @@
     "seed": "node --env-file=.env --import tsx prisma/seed.ts",
     "import:dali": "node --env-file=.env --import tsx prisma/import-dali.ts",
     "import:beesline": "node --env-file=.env --import tsx prisma/import-beesline.ts",
+    "import:feel22": "node --env-file=.env --import tsx prisma/import-feel22.ts",
     "db:push": "node --env-file=.env node_modules/prisma/build/index.js db push",
     "generate": "node --env-file=.env node_modules/prisma/build/index.js generate"
   },

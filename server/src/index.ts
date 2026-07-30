@@ -144,10 +144,35 @@ app.get("/api/products", asyncH(async (req, res) => {
     : sort === "name" ? [{ name: "asc" }]
     : [{ isBestSeller: "desc" }, { createdAt: "desc" }];
 
-  const products = await db.product.findMany({ where, include: cardInclude, orderBy });
-  let cards = products.map((p) => cardOf(p, newDays));
-  if (bool(req.query.new)) cards = cards.filter((c) => c.isNew);
-  res.json({ products: cards, total: cards.length });
+  // "New arrivals" used to be filtered in JS after the query, which can't work with
+  // pagination — page 1 would drop most of its rows. Same rule as computeIsNew(),
+  // expressed as SQL: always-new, or auto and created inside the window.
+  if (bool(req.query.new)) {
+    and.push({
+      OR: [
+        { isNewMode: "always" },
+        { AND: [{ isNewMode: "auto" }, { createdAt: { gte: new Date(Date.now() - newDays * 864e5) } }] },
+      ],
+    });
+    where.AND = and;
+  }
+
+  // Paginated. The catalogue is ~9.5k products, so returning everything was a 4 MB /
+  // 17-second response. Callers that want more ask page by page.
+  const limit = Math.min(Math.max(num(req.query.limit, 48), 1), 96);
+  const page = Math.max(num(req.query.page, 1), 1);
+
+  const [total, products] = await Promise.all([
+    db.product.count({ where }),
+    db.product.findMany({ where, include: cardInclude, orderBy, skip: (page - 1) * limit, take: limit }),
+  ]);
+  res.json({
+    products: products.map((p) => cardOf(p, newDays)),
+    total,
+    page,
+    pages: Math.max(1, Math.ceil(total / limit)),
+    limit,
+  });
 }));
 
 // search type-ahead
@@ -453,9 +478,18 @@ admin.get("/products", asyncH(async (req, res) => {
   const where: Prisma.ProductWhereInput = {};
   if (req.query.status) where.status = str(req.query.status);
   if (req.query.q) where.name = { contains: str(req.query.q) };
-  const products = await db.product.findMany({ where, orderBy: { updatedAt: "desc" },
-    include: { brand: true, category: true, images: { orderBy: { sortOrder: "asc" }, take: 1 }, _count: { select: { variants: true } } } });
-  res.json({ products });
+  // Paginated: unpaginated this returned all ~9.7k products as a 17 MB / 15-second
+  // response, which made the admin product list unusable.
+  if (req.query.source) where.source = str(req.query.source);
+  if (req.query.brandId) where.brandId = num(req.query.brandId);
+  const limit = Math.min(Math.max(num(req.query.limit, 50), 1), 200);
+  const page = Math.max(num(req.query.page, 1), 1);
+  const [total, products] = await Promise.all([
+    db.product.count({ where }),
+    db.product.findMany({ where, orderBy: { updatedAt: "desc" }, skip: (page - 1) * limit, take: limit,
+      include: { brand: true, category: true, images: { orderBy: { sortOrder: "asc" }, take: 1 }, _count: { select: { variants: true } } } }),
+  ]);
+  res.json({ products, total, page, pages: Math.max(1, Math.ceil(total / limit)), limit });
 }));
 
 admin.get("/products/:id", asyncH(async (req, res) => {

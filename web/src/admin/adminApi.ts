@@ -18,7 +18,9 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
 export const adminApi = {
   summary: () => req<AdminSummary>("/summary"),
   // products
-  products: (q: string, status: string) => req<{ products: AdminProduct[] }>(`/products?q=${encodeURIComponent(q)}&status=${status}`),
+  // paginated — the catalogue is ~9.7k products
+  products: (q: string, status: string, page = 1) =>
+    req<{ products: AdminProduct[]; total: number; page: number; pages: number }>(`/products?q=${encodeURIComponent(q)}&status=${status}&page=${page}`),
   product: (id: number) => req<AdminProductFull>(`/products/${id}`),
   createProduct: (b: unknown) => req<{ id: number }>("/products", { method: "POST", body: JSON.stringify(b) }),
   updateProduct: (id: number, b: unknown) => req<{ ok: boolean }>(`/products/${id}`, { method: "PUT", body: JSON.stringify(b) }),

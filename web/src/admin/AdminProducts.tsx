@@ -16,12 +16,19 @@ export function AdminProducts() {
   const [status, setStatus] = useState("");
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState<AdminProductFull | "new" | null>(null);
+  const [page, setPage] = useState(1);
+  const [pages, setPages] = useState(1);
+  const [total, setTotal] = useState(0);
 
-  const load = () => {
+  const load = (p = page) => {
     setLoading(true);
-    adminApi.products(q, status).then((r) => setProducts(r.products)).finally(() => setLoading(false));
+    adminApi.products(q, status, p)
+      .then((r) => { setProducts(r.products); setTotal(r.total); setPages(r.pages); })
+      .finally(() => setLoading(false));
   };
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [q, status]);
+  // reset to page 1 whenever the search or status filter changes
+  useEffect(() => { setPage(1); load(1); /* eslint-disable-next-line */ }, [q, status]);
+  useEffect(() => { load(page); /* eslint-disable-next-line */ }, [page]);
   useEffect(() => { adminApi.categories().then((r) => setCats(r.categories)); adminApi.brands().then((r) => setBrands(r.brands)); }, []);
 
   const openEdit = async (id: number) => setEditing(await adminApi.product(id));
@@ -35,7 +42,7 @@ export function AdminProducts() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="serif text-2xl font-medium text-ink sm:text-3xl">Products</h1>
-          <p className="mt-1 text-sm text-muted">{products.length} shown</p>
+          <p className="mt-1 text-sm text-muted">{total} total{pages > 1 ? ` · page ${page} of ${pages}` : ""}</p>
         </div>
         <button onClick={() => setEditing("new")} className="btn btn-ink px-5 py-2.5"><PlusIcon className="h-4 w-4" /> New product</button>
       </div>
@@ -91,6 +98,15 @@ export function AdminProducts() {
               {products.length === 0 && <tr><td colSpan={5} className="px-4 py-10 text-center text-muted">No products match.</td></tr>}
             </tbody>
           </table>
+          {pages > 1 && (
+            <div className="flex items-center justify-between gap-3 border-t border-line px-4 py-3">
+              <button onClick={() => setPage((n) => Math.max(1, n - 1))} disabled={page <= 1}
+                className="btn btn-ghost px-4 py-2 text-[12px] disabled:opacity-35">Previous</button>
+              <span className="text-[12px] text-muted">Page {page} of {pages}</span>
+              <button onClick={() => setPage((n) => Math.min(pages, n + 1))} disabled={page >= pages}
+                className="btn btn-ghost px-4 py-2 text-[12px] disabled:opacity-35">Next</button>
+            </div>
+          )}
         </div>
       )}
     </div>

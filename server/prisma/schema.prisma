@@ -55,6 +55,11 @@ model Product {
   slug        String   @unique
   name        String
   sku         String   @default("") // supplier reference, for re-ordering (not shown to customers)
+  // Which supplier import owns this row: "dali" | "beesline" | "feel22" | "" (manual).
+  // Each importer deletes and rebuilds only its own source. Brand is NOT a safe scope —
+  // Feel22 is a retailer that carries Beesline as a vendor, so both imports would
+  // otherwise claim the same brand's products and delete each other's work.
+  source      String   @default("")
   status      String   @default("active") // active|hidden|unavailable|discontinued
   priceCents  Int // display/base price in USD cents
   saleCents   Int? // if set (< priceCents) product is on sale

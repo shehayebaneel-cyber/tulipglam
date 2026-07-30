@@ -67,7 +67,8 @@ export const api = {
   home: () => req<{ bestSellers: Card[]; newArrivals: Card[]; reviews: Review[] }>("/home"),
   products: (q: Record<string, string | undefined>) => {
     const qs = new URLSearchParams(Object.entries(q).filter(([, v]) => v != null && v !== "") as [string, string][]).toString();
-    return req<{ products: Card[]; total: number }>(`/products${qs ? `?${qs}` : ""}`);
+    // paginated — `total` is the count across all pages, `pages` the page count
+    return req<{ products: Card[]; total: number; page: number; pages: number; limit: number }>(`/products${qs ? `?${qs}` : ""}`);
   },
   product: (slug: string) => req<ProductFull>(`/products/${slug}`),
   search: (q: string) => req<{ products: Card[] }>(`/search?q=${encodeURIComponent(q)}`),

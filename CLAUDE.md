@@ -36,21 +36,72 @@ before proceeding.
   logo/wordmark, hero photography, real WhatsApp number + Instagram URL.
 
 ## Catalogue — real products (imported 2026-07-30)
-The placeholder catalogue is **gone**. The store carries two real supplier ranges, both
-copied with the suppliers' permission: **Dali** and **Beesline**.
+The placeholder catalogue is **gone**. The store carries three supplier imports, all copied
+with the suppliers' permission: **Dali**, **Beesline** and **Feel22**.
 
-**345 products total / 440 sellable SKUs**, 737 images. 302 visible on the storefront,
-43 hidden (see Beesline price problems below).
+**9,672 products / 405 brands**, 9,945 images (784 MB in `web/dist` after a build).
+9,533 visible on the storefront, 139 hidden (broken supplier prices — see below).
 
-| Brand | Products | Status | Images |
-|---|---|---|---|
-| Dali | 37 (132 SKUs incl. 116 shades) | all active | 182 |
-| Beesline | 308 (single-variant) | 191 active / 74 unavailable / 43 hidden | 555 |
+| Source | Products | Status | Images | Notes |
+|---|---|---|---|---|
+| `feel22` | 9,327 | 7,232 active / 1,999 unavailable / 96 hidden | 9,373 | 404 brands, 11,526 variants |
+| `beesline` | 308 | 191 / 74 / 43 | 555 | single-variant |
+| `dali` | 37 | all active | 182 | 116 shade variants + swatches |
 
-Each brand has its **own importer, scoped to its own brand** — `npm run import:dali` and
-`npm run import:beesline`. Both are destructive *within their brand only*: re-running one
-rebuilds that brand's products and leaves the other's alone. This scoping matters; an
-earlier version of the Dali importer deleted every product in the table.
+### Importers are scoped by `source`, NOT by brand
+`npm run import:dali` · `npm run import:beesline` · `npm run import:feel22`
+
+Each is destructive but **only for its own `Product.source`**. Brand is not a safe scope:
+Feel22 is a retailer that carries Beesline and Dali as vendors, so a brand-scoped delete
+would have had the imports destroying each other's rows. An earlier version of the Dali
+importer deleted *every* product in the table — don't reintroduce that.
+
+Run order matters only for duplicates: run Feel22 last so it can skip products already
+carried direct.
+
+### Feel22 (imported 2026-07-30)
+Source: https://feel22.com Shopify feed. Source of truth: `../feel22-import/`.
+
+- **A multi-brand retailer, not a single brand** — 404 vendors incl. L'Oréal Paris, Clarins,
+  Clinique, Shiseido, Kérastase, Garnier, Avène, Pupa Milano. **The product photography and
+  copy belong to those brands, not to Feel22**, which cannot license what it doesn't own.
+  Confirm with the Feel22 contact what the agreement covers.
+- Status from the export's quality flag: `ok` → active, `out_of_stock` → unavailable,
+  `price_zero` → hidden (96).
+- Pricing: `price_regular`, **no sale price** — same rule as the other two.
+- **54 products skipped** because we already carry them direct from Beesline/Dali. The direct
+  listings win: cleaner titles ("Keratin Conditioner" vs "Beesline Keratin Conditioner
+  200ml"), our pricing, and Dali's shade variants. Nothing is deleted — the Feel22 row is
+  never created.
+  Matching uses **symmetric Jaccard ≥ 0.8** with brand-prefix and volume stripping, plus a
+  bundle-only-matches-bundle guard. A containment score was tried first and was wrong: a
+  short title inside a longer one scores 1.0, so bundles matched their own components
+  ("Everyone Barrier Cream + Super Hydrating Serum" matched plain "Everyone Barrier Cream")
+  and it would have deleted 156 products instead of skipping 54.
+- Placement is an **explicit table of all 109 `product_type` values** (their types are clean,
+  unlike Beesline's). Unmapped type = hard error.
+- Only the **first image per product** is hosted. The full catalogue is 32,720 images /
+  ~12 GB; these are Shopify's `_600x600` renditions (~81 KB each).
+- Inserts are **batched with `createMany`**, not a nested create per product. Per-product
+  round trips to Neon ran at ~60/minute — 2.5 hours for this catalogue. Batched it takes
+  about a minute. Products go in first, then ids are read back by slug to attach images
+  and variants.
+
+### Scale broke two things — both now fixed
+Everything worked at 345 products and fell over at 9,672. If you add another large source,
+check for the same class of problem.
+
+- **`GET /api/products` returned the whole catalogue** — 4 MB in 17 s. Now paginated
+  (`page`, `limit`, default 48, max 96) returning `{products, total, page, pages, limit}`.
+  The Shop page has numbered pagination with `page` in the URL; changing any filter resets
+  to page 1. The `new` filter moved from a post-query JS `.filter()` into the SQL `where`,
+  because filtering after pagination drops most of each page.
+- **Admin product list returned all 9,672** — 17 MB in 15 s. Now paginated (default 50,
+  max 200) with Previous/Next.
+
+Still unpaginated and worth watching: `/api/site` and `/api/brands` now carry **405 brands**
+(~65 KB). The payload is survivable but the Shop sidebar renders a 405-entry brand radio
+list, which needs a search box or a "featured brands" cut.
 
 ### Beesline (imported 2026-07-30)
 Source: https://beesline.com Shopify `products.json` (`/en-lb` market, USD).
@@ -78,15 +129,20 @@ Source of truth: `../beesline-import/` (raw pulls, CSV/JSON, all 555 images, REA
 - 2 visible products have no description at all (supplier gap): "Whitening Facial Soap
   (1+1)" and "Propolis Solution".
 
-### Taxonomy (now 9 departments, two levels)
-Nails (Nail Colours, Nail Care) · Makeup (Face, Lips, Eyes) · Skincare (Cleansers, Serums,
-Moisturisers, Masks, Toners, Eye Care) · Deodorant · Sun Care (Sunscreen, Suntan, After
-Sun) · Hair (Shampoo, Conditioner, Treatments) · Bath & Body (Shower, Body Care, Intimate
-Care) · Sets & Routines · Accessories. **Fragrance** is the only inactive one.
+### Taxonomy (12 active departments, two levels)
+Nails (Nail Colours, Nail Care) · Makeup (Face, Eyes, Lips, Brushes & Tools) ·
+Skincare (Cleansers, Serums, Moisturisers, Masks, Toners & Mists, Eye Care, Skincare Tools) ·
+Fragrance (For Her, For Him, Unisex, Mists & Sprays) · Hair (Shampoo, Conditioner,
+Treatments, Styling & Colour) · Bath & Body (Shower & Soap, Body Care, Intimate Care) ·
+Deodorant · Sun Care (Sunscreen, Tanning, After Sun) · Oral Care · Kids & Baby · Wellness ·
+Sets & Routines · Accessories (Electricals).
 
-`Sunscreen` moved out of Skincare and under the new Sun Care department, taking Dali's two
-sunscreens with it. `Gift Sets` was reactivated and renamed **Sets & Routines** (Beesline's
-bundles are routines, not gifts).
+Largest departments: Makeup 1,951 · Fragrance 1,067 · Skincare (all subs) · Sets & Routines
+830 · Nails 399.
+
+History worth knowing: `Sunscreen` moved out of Skincare and under Sun Care, taking Dali's
+two sunscreens with it. `Gift Sets` was reactivated and renamed **Sets & Routines**.
+**Fragrance** was reactivated by the Feel22 import (1,067 perfumes and mists).
 
 ### Dali (imported 2026-07-30)
 Copied with the supplier's permission from https://dalibeauty.co (WordPress/WooCommerce).

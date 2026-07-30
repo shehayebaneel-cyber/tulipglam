@@ -32,6 +32,10 @@ export function Shop({ mode }: { mode: Mode }) {
   const concerns = (params.get("concerns") ?? "").split(",").filter(Boolean);
   const catParam = mode === "category" ? slug : params.get("category") ?? "";
 
+  // The catalogue is ~9.5k products, so the API is paginated — `page` lives in the URL
+  // so a given page of results stays shareable and the back button works.
+  const page = Math.max(1, Number(params.get("page") ?? "1") || 1);
+
   const query = useMemo(() => ({
     category: catParam || undefined,
     brand: brand || undefined,
@@ -42,10 +46,19 @@ export function Shop({ mode }: { mode: Mode }) {
     sale: mode === "sale" ? "1" : undefined,
     attributes: attrs.join(",") || undefined,
     concerns: concerns.join(",") || undefined,
-  }), [catParam, brand, sort, q, mode, attrs.join(","), concerns.join(",")]); // eslint-disable-line react-hooks/exhaustive-deps
+    page: page > 1 ? String(page) : undefined,
+  }), [catParam, brand, sort, q, mode, attrs.join(","), concerns.join(","), page]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const { data, loading } = useFetch(() => api.products(query), [JSON.stringify(query)]);
   const products = data?.products ?? [];
+  const pages = data?.pages ?? 1;
+
+  const goPage = (n: number) => {
+    const next = new URLSearchParams(params);
+    if (n <= 1) next.delete("page"); else next.set("page", String(n));
+    setParams(next);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
 
   const cat = site?.categories.find((c) => c.slug === catParam);
   const heading = mode === "category" ? cat?.name ?? "Category" : mode === "search" ? (q ? `Results for “${q}”` : "Search") : titleFor[mode];
@@ -54,6 +67,7 @@ export function Shop({ mode }: { mode: Mode }) {
   const setP = (key: string, val: string) => {
     const next = new URLSearchParams(params);
     if (val) next.set(key, val); else next.delete(key);
+    next.delete("page"); // any filter or sort change starts again at page 1
     setParams(next, { replace: true });
   };
   const toggleMulti = (key: string, arr: string[], val: string) => {
@@ -109,7 +123,10 @@ export function Shop({ mode }: { mode: Mode }) {
           {sub && <p className="mt-1 text-sm text-muted">{sub}</p>}
         </div>
         <div className="flex items-center gap-2">
-          <span className="hidden text-[13px] text-muted sm:inline">{loading ? "…" : `${products.length} item${products.length === 1 ? "" : "s"}`}</span>
+          {/* the total across all pages, not just this page's 48 */}
+          <span className="hidden text-[13px] text-muted sm:inline">
+            {loading ? "…" : `${data?.total ?? 0} item${(data?.total ?? 0) === 1 ? "" : "s"}${pages > 1 ? ` · page ${page} of ${pages}` : ""}`}
+          </span>
           <div className="relative">
             <select value={sort} onChange={(e) => setP("sort", e.target.value)} className="appearance-none rounded-full border border-line bg-surface py-2 pl-4 pr-9 text-[13px] font-medium text-ink outline-none focus:border-ink">
               {SORTS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
@@ -145,9 +162,12 @@ export function Shop({ mode }: { mode: Mode }) {
               </div>
             </div>
           ) : (
-            <div className="grid grid-cols-2 gap-x-3.5 gap-y-8 sm:grid-cols-3 sm:gap-5 xl:grid-cols-4">
-              {products.map((p: Card) => <ProductCard key={p.id} p={p} />)}
-            </div>
+            <>
+              <div className="grid grid-cols-2 gap-x-3.5 gap-y-8 sm:grid-cols-3 sm:gap-5 xl:grid-cols-4">
+                {products.map((p: Card) => <ProductCard key={p.id} p={p} />)}
+              </div>
+              {pages > 1 && <Pagination page={page} pages={pages} onGo={goPage} />}
+            </>
           )}
         </div>
       </div>
@@ -164,7 +184,7 @@ export function Shop({ mode }: { mode: Mode }) {
             <Filters />
             <div className="mt-6 flex gap-3">
               {activeCount > 0 && <button onClick={clearAll} className="btn btn-ghost flex-1 py-3">Clear</button>}
-              <button onClick={() => setSheet(false)} className="btn btn-ink flex-1 py-3">Show {products.length} items</button>
+              <button onClick={() => setSheet(false)} className="btn btn-ink flex-1 py-3">Show {data?.total ?? 0} items</button>
             </div>
           </div>
         </div>
@@ -182,5 +202,29 @@ function FilterGroup({ title, children }: { title: string; children: React.React
       </button>
       {open && <div className="mt-3 space-y-1.5">{children}</div>}
     </div>
+  );
+}
+
+// Numbered pagination. The catalogue runs to ~200 pages, so the strip shows first,
+// last, and a window around the current page rather than every number.
+function Pagination({ page, pages, onGo }: { page: number; pages: number; onGo: (n: number) => void }) {
+  const window: number[] = [];
+  for (let i = Math.max(1, page - 2); i <= Math.min(pages, page + 2); i++) window.push(i);
+  if (window[0] > 1) window.unshift(1);
+  if (window[window.length - 1] < pages) window.push(pages);
+
+  const btn = "grid h-9 min-w-9 place-items-center rounded-full px-3 text-[13px] font-medium transition";
+  return (
+    <nav aria-label="Pagination" className="mt-10 flex flex-wrap items-center justify-center gap-1.5">
+      <button onClick={() => onGo(page - 1)} disabled={page <= 1} className={`${btn} border border-line text-ink disabled:opacity-35`}>Prev</button>
+      {window.map((n, i) => (
+        <span key={n} className="flex items-center gap-1.5">
+          {i > 0 && n - window[i - 1] > 1 && <span className="px-1 text-muted">…</span>}
+          <button onClick={() => onGo(n)} aria-current={n === page ? "page" : undefined}
+            className={`${btn} ${n === page ? "bg-plum text-white" : "border border-line text-ink hover:border-ink"}`}>{n}</button>
+        </span>
+      ))}
+      <button onClick={() => onGo(page + 1)} disabled={page >= pages} className={`${btn} border border-line text-ink disabled:opacity-35`}>Next</button>
+    </nav>
   );
 }

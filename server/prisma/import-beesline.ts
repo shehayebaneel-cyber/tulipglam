@@ -247,15 +247,17 @@ async function main() {
     create: { slug: "beesline", name: "Beesline", blurb: "Natural beauty, made in Lebanon since 1993", featured: true, active: true, sortOrder: 2 },
   });
 
-  // -- clear out the previous Beesline import (scoped to this brand) --------
-  const oldIds = (await db.product.findMany({ where: { brandId: brand.id }, select: { id: true } })).map((p) => p.id);
+  // -- clear out the previous Beesline import -------------------------------
+  // Scoped by `source`, not by brand: Feel22 carries Beesline as a vendor, so a
+  // brand-scoped delete would destroy Feel22's rows for this brand too.
+  const oldIds = (await db.product.findMany({ where: { source: "beesline" }, select: { id: true } })).map((p) => p.id);
   if (oldIds.length) {
     const relinked = await db.orderItem.updateMany({ where: { productId: { in: oldIds } }, data: { productId: null } });
-    const gone = await db.product.deleteMany({ where: { brandId: brand.id } });
+    const gone = await db.product.deleteMany({ where: { source: "beesline" } });
     console.log(`Removed ${gone.count} previous Beesline products (${relinked.count} order items unlinked but intact).`);
   }
-  const otherBrands = await db.product.count({ where: { brandId: { not: brand.id } } });
-  console.log(`Left ${otherBrands} products from other brands untouched.`);
+  const otherSources = await db.product.count({ where: { source: { not: "beesline" } } });
+  console.log(`Left ${otherSources} products from other sources untouched.`);
 
   // -- insert --------------------------------------------------------------
   let n = 0, nImages = 0;
@@ -280,6 +282,7 @@ async function main() {
         slug: p.handle,
         name: p.title,
         sku: p.sku,
+        source: "beesline",
         status,
         priceCents,
         saleCents: null,
