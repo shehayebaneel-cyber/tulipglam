@@ -2,12 +2,12 @@ import express from "express";
 import cors from "cors";
 import path from "path";
 import fs from "fs";
-import { randomUUID } from "crypto";
+import { randomUUID, createHash } from "crypto";
 import { PrismaClient, Prisma } from "@prisma/client";
 import * as XLSX from "xlsx";
 import { ORDER_STATUSES, STATUS_KEYS, statusMeta, nextStatuses, canTransition } from "./status.js";
 import { hashPassword, checkPassword, signToken, withCustomer, requireCustomer } from "./auth.js";
-import { sendMail, orderConfirmationEmail, statusUpdateEmail } from "./mailer.js";
+import { sendMail, mailConfigured, orderConfirmationEmail, statusUpdateEmail, passwordResetEmail } from "./mailer.js";
 import { DEV_ADMIN_KEY, validateSettings, setupChecks } from "./setup.js";
 import { resolvePromo } from "./promo.js";
 
@@ -211,6 +211,32 @@ const cardInclude = { brand: true, category: true, images: { orderBy: { sortOrde
 // ============================================================ PUBLIC
 app.get("/api/health", (_req, res) => res.json({ ok: true }));
 
+/**
+ * Settings the storefront is allowed to see.
+ *
+ * `/api/site` used to return the whole settings table. Nothing sensitive is in there *today*,
+ * but only because SMTP has never been configured — the moment someone saves an SMTP password
+ * in admin it would be published to every visitor. An allowlist fails closed: a new setting is
+ * private until it is deliberately named here.
+ */
+const PUBLIC_SETTINGS = [
+  "storeName", "announcement", "whatsappNumber", "instagramUrl", "contactEmail", "siteUrl",
+  "freeDeliveryThresholdCents", "defaultDeliveryCents", "newArrivalDays", "featuredBrandMinProducts",
+  "promoActive", "promoTitle", "promoText", "promoDiscountText", "promoCtaLabel",
+  "heroEyebrow", "heroHeading", "heroSub", "heroCtaLabel", "heroCtaHref",
+  "heroAltLabel", "heroAltHref", "heroFootnote", "heroImage",
+  "trustItems",
+] as const;
+
+function publicSettings(all: Record<string, string>): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const k of PUBLIC_SETTINGS) if (all[k] != null) out[k] = all[k];
+  // Whether a reset email can actually be delivered. The value is a boolean, never the
+  // credentials behind it — same shape as `adminKeyIsDefault`.
+  out.emailConfigured = mailConfigured(all) ? "true" : "false";
+  return out;
+}
+
 // header/footer/home bootstrap: settings + categories + featured brands + areas
 app.get("/api/site", asyncH(async (_req, res) => {
   const [settings, tops, brands, areas, saleCount, audienceCounts] = await Promise.all([
@@ -243,7 +269,7 @@ app.get("/api/site", asyncH(async (_req, res) => {
   const audience = Object.fromEntries(audienceCounts.map((a) => [a.audience || "unisex", a._count._all]));
 
   res.json({
-    settings,
+    settings: publicSettings(settings),
     categories,
     // Sorted on a normalized, locale-aware key. Previously ordered by sortOrder with no name
     // tiebreak, and 403 brands share sortOrder=50 — so Postgres returned heap order and
@@ -632,36 +658,85 @@ app.post("/api/orders", withCustomer, asyncH(async (req, res) => {
   let delivery = areaRow?.feeCents ?? num(settings.defaultDeliveryCents, 300);
   if (subtotal >= threshold) delivery = 0;
 
-  // coupon
-  const { coupon, discount } = await evalCoupon(str(b.couponCode), subtotal);
-  const afterDiscount = subtotal - discount + delivery;
+  // A coupon's remaining uses and a gift card's balance are shared, finite resources, so both
+  // are *claimed* rather than read-then-written, and the order is written in the same
+  // transaction as the claim.
+  //
+  // Before this, checkout read the balance, computed the discount, created the order and only
+  // then decremented. Two orders paying with the same $50 card at the same moment both saw
+  // $50, both applied $50 and both decremented — the card ended on -$50 and the store gave
+  // away twice the value. A `maxUses: 1` coupon went the same way. The window was small but
+  // it is exactly the window that opens when a promotion is shared in a WhatsApp group.
+  //
+  // Each claim is a conditional UPDATE. Postgres re-evaluates the WHERE after waiting on the
+  // row lock, so a claim that would overdraw simply matches no rows and we know to fall back —
+  // no advisory locks, no SERIALIZABLE retries.
+  const requestedCoupon = str(b.couponCode);
+  const requestedGiftCode = str(b.giftCardCode).trim().toUpperCase();
+  const { coupon } = await evalCoupon(requestedCoupon, subtotal);
 
-  // gift card (applied last, against the remaining total)
-  let giftCard: Prisma.GiftCardGetPayload<object> | null = null;
-  let giftUsed = 0;
-  if (str(b.giftCardCode)) {
-    giftCard = await db.giftCard.findUnique({ where: { code: str(b.giftCardCode).trim().toUpperCase() } });
-    if (giftCard && giftCard.active && giftCard.balanceCents > 0) giftUsed = Math.min(giftCard.balanceCents, afterDiscount);
-  }
-  const total = afterDiscount - giftUsed;
+  const result = await db.$transaction(async (tx) => {
+    let discount = 0;
+    let couponCode = "";
+    if (coupon) {
+      // `usedCount < maxUses` is checked by the database, not by us. Unlimited coupons have no
+      // ceiling to race for, so they only need the id.
+      const claimed = await tx.coupon.updateMany({
+        where: coupon.maxUses == null ? { id: coupon.id } : { id: coupon.id, usedCount: { lt: coupon.maxUses } },
+        data: { usedCount: { increment: 1 } },
+      });
+      if (claimed.count === 1) {
+        discount = coupon.type === "percent" ? Math.round((subtotal * coupon.value) / 100) : Math.min(coupon.value, subtotal);
+        couponCode = coupon.code;
+      }
+      // count === 0 means someone took the last use first. The order still goes through at
+      // full price rather than failing — the response reports the real numbers.
+    }
 
-  const order = await db.order.create({
-    data: {
-      number: orderNumber(), status: "received", customerId: customerId ?? null,
-      fullName, phone, whatsapp: str(b.whatsapp || b.phone), email: str(b.email),
-      area: areaRow?.name ?? str(b.area), city: str(b.city), address: str(b.address), notes: str(b.notes),
-      subtotalCents: subtotal, discountCents: discount, giftCardCents: giftUsed,
-      couponCode: coupon?.code ?? "", giftCardCode: giftUsed > 0 ? giftCard!.code : "",
-      deliveryCents: delivery, totalCents: total, paymentMethod: "cod",
-      items: { create: orderItems },
-      events: { create: { status: "received", note: "Order placed" } },
-    },
-    include: { items: true },
+    const afterDiscount = subtotal - discount + delivery;
+
+    // Gift card, applied last against what is left.
+    let giftUsed = 0;
+    let giftCardCode = "";
+    if (requestedGiftCode && afterDiscount > 0) {
+      const card = await tx.giftCard.findUnique({ where: { code: requestedGiftCode } });
+      if (card?.active && card.balanceCents > 0) {
+        // One retry: the first attempt uses the balance we read, and if that lost the race the
+        // second uses the balance the winner left behind. Bounded, so it cannot spin.
+        for (let attempt = 0; attempt < 2 && giftUsed === 0; attempt++) {
+          const balance = attempt === 0
+            ? card.balanceCents
+            : (await tx.giftCard.findUnique({ where: { id: card.id }, select: { balanceCents: true } }))?.balanceCents ?? 0;
+          const want = Math.min(balance, afterDiscount);
+          if (want <= 0) break;
+          const debited = await tx.giftCard.updateMany({
+            where: { id: card.id, active: true, balanceCents: { gte: want } },
+            data: { balanceCents: { decrement: want } },
+          });
+          if (debited.count === 1) { giftUsed = want; giftCardCode = card.code; }
+        }
+      }
+    }
+
+    const total = afterDiscount - giftUsed;
+
+    const order = await tx.order.create({
+      data: {
+        number: orderNumber(), status: "received", customerId: customerId ?? null,
+        fullName, phone, whatsapp: str(b.whatsapp || b.phone), email: str(b.email),
+        area: areaRow?.name ?? str(b.area), city: str(b.city), address: str(b.address), notes: str(b.notes),
+        subtotalCents: subtotal, discountCents: discount, giftCardCents: giftUsed,
+        couponCode, giftCardCode,
+        deliveryCents: delivery, totalCents: total, paymentMethod: "cod",
+        items: { create: orderItems },
+        events: { create: { status: "received", note: "Order placed" } },
+      },
+      include: { items: true },
+    });
+    return { order, discount, giftUsed, total };
   });
 
-  // consume the promotions
-  if (coupon) await db.coupon.update({ where: { id: coupon.id }, data: { usedCount: { increment: 1 } } });
-  if (giftUsed > 0 && giftCard) await db.giftCard.update({ where: { id: giftCard.id }, data: { balanceCents: { decrement: giftUsed } } });
+  const { order, discount, giftUsed, total } = result;
 
   // fire-and-forget confirmation email (no-op unless SMTP configured)
   if (order.email) sendMail(settings, order.email, `Order ${order.number} received`, orderConfirmationEmail(settings.storeName ?? "TulipGlam", fullName, order.number, "$" + (total / 100).toFixed(2)));
@@ -698,6 +773,61 @@ app.post("/api/auth/login", asyncH(async (req, res) => {
   const customer = await db.customer.findUnique({ where: { email } });
   if (!customer || !(await checkPassword(str(req.body.password), customer.passwordHash))) return res.status(401).json({ error: "Wrong email or password." });
   res.json({ token: signToken(customer.id), customer: publicCustomer(customer) });
+}));
+
+// ---- password reset ----
+// The link *is* the mechanism, so this is only offered when mail can actually be delivered —
+// see `mailConfigured`. Everything else in the app degrades quietly when SMTP is absent
+// because WhatsApp carries the conversation; a reset has no such fallback.
+const RESET_TTL_MIN = 30;
+const resetTokenHash = (token: string) => createHash("sha256").update(token).digest("hex");
+
+app.post("/api/auth/forgot", asyncH(async (req, res) => {
+  const settings = await getSettings();
+  if (!mailConfigured(settings)) {
+    return res.status(503).json({ error: "Password reset by email isn't set up yet. Message us and we'll sort it out." });
+  }
+  const email = str(req.body.email).trim().toLowerCase();
+  if (!email) return res.status(400).json({ error: "Enter your email address." });
+
+  const customer = await db.customer.findUnique({ where: { email } });
+  // The response is identical whether or not the address is registered. Saying "no account
+  // with that email" turns this endpoint into a way to test which addresses have accounts.
+  if (customer) {
+    const token = randomUUID() + randomUUID().replace(/-/g, "");
+    // Any earlier unused ticket is retired, so the newest link is the only one that works.
+    await db.passwordReset.updateMany({ where: { customerId: customer.id, usedAt: null }, data: { usedAt: new Date() } });
+    await db.passwordReset.create({
+      data: { customerId: customer.id, tokenHash: resetTokenHash(token), expiresAt: new Date(Date.now() + RESET_TTL_MIN * 60_000) },
+    });
+    const base = str(settings.siteUrl).trim().replace(/\/+$/, "") || `${req.protocol}://${req.get("host") ?? ""}`;
+    await sendMail(settings, email, `Reset your ${settings.storeName || "TulipGlam"} password`,
+      passwordResetEmail(settings.storeName || "TulipGlam", customer.fullName || "there",
+        `${base}/reset-password?token=${encodeURIComponent(token)}`, RESET_TTL_MIN));
+  }
+  res.json({ ok: true });
+}));
+
+app.post("/api/auth/reset", asyncH(async (req, res) => {
+  const token = str(req.body.token).trim();
+  const password = str(req.body.password);
+  if (!token) return res.status(400).json({ error: "This reset link is incomplete. Request a new one." });
+  if (password.length < 6) return res.status(400).json({ error: "Password must be at least 6 characters." });
+
+  const row = await db.passwordReset.findUnique({ where: { tokenHash: resetTokenHash(token) }, include: { customer: true } });
+  if (!row) return res.status(400).json({ error: "This reset link isn't valid. Request a new one." });
+  if (row.usedAt) return res.status(400).json({ error: "This link has already been used. Request a new one." });
+  if (row.expiresAt < new Date()) return res.status(400).json({ error: `This link expired after ${RESET_TTL_MIN} minutes. Request a new one.` });
+
+  // Marking used and changing the password go together: if the update fails the ticket must
+  // stay live, and if it succeeds the ticket must not be replayable.
+  await db.$transaction([
+    db.customer.update({ where: { id: row.customerId }, data: { passwordHash: await hashPassword(password) } }),
+    db.passwordReset.update({ where: { id: row.id }, data: { usedAt: new Date() } }),
+  ]);
+  // Signed straight in — asking someone to type the password they just chose is friction with
+  // no security value, since they already proved control of the mailbox.
+  res.json({ token: signToken(row.customerId), customer: publicCustomer(row.customer) });
 }));
 
 app.get("/api/auth/me", requireCustomer, asyncH(async (req, res) => {

@@ -245,8 +245,22 @@ Confirmed off-palette literals: `#25D366` WhatsApp green in 5 files, `#b7791f` i
 - 5.1 Single `Button` primitive with primary/secondary/tertiary/destructive — **FIXED** (all 32 `btn-ink` usages in the storefront converted; only a comment mentions it now)
 - 5.2 WhatsApp green restyled to plum with a WhatsApp glyph — **FIXED** (`#25D366` gone from the storefront)
 - 5.3 Amount-chip selected state now border + tint + checkmark — **FIXED**
-- 5.4 Login show/hide password + forgot-password — **TODO**, honest about delivery when SMTP
-  is unconfigured (no silent no-op link)
+- 5.4 Login show/hide password + forgot-password — **FIXED**. Every field had a placeholder
+  and no `<label>`, so the label vanished the moment you typed. Real labels, autocomplete
+  hints password managers understand, and a show/hide toggle that reports its state with
+  `aria-pressed` rather than only swapping an icon.
+
+  Forgot-password is a real token flow (`PasswordReset`, new table): single-use, 30-minute
+  expiry, only the SHA-256 of the token stored, earlier unused tickets retired when a new one
+  is issued, and the same response whether or not the address is registered — otherwise the
+  endpoint becomes a way to test which addresses have accounts. A used link says it was used
+  rather than "invalid", which would send someone hunting for a typo.
+
+  **The link is only offered when mail can actually be sent.** Order and status emails degrade
+  quietly without SMTP because WhatsApp carries the conversation; a reset has no such fallback,
+  so a form that silently sends nothing would be worse than no form. `/api/site` publishes
+  `emailConfigured` (a boolean, never the credentials), and with mail unconfigured the page
+  says so and points at WhatsApp. 13 checks in `scripts/test-password-reset.mjs`.
 - 5.5 Gift-card copy made specific; terms surfaced inline — **FIXED** (3-step flow + terms beside the CTA)
 
 ---
@@ -254,8 +268,38 @@ Confirmed off-palette literals: `#25D366` WhatsApp green in 5 files, `#b7791f` i
 ## Phase 6 — Admin
 6.1 Product list — **FIXED** (previous pass; re-verified this audit)
 6.2 Orders — transitions, `awaiting_customer` UI and money breakdown **FIXED**;
-    coupon/gift-card concurrency **TODO**
+    coupon/gift-card concurrency **FIXED** — see 6.2 below
 6.3 Dashboard zero-state — **FIXED**
+
+---
+
+### 6.2 Checkout gave away money under concurrency — FIXED (real bug, reproduced)
+Checkout read a gift card's balance, computed the discount, created the order, and only then
+decremented. Two orders paying with the same card at the same moment both saw the full balance,
+both applied it, and both decremented. Reproduced against a throwaway $5 card:
+
+    OLD read-then-write:  applied 1000c from a 500c card, balance now -500c  <-- OVERDRAWN
+    NEW conditional:      applied  500c from a 500c card, balance now    0c  <-- correct
+
+A `maxUses: 1` coupon went the same way — `usedCount` read, order created, then incremented.
+The window is small, and it is exactly the window that opens when a code is shared in a
+WhatsApp group.
+
+Both are now *claimed* rather than read-then-written, and the order is written in the same
+transaction as the claim. Each claim is a conditional UPDATE (`balanceCents >= want`,
+`usedCount < maxUses`); Postgres re-evaluates the WHERE after waiting on the row lock, so a
+claim that would overdraw matches no rows and the code falls back. No advisory locks, no
+SERIALIZABLE retries. The gift-card path retries once against the balance the winner left
+behind, bounded so it cannot spin.
+
+A losing claim does not fail the order — it goes through at the real price, and the response
+reports the numbers actually applied.
+
+### 6.3 Public API published the whole settings table — FIXED (found while adding emailConfigured)
+`/api/site` returned `settings` verbatim. Nothing sensitive is in there *today*, but only
+because SMTP has never been configured — saving an SMTP password in admin would have published
+it to every visitor. Replaced with an allowlist, which fails closed: a new setting is private
+until it is deliberately named.
 
 ---
 
@@ -267,7 +311,17 @@ Confirmed off-palette literals: `#25D366` WhatsApp green in 5 files, `#b7791f` i
 7.3 SEO/metadata — **TODO**
 7.4 Error handling — **TODO**
 7.5 Policy pages — **TODO**
-7.6 Checkout money math — **TODO** with boundary tests at $59.99 / $60.00 / $60.01
+7.6 Checkout money math — **FIXED**. `scripts/test-checkout-money.mjs` drives real orders
+through the API and deletes them afterwards. 17 checks: the free-delivery threshold at the
+last qualifying cent below it, exactly on it, and past it (proving the comparison is `>=`,
+not `>`); percent and fixed coupons; a coupon below its minimum; a gift card larger and
+smaller than the total; and the two race conditions in 6.2. It picks a product whose price
+divides the threshold so the boundary is hit exactly — $60.00 itself, not $59.85 and $60.80
+either side — and says so when no such product exists.
+
+Confirmed deliberate, not a bug: the threshold is compared against the subtotal **before**
+discount, in checkout and in the admin recompute alike, so a coupon cannot take an order back
+under it.
 
 ---
 

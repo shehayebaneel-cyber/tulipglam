@@ -15,6 +15,7 @@ import { GiftCards } from "./pages/GiftCards";
 import { Contact } from "./pages/Contact";
 import { Account } from "./pages/Account";
 import { Login } from "./pages/Login";
+import { ForgotPassword, ResetPassword } from "./pages/Password";
 import { Info } from "./pages/Info";
 import { TulipMark } from "./components/ui";
 
@@ -74,6 +75,8 @@ const router = createBrowserRouter([
       { path: "/account", element: <Account /> },
       { path: "/login", element: <Login mode="login" /> },
       { path: "/register", element: <Login mode="register" /> },
+      { path: "/forgot-password", element: <ForgotPassword /> },
+      { path: "/reset-password", element: <ResetPassword /> },
       { path: "/orders", element: <Track /> },
       { path: "/shipping", element: <Info slug="shipping" /> },
       { path: "/returns", element: <Info slug="returns" /> },

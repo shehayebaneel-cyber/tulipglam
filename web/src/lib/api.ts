@@ -119,6 +119,12 @@ export const api = {
   // auth
   register: (body: unknown) => req<{ token: string; customer: Customer }>("/auth/register", { method: "POST", body: JSON.stringify(body) }),
   login: (body: unknown) => req<{ token: string; customer: Customer }>("/auth/login", { method: "POST", body: JSON.stringify(body) }),
+  // Answers identically whether or not the address is registered — anything else would let
+  // this endpoint be used to test which addresses have accounts. 503 means the store cannot
+  // send email at all, which the UI checks for up front via `settings.emailConfigured`.
+  forgotPassword: (email: string) => req<{ ok: boolean }>("/auth/forgot", { method: "POST", body: JSON.stringify({ email }) }),
+  resetPassword: (token: string, password: string) =>
+    req<{ token: string; customer: Customer }>("/auth/reset", { method: "POST", body: JSON.stringify({ token, password }) }),
   me: () => req<{ customer: Customer; addresses: Address[] }>("/auth/me"),
   updateMe: (body: unknown) => req<{ customer: Customer }>("/auth/me", { method: "PUT", body: JSON.stringify(body) }),
   myOrders: () => req<{ orders: Order[] }>("/auth/orders"),

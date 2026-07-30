@@ -38,6 +38,8 @@ export const HeartIcon = (p: IconProps) => (<S {...p}><path d="M12 20S3.5 14.5 3
 export const HeartFill = ({ className = "h-5 w-5" }: IconProps) => (<svg viewBox="0 0 24 24" fill="currentColor" className={className} aria-hidden="true"><path d="M12 20S3.5 14.5 3.5 8.9C3.5 6 5.7 4 8.2 4c1.7 0 3 .9 3.8 2.1C12.8 4.9 14.1 4 15.8 4 18.3 4 20.5 6 20.5 8.9 20.5 14.5 12 20 12 20Z" /></svg>);
 export const BagIcon = (p: IconProps) => (<S {...p}><path d="M6 8h12l-1 12H7L6 8Z" /><path d="M9 8V6.5a3 3 0 0 1 6 0V8" /></S>);
 export const MenuIcon = (p: IconProps) => (<S {...p}><path d="M4 7h16M4 12h16M4 17h16" /></S>);
+export const EyeIcon = (p: IconProps) => (<S {...p}><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z" /><circle cx="12" cy="12" r="3" /></S>);
+export const EyeOffIcon = (p: IconProps) => (<S {...p}><path d="M10.6 6.1A8.9 8.9 0 0 1 12 6c6 0 9.5 6 9.5 6a17 17 0 0 1-3 3.6" /><path d="M6.5 7.9A17 17 0 0 0 2.5 12S6 18 12 18a8.9 8.9 0 0 0 3.6-.7" /><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2" /><path d="M4 4l16 16" /></S>);
 export const HomeIcon = (p: IconProps) => (<S {...p}><path d="M4 11.5 12 4l8 7.5" /><path d="M6 10v10h12V10" /></S>);
 export const GridIcon = (p: IconProps) => (<S {...p}><rect x="4" y="4" width="7" height="7" rx="1.5" /><rect x="13" y="4" width="7" height="7" rx="1.5" /><rect x="4" y="13" width="7" height="7" rx="1.5" /><rect x="13" y="13" width="7" height="7" rx="1.5" /></S>);
 export const BoxIcon = (p: IconProps) => (<S {...p}><path d="M3.5 7.5 12 3l8.5 4.5v9L12 21l-8.5-4.5v-9Z" /><path d="M3.5 7.5 12 12l8.5-4.5M12 21v-9" /></S>);
