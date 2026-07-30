@@ -8,23 +8,49 @@ type Cat = SiteData["categories"][number];
 /**
  * Top-level navigation.
  *
- * The old bar put 15 departments in one row. Several wrapped mid-label — "Bath &/Body",
+ * The original bar put 15 departments in one row and several wrapped mid-label — "Bath &/Body",
  * "Sun/Care", "Kids &/Baby" — which read as unfinished, and at 390px it was unusable.
  *
- * Departments are grouped into 6 headings, each opening a panel listing the departments in
- * that group and their children. Group labels never wrap. Everything is derived from the
- * database, so a nav label and a category card can no longer disagree.
+ * The fix was to group them, but the first pass grouped too hard: Nails ended up inside Makeup,
+ * Deodorant and Oral Care inside Body & Bath. Those are real departments with 399, 230 and 150
+ * products, and none of them belongs under the heading it was hidden behind. They are top-level
+ * now, and grouping is kept only where it reflects the actual taxonomy.
+ *
+ * Labels never wrap, and the row scrolls rather than wrapping if it ever runs out of width.
+ * Everything is derived from the database, so a nav label and a category card can't disagree.
  */
 
-/** Which departments sit under which heading. Slugs, so renaming a category can't break it. */
+/**
+ * Which departments sit under which heading. Slugs, so renaming a category can't break it.
+ *
+ * Most entries are a single department and exist only to give it a place in the bar. Nails,
+ * Deodorant and Oral Care used to be nested — Nails inside Makeup, the other two inside
+ * Body & Bath — which put a 399-product department behind a heading it doesn't belong to.
+ * Nail care isn't makeup, and deodorant isn't bath. They stand on their own now.
+ *
+ * Grouping is still used where it is genuinely a parent/child relationship (Sun Care under
+ * Skincare) or where the departments are too small to earn a slot of their own ("More").
+ */
 const GROUPS: { label: string; slugs: string[] }[] = [
-  { label: "Makeup", slugs: ["makeup", "nails"] },
+  { label: "Makeup", slugs: ["makeup"] },
+  { label: "Nails", slugs: ["nails"] },
   { label: "Skincare", slugs: ["skincare", "sun-care"] },
   { label: "Hair", slugs: ["hair"] },
-  { label: "Body & Bath", slugs: ["bath-body", "deodorant", "oral-care"] },
+  { label: "Body & Bath", slugs: ["bath-body"] },
+  { label: "Deodorant", slugs: ["deodorant"] },
   { label: "Fragrance", slugs: ["fragrance"] },
+  { label: "Oral Care", slugs: ["oral-care"] },
   { label: "More", slugs: ["kids-baby", "wellness", "gift-sets", "accessories"] },
 ];
+
+/**
+ * A heading that is one department with no subcategories is a link, not a menu.
+ *
+ * Deodorant and Oral Care hold their products directly. As part of a bigger panel they showed
+ * a "Shop all →" stub; standing alone, a dropdown whose only content is a link to the thing you
+ * just clicked is a wasted interaction.
+ */
+const isDirectLink = (cats: Cat[]) => cats.length === 1 && cats[0].children.length === 0;
 
 export function MainNav({ site }: { site: SiteData | null }) {
   const [open, setOpen] = useState<string | null>(null);
@@ -59,9 +85,15 @@ export function MainNav({ site }: { site: SiteData | null }) {
   const showWomen = (site?.flags?.womenCount ?? 0) > 0;
 
   return (
-    <nav ref={navRef} aria-label="Departments" className="hidden items-center justify-center gap-1 pb-2 lg:flex">
+    // `no-scrollbar` + `overflow-x-auto` is the safety net, not the plan: at this width
+    // everything fits. But the bug this nav replaced was labels wrapping mid-word — "Bath &/
+    // Body", "Sun/Care" — and scrolling is a far better failure mode than that, so adding a
+    // department can never bring it back.
+    <nav ref={navRef} aria-label="Departments" className="no-scrollbar hidden items-center justify-center gap-0.5 overflow-x-auto pb-2 lg:flex xl:gap-1">
       {groups.map((g) => (
-        <GroupMenu key={g.label} label={g.label} cats={g.cats} open={open === g.label} onOpen={() => setOpen(g.label)} onClose={() => setOpen(null)} />
+        isDirectLink(g.cats)
+          ? <TopLink key={g.label} to={`/category/${g.cats[0].slug}`}>{g.label}</TopLink>
+          : <GroupMenu key={g.label} label={g.label} cats={g.cats} open={open === g.label} onOpen={() => setOpen(g.label)} onClose={() => setOpen(null)} />
       ))}
 
       {/* Audience routes suppress themselves until the classifier has been run — an empty
@@ -81,7 +113,7 @@ function TopLink({ to, children }: { to: string; children: React.ReactNode }) {
     <NavLink
       to={to}
       className={({ isActive }) =>
-        `whitespace-nowrap rounded-lg px-3 py-2 text-[13px] font-medium tracking-wide transition-colors hover:bg-plum-soft hover:text-plum ${isActive ? "text-plum" : "text-ink/80"}`}
+        `whitespace-nowrap rounded-lg px-2.5 py-2 text-[13px] font-medium tracking-wide transition-colors hover:bg-plum-soft hover:text-plum xl:px-3 ${isActive ? "text-plum" : "text-ink/80"}`}
     >
       {children}
     </NavLink>
@@ -110,7 +142,7 @@ function GroupMenu({ label, cats, open, onOpen, onClose }: {
         onKeyDown={(e) => {
           if (e.key === "ArrowDown" || e.key === "Enter" || e.key === " ") { e.preventDefault(); onOpen(); }
         }}
-        className={`inline-flex items-center gap-1 whitespace-nowrap rounded-lg px-3 py-2 text-[13px] font-medium tracking-wide transition-colors hover:bg-plum-soft hover:text-plum ${open ? "bg-plum-soft text-plum" : "text-ink/80"}`}
+        className={`inline-flex items-center gap-1 whitespace-nowrap rounded-lg px-2.5 py-2 text-[13px] font-medium tracking-wide transition-colors hover:bg-plum-soft hover:text-plum xl:px-3 ${open ? "bg-plum-soft text-plum" : "text-ink/80"}`}
       >
         {label}
         <ChevronDown className={`h-3.5 w-3.5 transition-transform ${open ? "rotate-180" : ""}`} />
@@ -184,6 +216,16 @@ export function MobileNav({ site, onNavigate }: { site: SiteData | null; onNavig
       <Link to="/shop" onClick={onNavigate} className={row}>Shop all</Link>
 
       {groups.map((g) => {
+        // Same rule as the desktop bar: a heading that is one department with no children is
+        // a link. An accordion that expands to reveal a single link to itself is a tap wasted.
+        if (isDirectLink(g.cats)) {
+          return (
+            <Link key={g.label} to={`/category/${g.cats[0].slug}`} onClick={onNavigate} className={row}>
+              <span className="whitespace-nowrap">{g.label}</span>
+              <span className="num-tabular text-[12px] font-normal text-muted">{g.cats[0]._count.products}</span>
+            </Link>
+          );
+        }
         const isOpen = openGroup === g.label;
         return (
           <div key={g.label}>
