@@ -85,11 +85,16 @@ export function MainNav({ site }: { site: SiteData | null }) {
   const showWomen = (site?.flags?.womenCount ?? 0) > 0;
 
   return (
-    // `no-scrollbar` + `overflow-x-auto` is the safety net, not the plan: at this width
-    // everything fits. But the bug this nav replaced was labels wrapping mid-word — "Bath &/
-    // Body", "Sun/Care" — and scrolling is a far better failure mode than that, so adding a
-    // department can never bring it back.
-    <nav ref={navRef} aria-label="Departments" className="no-scrollbar hidden items-center justify-center gap-0.5 overflow-x-auto pb-2 lg:flex xl:gap-1">
+    // NEVER put an overflow value on this element. `overflow-x: auto` makes `overflow-y`
+    // compute to `auto` as well, which turns the nav into a clipping container — and the
+    // dropdown panels are absolutely positioned at `top-full`, i.e. entirely below it. Adding
+    // `overflow-x-auto` here as an anti-wrap measure silently hid every panel: the chevron
+    // flipped to open and nothing appeared.
+    //
+    // No overflow is needed anyway. A flex row does not wrap unless told to, and every label
+    // is `whitespace-nowrap`, so the mid-word breaks this nav was built to fix ("Bath &/Body",
+    // "Sun/Care") cannot come back. Ten items measure ~840px inside 984px at the lg breakpoint.
+    <nav ref={navRef} aria-label="Departments" className="hidden flex-nowrap items-center justify-center gap-0.5 pb-2 lg:flex xl:gap-1">
       {groups.map((g) => (
         isDirectLink(g.cats)
           ? <TopLink key={g.label} to={`/category/${g.cats[0].slug}`}>{g.label}</TopLink>
