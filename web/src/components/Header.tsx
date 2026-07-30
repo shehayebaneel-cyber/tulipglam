@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Wordmark, SearchIcon, HeartIcon, BagIcon, MenuIcon, CloseIcon, UserIcon } from "./ui";
 import { useStore } from "../lib/store";
+import { usd } from "../lib/api";
 import { MainNav, MobileNav } from "./MainNav";
 
 export function Header() {
@@ -10,7 +11,30 @@ export function Header() {
   const [q, setQ] = useState("");
   const navigate = useNavigate();
   const { site, cartCount, wishlist, customer } = useStore();
-  const announcement = site?.settings.announcement ?? "Free delivery over $60 · Cash on delivery across Lebanon";
+
+  // The fallback used to be the literal string "Free delivery over $60", which stops being
+  // true the moment the threshold changes in Settings. Derived from the real figure now, and
+  // if there is no threshold set the claim is dropped rather than guessed.
+  const threshold = Number(site?.settings.freeDeliveryThresholdCents ?? "");
+  const fallback = [
+    Number.isFinite(threshold) && threshold > 0 ? `Free delivery over ${usd(threshold)}` : "",
+    "Cash on delivery across Lebanon",
+  ].filter(Boolean).join(" · ");
+  const announcement = site?.settings.announcement ?? fallback;
+
+  // Published as a CSS variable so anything that has to sit below the header — sticky
+  // sub-bars, anchor scroll offsets — uses the real height. It differs between mobile and
+  // desktop (the nav row) and changes with the announcement, so a hardcoded value drifts.
+  const headerRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const el = headerRef.current;
+    if (!el) return;
+    const publish = () => document.documentElement.style.setProperty("--header-h", `${Math.round(el.getBoundingClientRect().height)}px`);
+    publish();
+    const ro = new ResizeObserver(publish);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -20,11 +44,13 @@ export function Header() {
   };
 
   return (
-    <header className="sticky top-0 z-40 border-b border-line bg-paper/90 backdrop-blur">
-      {/* announcement */}
-      <div className="bg-plum text-center text-[11px] font-medium tracking-[0.08em] text-white">
-        <p className="wrap py-1.5">{announcement}</p>
-      </div>
+    <header ref={headerRef} className="sticky top-0 z-40 border-b border-line bg-paper/90 backdrop-blur">
+      {/* announcement — hidden entirely when there is nothing true to say */}
+      {announcement && (
+        <div className="bg-plum text-center text-[11px] font-medium tracking-[0.08em] text-white">
+          <p className="wrap py-1.5">{announcement}</p>
+        </div>
+      )}
 
       <div className="wrap">
         <div className="flex h-16 items-center gap-3">

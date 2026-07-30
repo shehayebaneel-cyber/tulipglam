@@ -198,11 +198,39 @@ if something is behind it — and the groups return on their own once products a
 
 ## Phase 4 — Brands page
 
-### 4.1 Search + A–Z — TODO
-### 4.2 Single-product brands — TODO
-Distribution: **43 brands with 1 product**, 76 with 2–4, 70 with 5–9, 163 with 10–49, 53 with
-50+. Directory now hides brands below a configurable threshold into an "Also available"
-section; still reachable by URL and filter.
+### 4.1 Search + A–Z — FIXED
+405 brands in an unsearchable grid meant scrolling past four hundred cards to find one. Added a
+search box and an A–Z jump strip, with the list grouped into letter sections. Filing uses the
+same key the server sorts by, so "L'Oréal" is under L and "The Aloelab" under A; diacritics are
+folded, and anything not starting with a Latin letter goes to "#" rather than inventing a
+section. Letters with nothing behind them render disabled, so the strip keeps a stable shape.
+
+Cards became dense rows: only **2 of 405** brands have a blurb, so the card layout left a large
+empty gap on the other 403.
+
+The endpoint now sorts with the same collator as everything else and drops brands with no
+visible products (currently none, but a card linking to an empty shelf is a dead end).
+Verified: 0 out-of-order pairs across all 405, and "Dr Pawpaw" now sits with the other Dr
+brands rather than between Lakme and Lazartigue.
+
+### 4.2 Single-product brands — FIXED, differently from the plan
+The plan was to hide brands below a threshold into an "Also available" section. Building the
+A–Z index made that wrong: hiding a thin brand removes it from its letter, so the one shopper
+looking for it can no longer find it — the exact problem 4.1 set out to solve.
+
+Every brand stays in the directory, and each row carries its product count. "1 product" sets
+the expectation honestly; hiding it never could. Distribution, for the record: 43 brands with
+1 product, 29 with 2, 29 with 3, 18 with 4, 72 with 5–9, 214 with 10+.
+### 4.5 Announcement bar quoted a hardcoded figure — FIXED (found while measuring the header)
+The bar fell back to the literal string "Free delivery over $60", duplicating a number that
+lives in `freeDeliveryThresholdCents`. True today only by coincidence: move the threshold and
+every page of the site advertises a discount checkout will not apply.
+
+The fallback is derived from the real figure now, and the claim is dropped entirely if no
+threshold is set. The stored value is left alone — instead `checkFreeDeliveryClaim()` refuses
+a save where the two disagree and raises it on the Dashboard, so the owner's words are never
+rewritten for them. 12 cases verified, including "$60" appearing elsewhere in the same string.
+
 ### 4.3 Name normalization — FIXED (script written, dry-run verified, NOT RUN)
 ### 4.4 Brand curation tooling — FIXED (report below, no data changed)
 

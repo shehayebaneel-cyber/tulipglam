@@ -122,6 +122,19 @@ body {
   display: none;
 }
 
+/* The site header is sticky and its height differs between mobile and desktop (the nav row)
+   and with the announcement bar, so Header.tsx measures it and publishes --header-h. Anything
+   that has to clear it uses these rather than a hardcoded guess that drifts. */
+:root {
+  --header-h: 5.5rem; /* first-paint estimate; replaced with the measured value immediately */
+}
+.under-header {
+  top: var(--header-h);
+}
+.anchor-offset {
+  scroll-margin-top: calc(var(--header-h) + 1rem);
+}
+
 /* Horizontal strip that scrolls instead of wrapping. At 390px a 13-department list would
    otherwise stack five rows deep and push the products off the screen. */
 .scroll-x {

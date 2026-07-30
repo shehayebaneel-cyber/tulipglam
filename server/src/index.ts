@@ -539,8 +539,14 @@ app.get("/api/products/:slug", asyncH(async (req, res) => {
 
 // brands list (public)
 app.get("/api/brands", asyncH(async (_req, res) => {
-  const brands = await db.brand.findMany({ where: { active: true }, orderBy: [{ featured: "desc" }, { name: "asc" }],
-    include: { _count: { select: { products: { where: { status: { in: ["active", "unavailable"] } } } } } } });
+  const rows = await db.brand.findMany({ where: { active: true },
+    include: { _count: { select: { products: { where: VISIBLE } } } } });
+  // A brand with nothing visible is a card that links to an empty shelf. `featured desc` is
+  // gone: the directory is alphabetical, and featuring is shown with a badge instead of by
+  // jumping two brands to the front of the alphabet.
+  const brands = rows
+    .filter((b) => b._count.products > 0)
+    .sort((a, b) => COLLATOR.compare(sortKey(a.name), sortKey(b.name)));
   res.json({ brands });
 }));
 
@@ -1320,7 +1326,10 @@ admin.put("/settings", asyncH(async (req, res) => {
   // Reject placeholders and malformed values before anything is persisted, so a bad
   // WhatsApp number can never reach the storefront. All-or-nothing: one bad field
   // blocks the whole save rather than half-applying it.
-  const errors = validateSettings(patch);
+  // Stored values are passed too, so cross-field rules still work when only one side of a
+  // pair is being edited — changing the delivery threshold alone must not leave the
+  // announcement quoting the old figure.
+  const errors = validateSettings(patch, await getSettings());
   if (Object.keys(errors).length) return res.status(400).json({ error: "Some settings need fixing.", errors });
   for (const [key, value] of Object.entries(patch)) {
     await db.setting.upsert({ where: { key }, update: { value: str(value) }, create: { key, value: str(value) } });

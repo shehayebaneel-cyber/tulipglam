@@ -92,6 +92,32 @@ export function validateEmail(raw: string): string | null {
   return null;
 }
 
+/**
+ * Does the announcement bar promise a free-delivery figure the store doesn't honour?
+ *
+ * The bar shipped with the literal string "Free delivery over $60", duplicating a number that
+ * actually lives in `freeDeliveryThresholdCents`. It is true today only by coincidence; move
+ * the threshold and the header advertises a discount checkout won't apply. Rather than rewrite
+ * the owner's words, the mismatch is refused at save time and surfaced on the Dashboard.
+ *
+ * Returns null when there is no free-delivery claim to check.
+ */
+export function checkFreeDeliveryClaim(announcement: string, thresholdCents: number): string | null {
+  const text = announcement.trim();
+  if (!text) return null;
+  // "free delivery/shipping … $60" / "… over 60$" — the amount within the same clause.
+  const m = text.match(/free\s+(?:delivery|shipping)[^.!?|·]{0,24}?(?:\$\s*(\d+(?:\.\d{1,2})?)|(\d+(?:\.\d{1,2})?)\s*\$)/i);
+  if (!m) return null;
+  const claimed = Math.round(Number(m[1] ?? m[2]) * 100);
+  if (!Number.isFinite(claimed)) return null;
+  if (thresholdCents <= 0) {
+    return "The announcement promises free delivery over an amount, but no free-delivery threshold is set, so it never applies.";
+  }
+  if (claimed === thresholdCents) return null;
+  const money = (c: number) => "$" + (c / 100).toFixed(c % 100 === 0 ? 0 : 2);
+  return `The announcement says free delivery over ${money(claimed)}, but the threshold is ${money(thresholdCents)}. Change one so they agree.`;
+}
+
 const NUMERIC_SETTINGS: Record<string, { label: string; min: number; max: number }> = {
   freeDeliveryThresholdCents: { label: "Free delivery threshold", min: 0, max: 10_000_00 },
   defaultDeliveryCents: { label: "Default delivery fee", min: 0, max: 1_000_00 },
@@ -102,7 +128,7 @@ const NUMERIC_SETTINGS: Record<string, { label: string; min: number; max: number
  * Validate a partial settings patch. Returns per-key messages; an empty object means
  * the patch is safe to persist.
  */
-export function validateSettings(patch: Record<string, unknown>): Record<string, string> {
+export function validateSettings(patch: Record<string, unknown>, current: Record<string, string> = {}): Record<string, string> {
   const errors: Record<string, string> = {};
   const check = (key: string, fn: (v: string) => string | null) => {
     if (!(key in patch)) return;
@@ -133,6 +159,19 @@ export function validateSettings(patch: Record<string, unknown>): Record<string,
     if (!(key in patch)) continue;
     const raw = String(patch[key] ?? "").trim().toLowerCase();
     if (raw && raw !== "true" && raw !== "false") errors[key] = "Must be exactly “true” or “false”.";
+  }
+
+  // Cross-field: the announcement must agree with the threshold it is quoting. Either key can
+  // be the one being changed, so fall back to the stored value for whichever isn't in the patch.
+  if ("announcement" in patch || "freeDeliveryThresholdCents" in patch) {
+    const announcement = String(("announcement" in patch ? patch.announcement : current.announcement) ?? "");
+    const rawThreshold = String(("freeDeliveryThresholdCents" in patch ? patch.freeDeliveryThresholdCents : current.freeDeliveryThresholdCents) ?? "");
+    const threshold = Number(rawThreshold.trim() || "0");
+    if (Number.isFinite(threshold)) {
+      const msg = checkFreeDeliveryClaim(announcement, threshold);
+      // Reported against whichever field the operator is actually editing.
+      if (msg) errors["announcement" in patch ? "announcement" : "freeDeliveryThresholdCents"] = msg;
+    }
   }
 
   return errors;
@@ -206,6 +245,12 @@ export function setupChecks(input: AuditInput): SetupCheck[] {
 
   if (!val("storeName")) {
     out.push({ key: "storeName", label: "Store name", severity: "missing", fix: "/admin/settings", message: "No store name — it appears in emails and page titles." });
+  }
+
+  // A promise on every page of the site that checkout would not keep.
+  const claimMismatch = checkFreeDeliveryClaim(val("announcement"), Number(val("freeDeliveryThresholdCents") || "0"));
+  if (claimMismatch) {
+    out.push({ key: "announcement", label: "Announcement bar", severity: "placeholder", fix: "/admin/settings", message: claimMismatch });
   }
 
   return out;
