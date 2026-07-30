@@ -6,10 +6,12 @@
 //
 // Run:  npm run import:dali
 //
-// DESTRUCTIVE + IDEMPOTENT. Every run wipes all products and all non-Dali brands,
-// then rebuilds the catalogue from the JSON. Orders, customers, coupons, gift cards
-// and settings are left alone — order items keep their price/name snapshot and just
-// lose their product link (the snapshot is what the order displays anyway).
+// DESTRUCTIVE + IDEMPOTENT, BUT SCOPED TO THE DALI BRAND. Every run removes Dali's
+// own products (plus any brandless leftovers from the original placeholder seed) and
+// rebuilds them from the JSON. Products from other brands — Beesline, anything you add
+// later — are left alone, as are orders, customers, coupons, gift cards and settings.
+// Order items keep their price/name snapshot and just lose their product link (the
+// snapshot is what the order displays anyway).
 //
 // Pricing decision (owner, July 2026): the supplier site shows a flat 20% off every
 // item. We import the REGULAR price as our price and set NO sale price, so the
@@ -219,18 +221,23 @@ async function main() {
     create: { slug: "dali", name: "Dali", blurb: "Colour, care and everyday beauty", featured: true, active: true, sortOrder: 1 },
   });
 
-  // -- wipe the placeholder catalogue --------------------------------------
+  // -- clear out the previous Dali import ----------------------------------
+  // SCOPED TO THIS BRAND ON PURPOSE. Other brands' products (e.g. Beesline) must
+  // survive a re-run, so only Dali's own products and any brandless leftovers from
+  // the original placeholder seed are removed.
+  //
   // Order items point at products optionally; null the link first so the delete
   // can't fail on a foreign key. Each item already stores its own name/price
   // snapshot, so past orders still render correctly.
-  const oldIds = (await db.product.findMany({ select: { id: true } })).map((p) => p.id);
+  const mine = { OR: [{ brandId: dali.id }, { brandId: null }] };
+  const oldIds = (await db.product.findMany({ where: mine, select: { id: true } })).map((p) => p.id);
   if (oldIds.length) {
     const relinked = await db.orderItem.updateMany({ where: { productId: { in: oldIds } }, data: { productId: null } });
-    const gone = await db.product.deleteMany({});
-    console.log(`Removed ${gone.count} existing products (images, variants and reviews cascaded; ${relinked.count} order items unlinked but intact).`);
+    const gone = await db.product.deleteMany({ where: mine });
+    console.log(`Removed ${gone.count} previous Dali/brandless products (images, variants and reviews cascaded; ${relinked.count} order items unlinked but intact).`);
   }
-  const brandsGone = await db.brand.deleteMany({ where: { slug: { not: "dali" } } });
-  if (brandsGone.count) console.log(`Removed ${brandsGone.count} placeholder brands.`);
+  const others = await db.product.count({ where: { brandId: { notIn: [dali.id] } } });
+  if (others) console.log(`Left ${others} products from other brands untouched.`);
 
   // -- insert the real catalogue ------------------------------------------
   let nProducts = 0, nVariants = 0, nImages = 0, nHexSwatch = 0, nPhotoSwatch = 0;

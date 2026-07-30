@@ -36,25 +36,76 @@ before proceeding.
   logo/wordmark, hero photography, real WhatsApp number + Instagram URL.
 
 ## Catalogue — real products (imported 2026-07-30)
-The placeholder catalogue is **gone**. The store now carries the **Dali** supplier range,
-copied with the supplier's permission from https://dalibeauty.co (WordPress/WooCommerce).
+The placeholder catalogue is **gone**. The store carries two real supplier ranges, both
+copied with the suppliers' permission: **Dali** and **Beesline**.
 
-- **37 products / 132 sellable SKUs** — 16 standalone + 116 colour shades. One brand: **Dali**.
+**345 products total / 440 sellable SKUs**, 737 images. 302 visible on the storefront,
+43 hidden (see Beesline price problems below).
+
+| Brand | Products | Status | Images |
+|---|---|---|---|
+| Dali | 37 (132 SKUs incl. 116 shades) | all active | 182 |
+| Beesline | 308 (single-variant) | 191 active / 74 unavailable / 43 hidden | 555 |
+
+Each brand has its **own importer, scoped to its own brand** — `npm run import:dali` and
+`npm run import:beesline`. Both are destructive *within their brand only*: re-running one
+rebuilds that brand's products and leaves the other's alone. This scoping matters; an
+earlier version of the Dali importer deleted every product in the table.
+
+### Beesline (imported 2026-07-30)
+Source: https://beesline.com Shopify `products.json` (`/en-lb` market, USD).
+Source of truth: `../beesline-import/` (raw pulls, CSV/JSON, all 555 images, README).
+
+- **117 of the 308 products have unusable prices** in the supplier's own store, so status
+  is driven by a data-quality flag: `ok` → active (191), `out_of_stock` → unavailable (74),
+  and three broken-price tiers → **hidden** (43): 24 with prices still in **Lebanese
+  pounds** after their store moved to USD (e.g. Mud Mask at `252390.00`), 13 at a flat
+  `500.00` placeholder, 6 at `0.00`. Hidden products keep the bad price **verbatim** so
+  it's obvious in admin what needs fixing. Nine of them are still in stock on Beesline's
+  site, so this isn't only dead stock — get real figures from the rep, fix, then activate.
+  The single-product endpoints are disabled, so the prices can't be recovered from the API.
+- Pricing: `price_regular` becomes our price, **no sale price**. Beesline's own promos
+  (7–50%, varying per product) are not carried over. These are their **retail** prices,
+  not wholesale — set your own margin before selling.
+- All single-variant (no shades/sizes), unlike Dali.
+- `isNewMode: "never"` — an existing range, not new arrivals for this store.
+- Category placement is **rule-based**, not a per-product table (43 messy supplier types
+  with case/plural duplicates and combo values). Title rules run before type mapping, and
+  anything unmatched is a hard error. The subtle part: "(1+1 Free)" means the *same*
+  product twice — an offer, not a bundle — so those markers are stripped before looking
+  for a genuine multi-product title, and "SPF50+" must not read as a bundle either. Get
+  that wrong and 98 products land in Sets & Routines instead of 57.
+- 2 visible products have no description at all (supplier gap): "Whitening Facial Soap
+  (1+1)" and "Propolis Solution".
+
+### Taxonomy (now 9 departments, two levels)
+Nails (Nail Colours, Nail Care) · Makeup (Face, Lips, Eyes) · Skincare (Cleansers, Serums,
+Moisturisers, Masks, Toners, Eye Care) · Deodorant · Sun Care (Sunscreen, Suntan, After
+Sun) · Hair (Shampoo, Conditioner, Treatments) · Bath & Body (Shower, Body Care, Intimate
+Care) · Sets & Routines · Accessories. **Fragrance** is the only inactive one.
+
+`Sunscreen` moved out of Skincare and under the new Sun Care department, taking Dali's two
+sunscreens with it. `Gift Sets` was reactivated and renamed **Sets & Routines** (Beesline's
+bundles are routines, not gifts).
+
+### Dali (imported 2026-07-30)
+Copied with the supplier's permission from https://dalibeauty.co (WordPress/WooCommerce).
+
+- **37 products / 132 sellable SKUs** — 16 standalone + 116 colour shades.
 - Prices **$2.10–$6.50** USD. The supplier site shows a flat 20% off everything; we import
   the **regular** price and set **no** sale price, so their discount never reaches customers.
   Owner's decision — revisit only if that 20% is confirmed as a real retail promo, not cost.
 - Source of truth: `../dali-import/` (raw API pulls, CSV/JSON, all 182 images, README
   explaining how it was pulled and how to refresh).
-- Import: `cd server && npm run import:dali` — **destructive + idempotent**. Wipes all
-  products and non-Dali brands, rebuilds from `server/prisma/dali-catalog.json`. Validates
+- Import: `cd server && npm run import:dali` — destructive + idempotent, **scoped to the
+  Dali brand**. Rebuilds from `server/prisma/dali-catalog.json`. Validates
   placement/price/image-file presence *before* touching the DB. Orders/customers/coupons
   untouched (order items keep their snapshot, lose only the product link).
 - Images live in **`web/public/products/dali/`** (182 webp, 13 MB) → `/products/dali/…`.
   NOT in `server/uploads/` — that's gitignored and ephemeral on Render, so uploads there
   vanish on redeploy. Anything that must survive a deploy goes in `web/public/`.
-- Taxonomy is now **two levels**: Nails (Nail Colours, Nail Care), Makeup (Face, Lips, Eyes),
-  Skincare (Cleansers, Sunscreen), Bath & Body, Accessories. Hair / Fragrance / Gift Sets are
-  `active: false` — no Dali products in those lines; reactivate when stock exists.
+  Beesline's 555 sit alongside in `web/public/products/beesline/` (56 MB). `web/dist` is
+  ~70 MB after a build, so deploys are heavier than they were.
 - Departments hold no products directly, so `/api/products?category=` matches a category
   **and its children**. Related-products does the same widening. Keep that in mind when
   adding subcategories.
