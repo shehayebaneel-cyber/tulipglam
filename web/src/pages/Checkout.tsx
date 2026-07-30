@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { api, usd, waLink, type Address } from "../lib/api";
+import { api, usd, waHref, type Address } from "../lib/api";
+import { Button } from "../components/Button";
 import { useStore } from "../lib/store";
 import { ProductGlyph } from "../components/ProductGlyph";
 import { TruckIcon, ChevronDown, WhatsAppIcon, CheckIcon, CloseIcon } from "../components/ui";
@@ -80,7 +81,8 @@ export function Checkout() {
       });
       const lines = cart.map((l) => `• ${l.qty}× ${l.name}${l.variantLabel ? ` (${l.variantLabel})` : ""}`).join("\n");
       const text = `Hi TulipGlam! I placed order ${res.number}.\n\n${lines}\n\nTotal: ${usd(res.totalCents)} (COD)\nName: ${form.fullName}\nArea: ${area?.name ?? ""}\nAddress: ${form.address}`;
-      const wa = res.whatsappNumber ? waLink(res.whatsappNumber, text) : "";
+      // "" when unusable, so the confirmation screen degrades instead of linking nowhere.
+      const wa = waHref(res.whatsappNumber, text);
       clearCart();
       navigate(`/order/${res.number}`, { state: { wa, total: res.totalCents } });
     } catch (err) {
@@ -209,9 +211,11 @@ export function Checkout() {
               <span className="serif text-2xl font-medium text-ink tabular">{usd(total)}</span>
             </div>
             {error && <p className="mt-3 rounded-lg bg-sale/10 px-3 py-2 text-[12px] text-sale">{error}</p>}
-            <button disabled={busy} className="btn btn-cta mt-5 w-full bg-[#25D366] py-3.5 text-white hover:brightness-95 disabled:opacity-60">
-              <span className="inline-flex items-center gap-2"><WhatsAppIcon className="h-5 w-5" /> {busy ? "Placing order…" : "Place order"}</span>
-            </button>
+            {/* Plum, not WhatsApp green. The order is recorded server-side regardless; the
+                WhatsApp hand-off happens on the confirmation screen. */}
+            <Button type="submit" disabled={busy} variant="primary" size="lg" full uppercase className="mt-5">
+              <WhatsAppIcon className="h-5 w-5" /> {busy ? "Placing order…" : "Place order"}
+            </Button>
             {total === 0 && giftUsed > 0 && <p className="mt-2 flex items-center justify-center gap-1 text-center text-[12px] text-ok"><CheckIcon className="h-3.5 w-3.5" /> Fully covered by your gift card</p>}
             <p className="mt-3 text-center text-[11px] text-muted">By placing your order you agree to our <Link to="/terms" className="underline hover:text-plum">Terms</Link>.</p>
           </div>

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Button } from "../components/Button";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import { useStore } from "../lib/store";
 import { TulipMark } from "../components/ui";
@@ -37,7 +38,7 @@ export function Login({ mode }: { mode: "login" | "register" }) {
           {isRegister && <input placeholder="Phone (optional)" value={f.phone} onChange={set("phone")} inputMode="tel" className="field" />}
           <input required type="password" placeholder="Password" value={f.password} onChange={set("password")} className="field" />
           {err && <p className="rounded-lg bg-sale/10 px-3 py-2 text-[12px] text-sale">{err}</p>}
-          <button disabled={busy} className="btn btn-ink w-full py-3.5">{busy ? "Please wait…" : isRegister ? "Create account" : "Sign in"}</button>
+          <Button type="submit" disabled={busy} variant="primary" size="lg" full>{busy ? "Please wait…" : isRegister ? "Create account" : "Sign in"}</Button>
         </form>
         <p className="mt-4 text-center text-[13px] text-muted">
           {isRegister ? <>Already have an account? <Link to="/login" className="font-semibold text-plum hover:underline">Sign in</Link></>

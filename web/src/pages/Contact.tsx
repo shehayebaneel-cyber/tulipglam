@@ -1,4 +1,4 @@
-import { usd, waLink } from "../lib/api";
+import { usd, waHref, WA_UNSET_HELP } from "../lib/api";
 import { useStore } from "../lib/store";
 import { WhatsAppIcon, InstagramIcon, TruckIcon, BoxIcon } from "../components/ui";
 import { Link } from "react-router-dom";
@@ -6,6 +6,7 @@ import { Link } from "react-router-dom";
 export function Contact() {
   const { site } = useStore();
   const wa = site?.settings.whatsappNumber ?? "";
+  const waTo = waHref(wa, "Hi TulipGlam! I have a question.");
   const ig = site?.settings.instagramUrl ?? "";
   const email = site?.settings.contactEmail ?? "";
 
@@ -16,11 +17,18 @@ export function Contact() {
         <p className="mt-2 text-[15px] text-muted">We’re here to help with orders, product advice and anything else. The fastest way to reach us is WhatsApp.</p>
 
         <div className="mt-6 grid gap-4 sm:grid-cols-2">
-          {wa && (
-            <a href={waLink(wa, "Hi TulipGlam! I have a question.")} target="_blank" rel="noreferrer" className="flex items-center gap-3 rounded-2xl border border-line bg-surface p-5 transition-colors hover:border-plum/40">
-              <span className="grid h-11 w-11 place-items-center rounded-full bg-[#25D366]/10 text-[#25D366]"><WhatsAppIcon className="h-6 w-6" /></span>
+          {/* Inert with an explanation when the store number is missing or a placeholder,
+              rather than a link to a dead wa.me address. */}
+          {waTo ? (
+            <a href={waTo} target="_blank" rel="noreferrer" className="flex items-center gap-3 rounded-2xl border border-line bg-surface p-5 transition-colors hover:border-plum/40">
+              <span className="grid h-11 w-11 place-items-center rounded-full bg-plum-soft text-plum"><WhatsAppIcon className="h-6 w-6" /></span>
               <div><p className="text-[14px] font-semibold text-ink">WhatsApp</p><p className="text-[12px] text-muted">Chat with us directly</p></div>
             </a>
+          ) : (
+            <div className="flex items-center gap-3 rounded-2xl border border-dashed border-line-strong bg-surface p-5">
+              <span className="grid h-11 w-11 place-items-center rounded-full bg-soft text-muted"><WhatsAppIcon className="h-6 w-6" /></span>
+              <div><p className="text-[14px] font-semibold text-ink">WhatsApp</p><p className="text-[12px] text-sale">{WA_UNSET_HELP}</p></div>
+            </div>
           )}
           {ig && (
             <a href={ig} target="_blank" rel="noreferrer" className="flex items-center gap-3 rounded-2xl border border-line bg-surface p-5 transition-colors hover:border-plum/40">

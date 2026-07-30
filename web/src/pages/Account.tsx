@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Button, ButtonLink } from "../components/Button";
 import { Link, useNavigate } from "react-router-dom";
 import { api, usd, type Address, type Order } from "../lib/api";
 import { useStore } from "../lib/store";
@@ -48,7 +49,7 @@ function OrdersTab({ orders, statuses }: { orders: Order[] | null; statuses: { k
   if (!orders) return <div className="grid place-items-center py-16 text-plum"><Spinner /></div>;
   if (orders.length === 0) return (
     <div className="grid place-items-center rounded-2xl border border-dashed border-line-strong py-16 text-center">
-      <div><BoxIcon className="mx-auto h-8 w-8 text-plum/60" /><p className="serif mt-3 text-xl text-ink">No orders yet</p><Link to="/shop" className="btn btn-ink mt-5 px-6 py-3">Start shopping</Link></div>
+      <div><BoxIcon className="mx-auto h-8 w-8 text-plum/60" /><p className="serif mt-3 text-xl text-ink">No orders yet</p><ButtonLink to="/shop" variant="primary" className="mt-5">Start shopping</ButtonLink></div>
     </div>
   );
   return (
@@ -117,7 +118,7 @@ function AddressesTab({ addresses, reload, areas }: { addresses: Address[] | nul
               <input placeholder="City / town" value={edit.city} onChange={(e) => setEdit({ ...edit, city: e.target.value })} className="field" />
               <textarea placeholder="Full address" value={edit.address} onChange={(e) => setEdit({ ...edit, address: e.target.value })} rows={2} className="field resize-none" />
               <label className="flex items-center gap-2 text-[13px]"><input type="checkbox" checked={edit.isDefault} onChange={(e) => setEdit({ ...edit, isDefault: e.target.checked })} className="accent-plum" /> Set as default</label>
-              <div className="flex gap-2 pt-1"><button onClick={save} className="btn btn-ink flex-1 py-3">Save</button><button onClick={() => setEdit(null)} className="btn btn-ghost px-5 py-3">Cancel</button></div>
+              <div className="flex gap-2 pt-1"><Button onClick={save} variant="primary" className="flex-1">Save</Button><Button onClick={() => setEdit(null)} variant="tertiary">Cancel</Button></div>
             </div>
           </div>
         </div>
@@ -140,7 +141,7 @@ function ProfileTab({ onSaved, wishCount }: { onSaved: (c: import("../lib/api").
           <input placeholder="Full name" value={f.fullName} onChange={(e) => setF((s) => ({ ...s, fullName: e.target.value }))} className="field" />
           <input placeholder="Phone" value={f.phone} onChange={(e) => setF((s) => ({ ...s, phone: e.target.value }))} className="field" />
           <input value={customer?.email ?? ""} disabled className="field opacity-60" />
-          <button onClick={save} className="btn btn-ink px-6 py-3">Save changes</button>
+          <Button onClick={save} variant="primary">Save changes</Button>
           {msg && <span className="ml-3 text-[13px] text-ok">{msg}</span>}
         </div>
       </div>

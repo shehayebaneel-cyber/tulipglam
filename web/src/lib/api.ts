@@ -110,3 +110,34 @@ export const api = {
 export const usd = (cents: number) => "$" + (cents / 100).toFixed(cents % 100 === 0 ? 0 : 2);
 export const priceOf = (c: { priceCents: number; saleCents: number | null }) => c.saleCents ?? c.priceCents;
 export const waLink = (number: string, text: string) => `https://wa.me/${number.replace(/\D/g, "")}?text=${encodeURIComponent(text)}`;
+
+/**
+ * Is the store's WhatsApp number usable?
+ *
+ * Checkout, gift cards, contact and every order conversation run through WhatsApp, so a
+ * placeholder number means orders silently go nowhere. Mirrors the server's validation
+ * (server/src/setup.ts) so the UI can disable a CTA instead of rendering a dead wa.me link.
+ * The server remains the authority — this only decides what to render.
+ */
+export function waUsable(raw: string | undefined | null): boolean {
+  const v = (raw ?? "").trim();
+  if (!v || /[a-z]/i.test(v)) return false;
+  const d = v.replace(/\D/g, "");
+  if (d.length < 8 || d.length > 15) return false;
+  if (/(\d)\1{4,}/.test(d)) return false;                       // 9613000000
+  for (let i = 1, asc = 1, desc = 1; i < d.length; i++) {        // 1234567
+    const delta = d.charCodeAt(i) - d.charCodeAt(i - 1);
+    asc = delta === 1 ? asc + 1 : 1;
+    desc = delta === -1 ? desc + 1 : 1;
+    if (asc >= 6 || desc >= 6) return false;
+  }
+  return true;
+}
+
+/** Explanation shown on a disabled WhatsApp control. */
+export const WA_UNSET_HELP =
+  "WhatsApp isn't set up yet — the store's number is missing or a placeholder. Add a real number in Settings.";
+
+/** `waLink` when the number is usable, otherwise "" so buttons render inert. */
+export const waHref = (number: string | undefined | null, text: string) =>
+  waUsable(number) ? waLink(String(number), text) : "";

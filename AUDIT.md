@@ -69,7 +69,7 @@ checkable by number, no login needed. Unsupportable claims can now be removed wi
 Zero products have sale prices, so the nav item (styled in `#B23A3A`) led to an empty page.
 Nav item and route now self-suppress unless at least one product has a sale price.
 
-### 1.4 Placeholder contact details — FIXED (validation + degradation)
+### 1.4 Placeholder contact details — FIXED (validation + sitewide degradation)
 WhatsApp is `9613000000`; Instagram and contact email echo the store name. Checkout depends
 entirely on WhatsApp, so **no order could reach the owner**.
 - Strict validation in admin Settings rejects repeated-digit runs, sequential runs,
@@ -78,6 +78,10 @@ entirely on WhatsApp, so **no order could reach the owner**.
   orders) now detects an unconfigured/placeholder number and renders disabled with an
   explanation instead of a dead `wa.me` link.
 - Footer Instagram/email links hide rather than link to nothing.
+Sitewide degradation implemented this pass via `waUsable()` / `waHref()` in `lib/api.ts`,
+mirroring the server rules: checkout CTA, order-success confirm, gift-card order, contact card
+and footer links all render inert with an explanation when the number is missing or a
+placeholder. Verified: with `9613000000` configured, every one degrades.
 **The real values remain BLOCKED — see the BLOCKED section.**
 
 ### 1.5 Setup-incomplete banner — FIXED
@@ -196,12 +200,12 @@ Confirmed off-palette literals: `#25D366` WhatsApp green in 5 files, `#b7791f` i
 `#faf3ef`/`#f4e1eb`/`#f1e9e4` hero gradient, `#000` in `.btn-ink:hover`, plus 32 `btn-ink`
 (black) usages across 20 files.
 
-- 5.1 Single `Button` primitive with primary/secondary/tertiary/destructive — **TODO**
-- 5.2 WhatsApp green restyled to plum with a WhatsApp glyph — **TODO**
-- 5.3 Amount-chip selected state now border + tint + checkmark — **TODO**
+- 5.1 Single `Button` primitive with primary/secondary/tertiary/destructive — **FIXED** (all 32 `btn-ink` usages in the storefront converted; only a comment mentions it now)
+- 5.2 WhatsApp green restyled to plum with a WhatsApp glyph — **FIXED** (`#25D366` gone from the storefront)
+- 5.3 Amount-chip selected state now border + tint + checkmark — **FIXED**
 - 5.4 Login show/hide password + forgot-password — **TODO**, honest about delivery when SMTP
   is unconfigured (no silent no-op link)
-- 5.5 Gift-card copy made specific; terms surfaced inline — **TODO**
+- 5.5 Gift-card copy made specific; terms surfaced inline — **FIXED** (3-step flow + terms beside the CTA)
 
 ---
 

@@ -1,4 +1,5 @@
 import { Link } from "react-router-dom";
+import { ButtonLink } from "../components/Button";
 import { usd } from "../lib/api";
 import { useStore, lineKey } from "../lib/store";
 import { ProductGlyph } from "../components/ProductGlyph";
@@ -16,7 +17,7 @@ export function Cart() {
         <div className="mx-auto grid h-16 w-16 place-items-center rounded-full bg-plum-soft text-plum"><BagIcon className="h-7 w-7" /></div>
         <h1 className="serif mt-5 text-3xl text-ink">Your bag is empty</h1>
         <p className="mx-auto mt-2 max-w-xs text-sm text-muted">Discover our best sellers and new arrivals — beautifully sourced for Lebanon.</p>
-        <Link to="/shop" className="btn btn-ink mt-6 px-7 py-3.5">Start shopping</Link>
+        <ButtonLink to="/shop" variant="primary" size="lg" className="mt-6">Start shopping</ButtonLink>
       </div>
     </div>
   );
@@ -78,7 +79,7 @@ export function Cart() {
               <span className="text-[14px] font-semibold text-ink">Total</span>
               <span className="serif text-2xl font-medium text-ink tabular">{usd(cartSubtotal)}{!freeShip && <span className="text-[13px] text-muted"> +</span>}</span>
             </div>
-            <Link to="/checkout" className="btn btn-ink btn-cta mt-5 w-full py-3.5">Checkout</Link>
+            <ButtonLink to="/checkout" variant="primary" size="lg" full uppercase className="mt-5">Checkout</ButtonLink>
             <p className="mt-3 text-center text-[11px] leading-relaxed text-muted">Cash on delivery · confirmed on WhatsApp.<br />Orders are subject to product availability.</p>
           </div>
         </aside>

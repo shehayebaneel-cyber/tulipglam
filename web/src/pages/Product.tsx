@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Button } from "../components/Button";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import { api, usd, priceOf, type Variant } from "../lib/api";
 import { useStore } from "../lib/store";
@@ -185,7 +186,7 @@ export function Product() {
               <button onClick={() => setQty((q) => Math.min(99, q + 1))} className="grid h-12 w-12 place-items-center text-ink hover:text-plum" aria-label="Increase"><PlusIcon className="h-4 w-4" /></button>
             </div>
             <button onClick={add} disabled={!canAdd}
-              className="btn btn-ink btn-cta flex-1 text-[15px] disabled:cursor-not-allowed disabled:opacity-45">
+              className="btn btn-cta flex-1 border-transparent bg-plum text-[15px] text-white hover:bg-plum-dark disabled:cursor-not-allowed disabled:opacity-45">
               {added ? <span className="inline-flex items-center gap-1.5"><CheckIcon className="h-4 w-4" /> Added</span>
                 : unavailable ? "Unavailable"
                 : needsChoice && !chosen ? (shades.length ? "Select a shade" : "Select a size")
@@ -280,7 +281,7 @@ function Reviews({ slug, reviews, avg, count }: { slug: string; reviews: import(
           <input required placeholder="Your name" value={form.author} onChange={(e) => setForm((f) => ({ ...f, author: e.target.value }))} className="field" />
           <input placeholder="Title (optional)" value={form.title} onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))} className="field" />
           <textarea required placeholder="Share your experience…" value={form.text} onChange={(e) => setForm((f) => ({ ...f, text: e.target.value }))} rows={3} className="field resize-none" />
-          <button disabled={busy} className="btn btn-ink py-3">{busy ? "Submitting…" : "Submit review"}</button>
+          <Button type="submit" disabled={busy} variant="primary">{busy ? "Submitting…" : "Submit review"}</Button>
         </form>
       )}
 

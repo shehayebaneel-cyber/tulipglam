@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Button } from "../components/Button";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { api, usd, type Order } from "../lib/api";
 import { useStore } from "../lib/store";
@@ -20,7 +21,7 @@ export function Track() {
           <p className="mt-2 text-sm text-muted">Enter the order number we sent you (e.g. TG-A1B2C3).</p>
           <form onSubmit={(e) => { e.preventDefault(); if (input.trim()) navigate(`/track/${input.trim().toUpperCase()}`); }} className="mt-6 flex gap-2">
             <input value={input} onChange={(e) => setInput(e.target.value)} placeholder="TG-XXXXXX" className="field flex-1 text-center uppercase tracking-wider" />
-            <button className="btn btn-ink px-6">Track</button>
+            <Button type="submit" variant="primary" size="md">Track</Button>
           </form>
         </div>
       </div>

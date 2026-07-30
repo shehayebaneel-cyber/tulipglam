@@ -1,5 +1,6 @@
 import { useLocation, useParams, Link } from "react-router-dom";
-import { usd } from "../lib/api";
+import { usd, WA_UNSET_HELP } from "../lib/api";
+import { ButtonAnchor, ButtonLink } from "../components/Button";
 import { CheckIcon, WhatsAppIcon, ChevronRight } from "../components/ui";
 import { TulipMark } from "../components/ui";
 
@@ -27,12 +28,12 @@ export function OrderSuccess() {
         </div>
 
         <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:justify-center">
-          {state.wa && (
-            <a href={state.wa} target="_blank" rel="noreferrer" className="btn btn-cta bg-[#25D366] px-6 py-3.5 text-white hover:brightness-95">
-              <span className="inline-flex items-center gap-2"><WhatsAppIcon className="h-5 w-5" /> Confirm on WhatsApp</span>
-            </a>
-          )}
-          <Link to={`/track/${number}`} className="btn btn-ink px-6 py-3.5">Track your order</Link>
+          {/* The order is already recorded; this only hands off to WhatsApp. When WhatsApp is
+              unconfigured the control is inert and says so, so nobody believes a message went out. */}
+          <ButtonAnchor href={state.wa ?? ""} variant="primary" size="lg" uppercase title={state.wa ? undefined : WA_UNSET_HELP}>
+            <WhatsAppIcon className="h-5 w-5" /> Confirm on WhatsApp
+          </ButtonAnchor>
+          <ButtonLink to={`/track/${number}`} variant="secondary" size="lg">Track your order</ButtonLink>
         </div>
         <Link to="/shop" className="mt-5 inline-flex items-center gap-1 text-[13px] font-semibold text-plum hover:gap-1.5">Continue shopping <ChevronRight className="h-4 w-4" /></Link>
       </div>

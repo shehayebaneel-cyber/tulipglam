@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { Button } from "../components/Button";
 import { useParams, useSearchParams, Link } from "react-router-dom";
 import { api, type Card } from "../lib/api";
 import { useStore } from "../lib/store";
@@ -184,7 +185,7 @@ export function Shop({ mode }: { mode: Mode }) {
             <Filters />
             <div className="mt-6 flex gap-3">
               {activeCount > 0 && <button onClick={clearAll} className="btn btn-ghost flex-1 py-3">Clear</button>}
-              <button onClick={() => setSheet(false)} className="btn btn-ink flex-1 py-3">Show {data?.total ?? 0} items</button>
+              <Button onClick={() => setSheet(false)} variant="primary" className="flex-1">Show {data?.total ?? 0} items</Button>
             </div>
           </div>
         </div>
