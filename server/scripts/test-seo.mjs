@@ -31,6 +31,33 @@ const variant = await db.productVariant.findFirst({ where: { NOT: { sku: "" } },
 await db.$disconnect();
 if (!product) throw new Error("no product with a SKU and an image to test against");
 
+// ---------------------------------------------------------------- the page still boots
+//
+// This section exists because the head injection once shipped a blank site. index.html carried
+// a comment mentioning the title tag by name; the removal regex matched inside that comment and
+// ran to the real closing tag, taking the `-->` with it. The unclosed comment swallowed the
+// rest of the head — including the module script — so nothing rendered.
+//
+// Every check below the fold passed while that was live: 200, exactly one title, valid Open
+// Graph, correct canonical. None of them asked the only question that matters first — does the
+// browser still have an app to run.
+console.log("\nThe document still boots:");
+for (const path of ["/", `/product/${product?.slug ?? ""}`, "/shop"]) {
+  const r = await get(path);
+  const opens = (r.text.match(/<!--/g) ?? []).length;
+  const closes = (r.text.match(/-->/g) ?? []).length;
+  check(`${path} — every comment is closed`, opens === closes, `${opens} <!-- vs ${closes} -->`);
+  // The script must survive, and must not have been swallowed into a comment.
+  const script = r.text.match(/<script[^>]*type="module"[^>]*src="([^"]+)"/);
+  check(`${path} — the module script is present`, !!script, "no <script type=module> in the document");
+  if (script) {
+    const before = r.text.slice(0, r.text.indexOf(script[0]));
+    const swallowed = (before.match(/<!--/g) ?? []).length > (before.match(/-->/g) ?? []).length;
+    check(`${path} — the script is not inside a comment`, !swallowed);
+  }
+  check(`${path} — has the root element`, r.text.includes('id="root"'));
+}
+
 // ---------------------------------------------------------------- product page
 console.log("\nProduct page:");
 const pp = await get(`/product/${product.slug}`);

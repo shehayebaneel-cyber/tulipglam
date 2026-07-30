@@ -78,12 +78,39 @@ export function renderHead(meta: PageMeta, siteName: string): string {
  *
  * The build ships a title and description, so those are removed rather than duplicated — two
  * <title> tags is undefined behaviour and two descriptions is a crawler coin-flip.
+ *
+ * Removal is comment-aware, and that is not a nicety. The first version matched by pattern
+ * alone, and index.html carried a comment that mentioned the title tag by name. The match
+ * started inside that comment and ran to the real closing tag, deleting the `-->` along the
+ * way — which left an unclosed comment that swallowed the rest of the head, including the
+ * module script. Every response was still 200, still had exactly one title, still had valid
+ * Open Graph. The page was blank, because the app never loaded.
+ *
+ * So: find the comment ranges first, and only touch matches that start outside all of them.
  */
 export function injectHead(html: string, head: string): string {
-  return html
-    .replace(/<title>[\s\S]*?<\/title>\s*/i, "")
-    .replace(/<meta\s+name="description"[^>]*>\s*/i, "")
-    .replace(/<\/head>/i, `  ${head}\n  </head>`);
+  // Blank every comment to same-length whitespace. Offsets in the mask therefore line up
+  // exactly with the original, so matches can be found on the mask — where no comment can
+  // contribute one — and cut out of the real string.
+  //
+  // Skipping matches that merely *start* in a comment is not enough: the comment's `<title>`
+  // and the document's `</title>` form one lazy match, so skipping it also skips past the real
+  // tag and nothing gets removed.
+  const mask = html.replace(/<!--[\s\S]*?-->/g, (c) => " ".repeat(c.length));
+
+  const cuts: [number, number][] = [];
+  const firstIn = (re: RegExp) => {
+    const m = re.exec(mask);
+    if (m) cuts.push([m.index, m.index + m[0].length]);
+  };
+  firstIn(/<title>[\s\S]*?<\/title>\s*/i);
+  firstIn(/<meta\s+name="description"[^>]*>\s*/i);
+
+  // Back to front, so earlier offsets stay valid as later ones are removed.
+  let out = html;
+  for (const [a, b] of cuts.sort((x, y) => y[0] - x[0])) out = out.slice(0, a) + out.slice(b);
+
+  return out.replace(/<\/head>/i, `  ${head}\n  </head>`);
 }
 
 const BRAND_TAIL = (siteName: string) => ` · ${siteName}`;

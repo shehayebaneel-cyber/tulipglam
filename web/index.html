@@ -6,10 +6,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="theme-color" content="#FCFCFB" />
     <!--
-      Defaults only. In production the server replaces this <title>, the description, and adds
+      Defaults only. In production the server replaces the title and description below and adds
       canonical / Open Graph / JSON-LD per page (server/src/seo.ts) — a client-side app shows
       one title to any crawler that doesn't run JavaScript, and WhatsApp's link preview crawler
       doesn't. These stay as the fallback for the dev server and for a static preview.
+
+      Do not write an HTML tag name inside angle brackets in this comment. injectHead() strips
+      the existing title and description by pattern, and a tag written here would be a second
+      thing for it to match.
     -->
     <meta name="description" content="TulipGlam — premium beauty in Lebanon. Makeup, skincare, hair, fragrance & gift sets, delivered across Lebanon." />
     <title>TulipGlam — Premium Beauty · Lebanon</title>
