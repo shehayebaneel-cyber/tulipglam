@@ -14,6 +14,12 @@ export function Product() {
   const { data: p, loading, error } = useFetch(() => api.product(slug), [slug]);
 
   const [imgIdx, setImgIdx] = useState(0);
+  // When a shade with its own photo is picked, that photo takes over the hero.
+  // Clicking a thumbnail hands control back to the gallery.
+  const [showShadeImg, setShowShadeImg] = useState(true);
+  // Photos that failed to load, tracked per URL so one bad shade photo doesn't hide
+  // the hero for every other shade. Falls back to the glyph instead of raw alt text.
+  const [failedImgs, setFailedImgs] = useState<ReadonlySet<string>>(new Set());
   const [variant, setVariant] = useState<Variant | null>(null);
   const [qty, setQty] = useState(1);
   const [added, setAdded] = useState(false);
@@ -35,6 +41,12 @@ export function Product() {
   const wished = inWish(p.slug);
   const gallery = p.images.length ? p.images : null;
 
+  const shadeImg = chosen?.type === "shade" ? chosen.imageUrl : "";
+  const heroUrl = (showShadeImg && shadeImg) || (gallery ? gallery[imgIdx].url : "");
+  const heroAlt = showShadeImg && shadeImg ? `${p.name} — ${chosen!.label}` : gallery ? gallery[imgIdx].alt || p.name : p.name;
+
+  const pickShade = (v: Variant) => { setVariant(v); setShowShadeImg(true); };
+
   const canAdd = !unavailable && (!needsChoice || !!chosen) && (!chosen || chosen.available);
 
   const add = () => {
@@ -42,7 +54,7 @@ export function Product() {
     addToCart({
       productId: p.id, slug: p.slug, name: p.name, brand: p.brand?.name ?? "",
       variantId: chosen?.id, variantLabel: chosen?.label, glyph: p.glyph, tint: p.tint,
-      image: p.images[0]?.url ?? "", priceCents: price, qty,
+      image: shadeImg || p.images[0]?.url || "", priceCents: price, qty,
     });
     setAdded(true);
     setTimeout(() => setAdded(false), 1800);
@@ -62,8 +74,8 @@ export function Product() {
         <div className="lg:sticky lg:top-28 lg:self-start">
           <div className="relative overflow-hidden rounded-3xl" style={{ background: p.tint }}>
             <div className="aspect-square w-full">
-              {gallery ? (
-                <img src={gallery[imgIdx].url} alt={gallery[imgIdx].alt || p.name} className="h-full w-full object-cover" />
+              {heroUrl && !failedImgs.has(heroUrl) ? (
+                <img src={heroUrl} alt={heroAlt} onError={() => setFailedImgs((s) => new Set(s).add(heroUrl))} className="h-full w-full object-cover" />
               ) : (
                 <ProductGlyph kind={p.glyph} className="h-full w-full p-16 text-plum/45" />
               )}
@@ -79,7 +91,8 @@ export function Product() {
           {gallery && gallery.length > 1 && (
             <div className="mt-3 flex gap-2.5">
               {gallery.map((im, i) => (
-                <button key={i} onClick={() => setImgIdx(i)} className={`h-16 w-16 overflow-hidden rounded-xl border-2 ${i === imgIdx ? "border-plum" : "border-transparent"}`}>
+                <button key={i} onClick={() => { setImgIdx(i); setShowShadeImg(false); }}
+                  className={`h-16 w-16 overflow-hidden rounded-xl border-2 ${i === imgIdx && !(showShadeImg && shadeImg) ? "border-plum" : "border-transparent"}`}>
                   <img src={im.url} alt="" className="h-full w-full object-cover" />
                 </button>
               ))}
@@ -136,9 +149,12 @@ export function Product() {
               </div>
               <div className="mt-2.5 flex flex-wrap gap-2.5">
                 {shades.map((v) => (
-                  <button key={v.id} onClick={() => setVariant(v)} disabled={!v.available} title={v.label}
-                    className={`relative h-10 w-10 rounded-full ring-offset-2 transition disabled:opacity-30 ${chosen?.id === v.id ? "ring-2 ring-plum" : "ring-1 ring-line-strong"}`}
-                    style={{ background: v.hex || "#ddd" }} aria-label={v.label} aria-pressed={chosen?.id === v.id}>
+                  <button key={v.id} onClick={() => pickShade(v)} disabled={!v.available} title={v.label}
+                    className={`relative h-10 w-10 overflow-hidden rounded-full ring-offset-2 transition disabled:opacity-30 ${chosen?.id === v.id ? "ring-2 ring-plum" : "ring-1 ring-line-strong"}`}
+                    style={v.hex ? { background: v.hex } : undefined} aria-label={v.label} aria-pressed={chosen?.id === v.id}>
+                    {/* hex when we have a true shade colour; otherwise the shade's own photo */}
+                    {!v.hex && v.imageUrl && <img src={v.imageUrl} alt="" className="h-full w-full scale-150 object-cover" />}
+                    {!v.hex && !v.imageUrl && <span className="block h-full w-full bg-soft" />}
                     {chosen?.id === v.id && <CheckIcon className="absolute inset-0 m-auto h-4 w-4 text-white mix-blend-difference" />}
                   </button>
                 ))}

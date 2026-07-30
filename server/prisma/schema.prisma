@@ -54,6 +54,7 @@ model Product {
   id          Int      @id @default(autoincrement())
   slug        String   @unique
   name        String
+  sku         String   @default("") // supplier reference, for re-ordering (not shown to customers)
   status      String   @default("active") // active|hidden|unavailable|discontinued
   priceCents  Int // display/base price in USD cents
   saleCents   Int? // if set (< priceCents) product is on sale
@@ -96,13 +97,17 @@ model ProductImage {
 }
 
 // Shades / sizes. type = "shade" (has hex swatch) | "size" (has label).
+// A shade may carry its own photo (imageUrl) — real shade photography beats a flat
+// hex blob, so the swatch renders the photo when present and falls back to hex.
 model ProductVariant {
   id         Int     @id @default(autoincrement())
   productId  Int
   product    Product @relation(fields: [productId], references: [id], onDelete: Cascade)
   type       String  @default("shade") // shade|size
   label      String // "Rosewood", "50ml"
-  hex        String  @default("") // swatch colour for shades
+  sku        String  @default("") // supplier reference for this exact shade
+  hex        String  @default("") // swatch colour, used when imageUrl is empty
+  imageUrl   String  @default("") // per-shade photo; also becomes the hero image when picked
   priceCents Int? // optional override of base price
   available  Boolean @default(true)
   sortOrder  Int     @default(0)

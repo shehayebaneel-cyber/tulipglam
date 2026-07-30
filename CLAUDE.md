@@ -32,7 +32,45 @@ before proceeding.
 - Voice: elegant, premium, feminine, trustworthy. Motif to explore: the tulip.
 - Direction: **minimal luxury** — final direction chosen from 3 presented moodboards (pending).
 - Tokens: web/src/index.css @theme (set after direction is chosen).
-- Assets: none yet (no products, photos, logos, WhatsApp/IG). Seed realistic placeholders for now.
+- Assets: real product photography now in place (see Catalogue below). Still missing:
+  logo/wordmark, hero photography, real WhatsApp number + Instagram URL.
+
+## Catalogue — real products (imported 2026-07-30)
+The placeholder catalogue is **gone**. The store now carries the **Dali** supplier range,
+copied with the supplier's permission from https://dalibeauty.co (WordPress/WooCommerce).
+
+- **37 products / 132 sellable SKUs** — 16 standalone + 116 colour shades. One brand: **Dali**.
+- Prices **$2.10–$6.50** USD. The supplier site shows a flat 20% off everything; we import
+  the **regular** price and set **no** sale price, so their discount never reaches customers.
+  Owner's decision — revisit only if that 20% is confirmed as a real retail promo, not cost.
+- Source of truth: `../dali-import/` (raw API pulls, CSV/JSON, all 182 images, README
+  explaining how it was pulled and how to refresh).
+- Import: `cd server && npm run import:dali` — **destructive + idempotent**. Wipes all
+  products and non-Dali brands, rebuilds from `server/prisma/dali-catalog.json`. Validates
+  placement/price/image-file presence *before* touching the DB. Orders/customers/coupons
+  untouched (order items keep their snapshot, lose only the product link).
+- Images live in **`web/public/products/dali/`** (182 webp, 13 MB) → `/products/dali/…`.
+  NOT in `server/uploads/` — that's gitignored and ephemeral on Render, so uploads there
+  vanish on redeploy. Anything that must survive a deploy goes in `web/public/`.
+- Taxonomy is now **two levels**: Nails (Nail Colours, Nail Care), Makeup (Face, Lips, Eyes),
+  Skincare (Cleansers, Sunscreen), Bath & Body, Accessories. Hair / Fragrance / Gift Sets are
+  `active: false` — no Dali products in those lines; reactivate when stock exists.
+- Departments hold no products directly, so `/api/products?category=` matches a category
+  **and its children**. Related-products does the same widening. Keep that in mind when
+  adding subcategories.
+- **Shade swatches**: the supplier publishes shade names but no colour codes, so swatch
+  colours were read out of the shade photos (`dali-import/extract-swatch-hex.ps1`). That
+  works where packaging carries the shade (polish through glass, colour-matched lipstick and
+  balm tubes, powder pans) → 102 colour circles. For **Eye Pencil, Lip Pencil Waterproof,
+  Creamy Blush, Concealer** the barrel is a neutral house colour and the shade is a small
+  accent, so extraction returns the packaging (a "Black" pencil reads peach) — those 14
+  variants ship with `hex: ""`, which makes the storefront use the **shade photo** as the
+  swatch instead. Rule: `hex` set → colour circle; empty → photo; neither → grey.
+- `Product.sku` / `ProductVariant.sku` hold the supplier's codes for re-ordering. **Admin-only** —
+  never serialised to the public product endpoint.
+- Gaps in the source data, not bugs: no `howToUse` / `ingredients` for any product (the
+  supplier's Application/Benefits/Ingredients accordions are empty on their own site), no
+  best-seller flags, no concerns/attributes tags. All need writing by hand.
 
 ## Domain rules
 - Currency USD; no online payment (COD + WhatsApp). Delivery across **all of Lebanon**
@@ -69,7 +107,9 @@ in components/ui.tsx). Product photos stubbed with line silhouettes (`ProductGly
 - Models: Category (self-parent), Brand, Product (status active|hidden|unavailable|discontinued,
   no stock), ProductImage, ProductVariant (shade|size), Review (approval-gated), Order + OrderItem
   (price snapshot) + OrderEvent (history), Setting (k/v), DeliveryArea (fee by area).
-- Seed = 29 products / 8 brands / 6 categories / 9 Lebanon delivery areas. `npm run seed`.
+- ~~Seed = 29 products / 8 brands / 6 categories~~ — **superseded by the Dali import** (see
+  Catalogue above). `prisma/seed.ts` is kept only for the delivery areas / settings / demo
+  coupon + gift card; running `npm run seed` again would re-add placeholder products.
 - Order statuses = 13, defined in `src/status.ts` (received→…→delivered/completed + on_hold/cancelled/unavailable).
 - Admin auth = `x-admin-key` header (`.env` ADMIN_KEY, currently `tulip-admin-2026`).
 - Excel import via `xlsx` (template download + upsert by brand+name). Image upload = base64 → `uploads/`.
@@ -79,7 +119,8 @@ in components/ui.tsx). Product photos stubbed with line silhouettes (`ProductGly
 - State: `src/lib/store.tsx` StoreProvider = cart + wishlist (localStorage) + site bootstrap (/api/site).
   `src/lib/api.ts` client + types. `src/lib/hooks.ts` useFetch (loading/error/data).
 - Public pages: Home, Shop (one component, mode=all|category|new|bestsellers|sale|search; filters+sort+search),
-  Product (shades/sizes, gallery, video, tabs, reviews+submit, related), Cart, Checkout (COD + WhatsApp,
+  Product (shade swatches = colour circle or shade photo; picking a shade swaps the gallery hero
+  and the cart/order thumbnail to that shade's photo; sizes, video, tabs, reviews+submit, related), Cart, Checkout (COD + WhatsApp,
   area fee + free-over-threshold, availability notice), OrderSuccess (WA confirm link), Track (13-step timeline),
   Wishlist, Brands, GiftCards (WA order), Contact, Account (guest), Info (shipping/returns/faq/about/privacy/terms/gift-card-terms).
 - Admin at `/admin` (key gate): Dashboard, Orders (list+detail+status workflow+WA), Products (list+full editor:

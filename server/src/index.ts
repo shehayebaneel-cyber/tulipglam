@@ -108,7 +108,15 @@ app.get("/api/products", asyncH(async (req, res) => {
   const where: Prisma.ProductWhereInput = { status: { in: ["active", "unavailable"] } };
   const and: Prisma.ProductWhereInput[] = [];
 
-  if (req.query.category) and.push({ category: { slug: str(req.query.category) } });
+  // A department (Nails, Makeup…) holds no products itself — they sit in its
+  // subcategories, so match the category AND its children or the department pages
+  // come back empty.
+  if (req.query.category) {
+    const slug = str(req.query.category);
+    const cat = await db.category.findUnique({ where: { slug }, select: { id: true, children: { select: { id: true } } } });
+    if (!cat) return res.json({ products: [], total: 0 });
+    and.push({ categoryId: { in: [cat.id, ...cat.children.map((c) => c.id)] } });
+  }
   if (req.query.brand) and.push({ brand: { slug: str(req.query.brand) } });
   if (bool(req.query.sale)) and.push({ AND: [{ saleCents: { not: null } }] });
   if (bool(req.query.best)) and.push({ isBestSeller: true });
@@ -172,10 +180,22 @@ app.get("/api/products/:slug", asyncH(async (req, res) => {
   });
   if (!p || p.status === "hidden" || p.status === "discontinued") return res.status(404).json({ error: "Product not found." });
 
+  // Related: same subcategory first, then topped up from the sibling subcategories in
+  // the same department — several subcategories hold only one or two products, which
+  // would otherwise leave this empty.
   const related = await db.product.findMany({
     where: { status: "active", categoryId: p.categoryId, id: { not: p.id } },
     include: cardInclude, take: 4, orderBy: { isBestSeller: "desc" },
   });
+  if (related.length < 4) {
+    const deptId = p.category.parentId ?? p.categoryId;
+    const siblings = await db.category.findMany({ where: { OR: [{ id: deptId }, { parentId: deptId }] }, select: { id: true } });
+    const fill = await db.product.findMany({
+      where: { status: "active", categoryId: { in: siblings.map((c) => c.id) }, id: { notIn: [p.id, ...related.map((r) => r.id)] } },
+      include: cardInclude, take: 4 - related.length, orderBy: { isBestSeller: "desc" },
+    });
+    related.push(...fill);
+  }
   const ratingAvg = p.reviews.length ? p.reviews.reduce((s, r) => s + r.rating, 0) / p.reviews.length : 0;
   res.json({
     id: p.id, slug: p.slug, name: p.name, status: p.status,
@@ -188,7 +208,8 @@ app.get("/api/products/:slug", asyncH(async (req, res) => {
     category: { name: p.category.name, slug: p.category.slug },
     isBestSeller: p.isBestSeller, isNew: computeIsNew(p, newDays),
     images: p.images.map((i) => ({ url: i.url, alt: i.alt })),
-    variants: p.variants.map((v) => ({ id: v.id, type: v.type, label: v.label, hex: v.hex, priceCents: v.priceCents, available: v.available })),
+    // sku is deliberately not exposed publicly — it's a supplier reference, admin-only.
+    variants: p.variants.map((v) => ({ id: v.id, type: v.type, label: v.label, hex: v.hex, imageUrl: v.imageUrl, priceCents: v.priceCents, available: v.available })),
     reviews: p.reviews.map((r) => ({ id: r.id, author: r.author, rating: r.rating, title: r.title, text: r.text, createdAt: r.createdAt })),
     ratingAvg, reviewCount: p.reviews.length,
     related: related.map((r) => cardOf(r, newDays)),
@@ -272,7 +293,8 @@ app.post("/api/orders", withCustomer, asyncH(async (req, res) => {
     orderItems.push({
       productId: p.id, name: p.name, brandName: p.brand?.name ?? "",
       variantLabel: variant?.label ?? "", glyph: p.glyph, tint: p.tint,
-      imageUrl: p.images[0]?.url ?? "", priceCents: unit, qty,
+      // prefer the chosen shade's own photo so the order shows the exact shade bought
+      imageUrl: variant?.imageUrl || p.images[0]?.url || "", priceCents: unit, qty,
     });
   }
   if (!orderItems.length) return res.status(400).json({ error: "None of your items are available." });
@@ -449,6 +471,7 @@ function productData(b: Record<string, unknown>): Prisma.ProductUncheckedCreateI
   return {
     name: str(b.name).trim(),
     slug: str(b.slug).trim() || slugify(str(b.name), randomUUID().slice(0, 4)),
+    sku: str(b.sku).trim(),
     status: STATUS_PRODUCT.includes(str(b.status)) ? str(b.status) : "active",
     priceCents: price, saleCents: sale && sale < price ? sale : null,
     shortDesc: str(b.shortDesc), description: str(b.description), howToUse: str(b.howToUse), ingredients: str(b.ingredients),
@@ -461,13 +484,16 @@ function productData(b: Record<string, unknown>): Prisma.ProductUncheckedCreateI
 }
 const STATUS_PRODUCT = ["active", "hidden", "unavailable", "discontinued"];
 
-type VariantIn = { type?: string; label?: string; hex?: string; priceCents?: unknown; available?: unknown };
+type VariantIn = { type?: string; label?: string; sku?: string; hex?: string; imageUrl?: string; priceCents?: unknown; available?: unknown };
 type ImageIn = { url?: string; alt?: string };
 async function syncChildren(productId: number, b: Record<string, unknown>) {
   if (Array.isArray(b.variants)) {
     await db.productVariant.deleteMany({ where: { productId } });
+    // sku + imageUrl must be carried through: variants are delete-and-recreate, so
+    // dropping them here would silently wipe every shade photo and supplier code.
     await db.productVariant.createMany({ data: (b.variants as VariantIn[]).filter((v) => str(v.label).trim()).map((v, i) => ({
-      productId, type: v.type === "size" ? "size" : "shade", label: str(v.label).trim(), hex: str(v.hex),
+      productId, type: v.type === "size" ? "size" : "shade", label: str(v.label).trim(),
+      sku: str(v.sku), hex: str(v.hex), imageUrl: str(v.imageUrl),
       priceCents: v.priceCents ? toCents(v.priceCents) : null, available: v.available === undefined ? true : bool(v.available), sortOrder: i,
     })) });
   }

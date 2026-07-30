@@ -64,9 +64,12 @@ export const adminApi = {
 
 export type AdminSummary = { products: number; active: number; orders: number; pendingReviews: number; revenueCents: number; byStatus: Record<string, number>; recent: AdminOrder[] };
 export type AdminProduct = { id: number; name: string; slug: string; status: string; priceCents: number; saleCents: number | null; isBestSeller: boolean; glyph: string; tint: string; brand: { name: string } | null; category: { name: string }; images: { url: string }[]; _count: { variants: number } };
-export type AdminVariant = { id?: number; type: string; label: string; hex: string; priceCents: number | null; available: boolean };
+// sku = supplier reference (admin-only). imageUrl = this shade's own photo; when hex
+// is empty the storefront uses that photo as the swatch, so both must round-trip
+// through the editor or a save would wipe them.
+export type AdminVariant = { id?: number; type: string; label: string; sku?: string; hex: string; imageUrl?: string; priceCents: number | null; available: boolean };
 export type AdminImage = { id?: number; url: string; alt: string };
-export type AdminProductFull = AdminProduct & { shortDesc: string; description: string; howToUse: string; ingredients: string; isNewMode: string; concerns: string; attributes: string; videoUrl: string; categoryId: number; brandId: number | null; variants: AdminVariant[]; images: AdminImage[] };
+export type AdminProductFull = AdminProduct & { sku: string; shortDesc: string; description: string; howToUse: string; ingredients: string; isNewMode: string; concerns: string; attributes: string; videoUrl: string; categoryId: number; brandId: number | null; variants: AdminVariant[]; images: AdminImage[] };
 export type AdminCategory = { id: number; slug: string; name: string; blurb: string; glyph: string; tint: string; sortOrder: number; active: boolean; parentId: number | null; _count: { products: number } };
 export type AdminBrand = { id: number; slug: string; name: string; blurb: string; featured: boolean; sortOrder: number; active: boolean; _count: { products: number } };
 export type AdminOrderItem = { id: number; name: string; brandName: string; variantLabel: string; glyph: string; tint: string; imageUrl: string; priceCents: number; qty: number };

@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Link } from "react-router-dom";
 import { usd, priceOf, type Card } from "../lib/api";
 import { useStore, lineFromCard } from "../lib/store";
@@ -6,6 +7,9 @@ import { HeartIcon, HeartFill } from "./ui";
 
 export function ProductCard({ p }: { p: Card }) {
   const { addToCart, toggleWish, inWish } = useStore();
+  // If the photo 404s or fails to decode, fall back to the line-art glyph rather than
+  // leaving the browser to render raw alt text over the tint.
+  const [imgFailed, setImgFailed] = useState(false);
   const off = p.onSale && p.saleCents != null ? Math.round((1 - p.saleCents / p.priceCents) * 100) : 0;
   const wished = inWish(p.slug);
   const soldOut = p.status === "unavailable";
@@ -16,8 +20,8 @@ export function ProductCard({ p }: { p: Card }) {
       {/* image bed */}
       <div className="relative overflow-hidden rounded-2xl" style={{ background: p.tint }}>
         <div className="aspect-[4/5] w-full">
-          {p.image ? (
-            <img src={p.image} alt={p.name} loading="lazy" className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.04]" />
+          {p.image && !imgFailed ? (
+            <img src={p.image} alt={p.name} loading="lazy" onError={() => setImgFailed(true)} className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.04]" />
           ) : (
             <ProductGlyph kind={p.glyph} className="h-full w-full p-8 text-plum/45 transition-transform duration-300 group-hover:scale-[1.04]" />
           )}

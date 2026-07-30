@@ -103,7 +103,7 @@ function ProductEditor({ product, cats, brands, onClose, onSaved }:
   const isNew = product === "new";
   const p = isNew ? null : product;
   const [f, setF] = useState({
-    name: p?.name ?? "", slug: p?.slug ?? "", status: p?.status ?? "active",
+    name: p?.name ?? "", slug: p?.slug ?? "", sku: p?.sku ?? "", status: p?.status ?? "active",
     price: p ? (p.priceCents / 100).toString() : "", sale: p?.saleCents ? (p.saleCents / 100).toString() : "",
     categoryId: p?.categoryId?.toString() ?? "", brandId: p?.brandId?.toString() ?? "",
     glyph: (p?.glyph ?? "bottle") as Glyph, tint: p?.tint ?? "#f5e9f0",
@@ -165,6 +165,7 @@ function ProductEditor({ product, cats, brands, onClose, onSaved }:
               <Field label="Price (USD)"><input value={f.price} onChange={(e) => set("price", e.target.value)} inputMode="decimal" className="field" /></Field>
               <Field label="Sale price (optional)"><input value={f.sale} onChange={(e) => set("sale", e.target.value)} inputMode="decimal" placeholder="—" className="field" /></Field>
             </div>
+            <Field label="Supplier SKU (internal — never shown to customers)"><input value={f.sku} onChange={(e) => set("sku", e.target.value)} placeholder="e.g. 4000NAC4947" className="field font-mono text-[13px]" /></Field>
             <Field label="Short description"><input value={f.shortDesc} onChange={(e) => set("shortDesc", e.target.value)} className="field" /></Field>
             <Field label="Description"><textarea value={f.description} onChange={(e) => set("description", e.target.value)} rows={4} className="field resize-none" /></Field>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -178,15 +179,22 @@ function ProductEditor({ product, cats, brands, onClose, onSaved }:
               {variants.map((v, i) => (
                 <div key={i} className="flex flex-wrap items-center gap-2 rounded-xl border border-line p-2">
                   <Select value={v.type} onChange={(val) => setVariants((a) => a.map((x, j) => j === i ? { ...x, type: val } : x))} options={[["shade", "Shade"], ["size", "Size"]]} className="w-24" />
+                  {/* the shade's own photo — doubles as the storefront swatch when no hex is set */}
+                  {v.imageUrl && <img src={v.imageUrl} alt="" title="Shade photo" className="h-9 w-9 shrink-0 rounded-full border border-line object-cover" />}
                   <input value={v.label} onChange={(e) => setVariants((a) => a.map((x, j) => j === i ? { ...x, label: e.target.value } : x))} placeholder="Label" className="field flex-1 min-w-[7rem] py-2" />
-                  {v.type === "shade" && <input type="color" value={v.hex || "#cccccc"} onChange={(e) => setVariants((a) => a.map((x, j) => j === i ? { ...x, hex: e.target.value } : x))} className="h-9 w-10 rounded border border-line" />}
+                  <input value={v.sku ?? ""} onChange={(e) => setVariants((a) => a.map((x, j) => j === i ? { ...x, sku: e.target.value } : x))} placeholder="SKU" className="field w-28 py-2 font-mono text-[12px]" />
+                  {v.type === "shade" && (
+                    <input type="color" value={v.hex || "#cccccc"} title={v.hex ? "Swatch colour" : "No colour set — the shade photo is used as the swatch"}
+                      onChange={(e) => setVariants((a) => a.map((x, j) => j === i ? { ...x, hex: e.target.value } : x))}
+                      className={`h-9 w-10 rounded border ${v.hex ? "border-line" : "border-dashed border-muted"}`} />
+                  )}
                   <input value={v.priceCents != null ? (v.priceCents / 100).toString() : ""} onChange={(e) => setVariants((a) => a.map((x, j) => j === i ? { ...x, priceCents: e.target.value ? Math.round(Number(e.target.value) * 100) : null } : x))} placeholder="$ override" className="field w-24 py-2" />
                   <label className="flex items-center gap-1 text-[12px]"><input type="checkbox" checked={v.available} onChange={(e) => setVariants((a) => a.map((x, j) => j === i ? { ...x, available: e.target.checked } : x))} className="accent-plum" /> avail</label>
                   <button onClick={() => setVariants((a) => a.filter((_, j) => j !== i))} className="grid h-8 w-8 place-items-center rounded-md text-muted hover:text-sale"><TrashIcon className="h-4 w-4" /></button>
                 </div>
               ))}
             </div>
-            <button onClick={() => setVariants((a) => [...a, { type: "shade", label: "", hex: "#c98d7a", priceCents: null, available: true }])} className="btn btn-ghost mt-2 px-4 py-2 text-[12px]"><PlusIcon className="h-4 w-4" /> Add variant</button>
+            <button onClick={() => setVariants((a) => [...a, { type: "shade", label: "", sku: "", hex: "#c98d7a", imageUrl: "", priceCents: null, available: true }])} className="btn btn-ghost mt-2 px-4 py-2 text-[12px]"><PlusIcon className="h-4 w-4" /> Add variant</button>
           </Section>
         </div>
 

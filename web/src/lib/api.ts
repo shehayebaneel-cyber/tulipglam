@@ -10,7 +10,9 @@ export type Card = {
   isBestSeller: boolean; isNew: boolean;
 };
 
-export type Variant = { id: number; type: "shade" | "size"; label: string; hex: string; priceCents: number | null; available: boolean };
+// imageUrl = this shade's own photo. When present the swatch shows the photo
+// instead of `hex`, and picking the shade swaps the gallery hero to it.
+export type Variant = { id: number; type: "shade" | "size"; label: string; hex: string; imageUrl: string; priceCents: number | null; available: boolean };
 export type Review = { id: number; author: string; rating: number; title: string; text: string; product?: string; createdAt?: string };
 
 export type ProductFull = Card & {
