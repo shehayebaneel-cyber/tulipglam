@@ -50,6 +50,20 @@ export type SiteData = {
   trust: TrustItem[];
 };
 
+/**
+ * Filter options for the current result set, computed on the server with `?facets=1`.
+ *
+ * Every entry is backed by real rows, and each facet is counted against the query *minus its
+ * own filter*, so the numbers stay meaningful while a filter is applied. An option missing
+ * here means nothing matches it — the UI must not offer it.
+ */
+export type Facets = {
+  brands: { id: number; slug: string; name: string; count: number }[];
+  price: { minCents: number; maxCents: number };
+  concerns: { value: string; count: number }[];
+  attributes: { value: string; count: number }[];
+};
+
 export type OrderItem = { id: number; name: string; brandName: string; variantLabel: string; glyph: Glyph; tint: string; imageUrl: string; priceCents: number; qty: number };
 export type OrderEvent = { id: number; status: string; note: string; createdAt: string };
 export type Order = {
@@ -87,9 +101,13 @@ export const api = {
   products: (q: Record<string, string | undefined>) => {
     const qs = new URLSearchParams(Object.entries(q).filter(([, v]) => v != null && v !== "") as [string, string][]).toString();
     // paginated — `total` is the count across all pages, `pages` the page count
-    return req<{ products: Card[]; total: number; page: number; pages: number; limit: number }>(`/products${qs ? `?${qs}` : ""}`);
+    return req<{ products: Card[]; facets?: Facets; total: number; page: number; pages: number; limit: number }>(`/products${qs ? `?${qs}` : ""}`);
   },
   product: (slug: string) => req<ProductFull>(`/products/${slug}`),
+  // Departments that actually hold product for this audience, with counts, so /men and /women
+  // can only ever link somewhere that has something.
+  audience: (audience: "men" | "women") =>
+    req<{ audience: string; total: number; departments: { slug: string; name: string; count: number }[] }>(`/audience/${audience}`),
   search: (q: string) => req<{ products: Card[] }>(`/search?q=${encodeURIComponent(q)}`),
   brands: () => req<{ brands: Brand[] }>("/brands"),
   createOrder: (body: unknown) => req<{ number: string; totalCents: number; subtotalCents: number; discountCents: number; giftCardCents: number; deliveryCents: number; whatsappNumber: string }>("/orders", { method: "POST", body: JSON.stringify(body) }),

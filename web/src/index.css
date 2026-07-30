@@ -122,6 +122,50 @@ body {
   display: none;
 }
 
+/* Horizontal strip that scrolls instead of wrapping. At 390px a 13-department list would
+   otherwise stack five rows deep and push the products off the screen. */
+.scroll-x {
+  overflow-x: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  scroll-snap-type: x proximity;
+  -webkit-overflow-scrolling: touch;
+}
+.scroll-x::-webkit-scrollbar {
+  display: none;
+}
+.scroll-x > * {
+  scroll-snap-align: start;
+}
+
+/* ---- chips: a selectable pill in a scroll strip ---- */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-shrink: 0;
+  white-space: nowrap;
+  border-radius: 999px;
+  border: 1px solid var(--color-line);
+  background: var(--color-surface);
+  padding: 0.5rem 0.9rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--color-ink);
+  transition: border-color 0.18s ease, background-color 0.18s ease, color 0.18s ease;
+}
+.chip:hover {
+  border-color: var(--color-ink);
+}
+/* Selected state carries colour AND a border, not colour alone — the plum fill is the only
+   signal on a monochrome page, and colour on its own is not an accessible one. */
+.chip-on,
+.chip-on:hover {
+  background: var(--color-plum);
+  border-color: var(--color-plum);
+  color: #fff;
+}
+
 /* ---- buttons ---- */
 .btn {
   display: inline-flex;

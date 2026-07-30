@@ -63,12 +63,40 @@ const asyncH =
 /** Products a shopper can reach. Everything customer-facing filters through this. */
 const VISIBLE: Prisma.ProductWhereInput = { status: { in: ["active", "unavailable"] } };
 
+/**
+ * Who a product is for. `unisex` is the default and shows on both /men and /women — most of a
+ * beauty catalogue genuinely is. This is a product field rather than a category because a men's
+ * fragrance, a men's shaving cream and a men's shampoo sit in three different departments.
+ */
+export const AUDIENCES = ["unisex", "men", "women"];
+
 // Brand and category ordering. Every list of brands in the app must agree, so the key and the
 // collator live here rather than being re-derived per call site.
 const COLLATOR = new Intl.Collator("en", { sensitivity: "base", numeric: true });
 /** Trim, collapse inner runs of space, and drop leading articles/punctuation before sorting. */
 export const sortKey = (name: string) =>
   name.trim().replace(/\s+/g, " ").replace(/^(the|a|an)\s+/i, "").replace(/^[^\p{L}\p{N}]+/u, "");
+
+/**
+ * Turn `groupBy` rows over a comma-joined tag column into per-tag counts.
+ *
+ * `concerns` and `attributes` used to be a hardcoded list in the Shop sidebar — 9 concerns and
+ * 5 attributes, none of which any imported product carries, so all 14 led to "Nothing here yet".
+ * Deriving them from the data means an option exists only if something is behind it, and the
+ * groups reappear on their own once products are tagged in admin.
+ */
+function tagFacet(rows: { _count: { _all: number } }[], key: "concerns" | "attributes") {
+  const counts = new Map<string, number>();
+  for (const row of rows) {
+    const raw = (row as unknown as Record<string, string>)[key] ?? "";
+    for (const tag of raw.split(",").map((t) => t.trim().toLowerCase()).filter(Boolean)) {
+      counts.set(tag, (counts.get(tag) ?? 0) + row._count._all);
+    }
+  }
+  return [...counts.entries()]
+    .map(([value, count]) => ({ value, count }))
+    .sort((a, b) => b.count - a.count || COLLATOR.compare(a.value, b.value));
+}
 
 /**
  * Trust-bar items, Settings-driven so an unsupportable claim can be removed without a deploy.
@@ -391,23 +419,30 @@ app.get("/api/products", asyncH(async (req, res) => {
   // Facets are computed from the same WHERE as the results, minus the facet's own filter, so
   // counts stay meaningful and zero-result options can be hidden. Previously /category/nails
   // offered all 405 brands including ones with no nail products at all.
-  const facetWhere = (exclude: "brand" | "price" | null): Prisma.ProductWhereInput => {
+  const facetWhere = (exclude: "brand" | "price" | "concerns" | "attributes" | null): Prisma.ProductWhereInput => {
     const kept = and.filter((clause) => {
       if (exclude === "brand" && "brand" in clause) return false;
       if (exclude === "price" && "priceCents" in clause) return false;
+      if (exclude === "concerns" && "concerns" in clause) return false;
+      if (exclude === "attributes" && "attributes" in clause) return false;
       return true;
     });
     return kept.length ? { ...where, AND: kept } : { status: where.status };
   };
 
   const wantFacets = req.query.facets === "1";
-  const [total, products, brandFacet, priceAgg] = await Promise.all([
+  const [total, products, brandFacet, priceAgg, concernRows, attributeRows] = await Promise.all([
     db.product.count({ where }),
     db.product.findMany({ where, include: cardInclude, orderBy, skip: (page - 1) * limit, take: limit }),
     wantFacets
       ? db.product.groupBy({ by: ["brandId"], where: facetWhere("brand"), _count: { _all: true }, orderBy: { _count: { brandId: "desc" } }, take: 500 })
       : Promise.resolve([]),
     wantFacets ? db.product.aggregate({ where: facetWhere("price"), _min: { priceCents: true }, _max: { priceCents: true } }) : Promise.resolve(null),
+    // Tag facets. `concerns`/`attributes` are comma-joined strings, so grouping by the raw
+    // column gives one row per distinct combination — a handful of rows, not 9.5k — and the
+    // per-tag counts are summed from those. Exact, and cheap enough to run beside the others.
+    wantFacets ? db.product.groupBy({ by: ["concerns"], where: facetWhere("concerns"), _count: { _all: true } }) : Promise.resolve([]),
+    wantFacets ? db.product.groupBy({ by: ["attributes"], where: facetWhere("attributes"), _count: { _all: true } }) : Promise.resolve([]),
   ]);
 
   let facets: unknown = undefined;
@@ -421,6 +456,8 @@ app.get("/api/products", asyncH(async (req, res) => {
         .map((b) => ({ ...nameById.get(b.brandId!)!, count: b._count._all }))
         .sort((a, b) => COLLATOR.compare(sortKey(a.name), sortKey(b.name))),
       price: { minCents: priceAgg?._min.priceCents ?? 0, maxCents: priceAgg?._max.priceCents ?? 0 },
+      concerns: tagFacet(concernRows, "concerns"),
+      attributes: tagFacet(attributeRows, "attributes"),
     };
   }
 
@@ -768,6 +805,12 @@ admin.get("/products", asyncH(async (req, res) => {
     and.push({ priceCents: range });
   }
 
+  // Who it's for. `unlocked` finds rows the classifier is still allowed to change, which is
+  // how you review its work: run the report, spot-check, then lock what's right.
+  if (AUDIENCES.includes(str(req.query.audience))) and.push({ audience: str(req.query.audience) });
+  else if (req.query.audience === "locked") and.push({ audienceLocked: true });
+  else if (req.query.audience === "unlocked") and.push({ audienceLocked: false });
+
   if (req.query.hasImage === "1") and.push({ images: { some: {} } });
   if (req.query.hasImage === "0") and.push({ images: { none: {} } });
   if (req.query.hasVariants === "1") and.push({ variants: { some: {} } });
@@ -902,6 +945,7 @@ function productData(b: Record<string, unknown>): Prisma.ProductUncheckedCreateI
     isBestSeller: bool(b.isBestSeller), isNewMode: ["auto", "always", "never"].includes(str(b.isNewMode)) ? str(b.isNewMode) : "auto",
     concerns: Array.isArray(b.concerns) ? b.concerns.join(",") : str(b.concerns),
     attributes: Array.isArray(b.attributes) ? b.attributes.join(",") : str(b.attributes),
+    audience: AUDIENCES.includes(str(b.audience)) ? str(b.audience) : "unisex",
     categoryId: num(b.categoryId), brandId: b.brandId ? num(b.brandId) : null, videoUrl: str(b.videoUrl),
   };
 }
@@ -931,7 +975,9 @@ async function syncChildren(productId: number, b: Record<string, unknown>) {
 admin.post("/products", asyncH(async (req, res) => {
   const b = req.body ?? {};
   if (!str(b.name).trim() || !num(b.categoryId)) return res.status(400).json({ error: "Name and category are required." });
-  const p = await db.product.create({ data: productData(b) });
+  const data = productData(b);
+  // Same rule as the update path: only an explicit non-default choice locks it.
+  const p = await db.product.create({ data: { ...data, audienceLocked: data.audience !== "unisex" } });
   await syncChildren(p.id, b);
   res.json({ id: p.id });
 }));
@@ -941,7 +987,18 @@ admin.put("/products/:id", asyncH(async (req, res) => {
   const b = req.body ?? {};
   // slug is handled separately below, so drop the generated one
   const { slug: _generatedSlug, ...data } = productData(b);
-  await db.product.update({ where: { id }, data: { ...data, ...(str(b.slug).trim() ? { slug: str(b.slug).trim() } : {}) } });
+
+  // `audienceLocked` marks a human decision, and only a human *changing* the value counts as
+  // one. Locking on every save would mean opening a product, fixing a typo and saving would
+  // silently pin its audience to "unisex" forever, which is how the classifier ends up unable
+  // to touch anything anyone has ever edited.
+  const before = await db.product.findUnique({ where: { id }, select: { audience: true, audienceLocked: true } });
+  const audienceLocked = (before?.audienceLocked ?? false) || (before != null && data.audience !== before.audience);
+
+  await db.product.update({
+    where: { id },
+    data: { ...data, audienceLocked, ...(str(b.slug).trim() ? { slug: str(b.slug).trim() } : {}) },
+  });
   await syncChildren(id, b);
   res.json({ ok: true });
 }));
@@ -1003,13 +1060,17 @@ admin.post("/brands", asyncH(async (req, res) => {
   const row = await db.brand.create({ data: {
     name: str(b.name).trim(), slug: str(b.slug).trim() || slugify(str(b.name)),
     blurb: str(b.blurb), featured: bool(b.featured), sortOrder: num(b.sortOrder), active: b.active === undefined ? true : bool(b.active),
+    audience: brandAudience(b.audience),
   } });
   res.json({ id: row.id });
 }));
+/** "" means the owner hasn't said, which is different from "unisex" — don't collapse them. */
+const brandAudience = (v: unknown) => (AUDIENCES.includes(str(v)) ? str(v) : "");
 admin.put("/brands/:id", asyncH(async (req, res) => {
   const b = req.body;
   await db.brand.update({ where: { id: num(req.params.id) }, data: {
     name: str(b.name).trim(), blurb: str(b.blurb), featured: bool(b.featured), sortOrder: num(b.sortOrder), active: bool(b.active),
+    audience: brandAudience(b.audience),
     ...(str(b.slug).trim() ? { slug: str(b.slug).trim() } : {}),
   } });
   res.json({ ok: true });

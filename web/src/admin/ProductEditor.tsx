@@ -24,6 +24,7 @@ export function ProductEditor({ product, cats, brands, onClose, onSaved }: {
     categoryId: p?.categoryId ? String(p.categoryId) : "", brandId: p?.brandId ? String(p.brandId) : "",
     glyph: (p?.glyph ?? "bottle") as Glyph, tint: p?.tint ?? "#f5e9f0",
     isBestSeller: p?.isBestSeller ?? false, isNewMode: p?.isNewMode ?? "auto",
+    audience: p?.audience ?? "unisex",
     concerns: p?.concerns ?? "", attributes: p?.attributes ?? "",
     shortDesc: p?.shortDesc ?? "", description: p?.description ?? "", howToUse: p?.howToUse ?? "", ingredients: p?.ingredients ?? "", videoUrl: p?.videoUrl ?? "",
   });
@@ -146,6 +147,21 @@ export function ProductEditor({ product, cats, brands, onClose, onSaved }: {
             <label className="flex items-center gap-2 text-[13px]"><input type="checkbox" checked={f.isBestSeller} onChange={(e) => set("isBestSeller", e.target.checked)} className="focus-ring accent-plum" /> Mark as best seller</label>
             <Field label="New badge"><Combobox value={f.isNewMode} onChange={(v) => set("isNewMode", v)} ariaLabel="New badge behaviour" buttonClassName="py-2.5"
               options={[{ value: "auto", label: "Auto (recent)" }, { value: "always", label: "Always show New" }, { value: "never", label: "Never" }]} /></Field>
+            {/* Drives /men and /women. Unisex is the default and appears on both, so it is the
+                right answer for most of the catalogue — only mark a product when the packaging
+                or the product itself is clearly for one. */}
+            <Field label="Shop for">
+              <Combobox value={f.audience} onChange={(v) => set("audience", v)} ariaLabel="Audience" buttonClassName="py-2.5"
+                options={[{ value: "unisex", label: "Anyone (shown in both)" }, { value: "women", label: "Women" }, { value: "men", label: "Men" }]} />
+              <span className="mt-1 block text-[11px] text-muted-strong">
+                {p?.audienceLocked
+                  ? "Set by hand — the classifier won’t change it."
+                  : "Changing this pins the value so the classifier won’t overwrite it."}
+              </span>
+            </Field>
+            {/* Free text because there is no fixed vocabulary yet: the storefront builds its
+                filter list from whatever is actually in use, so a typo becomes a filter of one.
+                Keep to lowercase words already in the list until that list is agreed. */}
             <Field label="Concerns (comma-separated)"><input value={f.concerns} onChange={(e) => set("concerns", e.target.value)} placeholder="hydration, brightening" className="field focus-ring" /></Field>
             <Field label="Attributes (comma-separated)"><input value={f.attributes} onChange={(e) => set("attributes", e.target.value)} placeholder="vegan, clean" className="field focus-ring" /></Field>
           </Section>

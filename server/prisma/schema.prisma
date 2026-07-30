@@ -45,6 +45,12 @@ model Brand {
   featured  Boolean   @default(false)
   sortOrder Int       @default(0)
   active    Boolean   @default(true)
+  // Owner's default for the whole brand: "" (none), "men", "women" or "unisex". A stated fact
+  // about the brand, so it outranks the classifier's measured skew — 404 brands is a far
+  // smaller job than 9,533 products, and getting "Axe" right settles all of its rows at once.
+  // Never written to Product; it is a signal the classifier reads, so a per-product override
+  // set by hand still wins.
+  audience  String    @default("")
   products  Product[]
   createdAt DateTime  @default(now())
 }

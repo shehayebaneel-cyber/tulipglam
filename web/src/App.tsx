@@ -3,6 +3,7 @@ import { StoreProvider } from "./lib/store";
 import { Layout } from "./components/Layout";
 import { Home } from "./pages/Home";
 import { Shop } from "./pages/Shop";
+import { Audience } from "./pages/Audience";
 import { Product } from "./pages/Product";
 import { Cart } from "./pages/Cart";
 import { Checkout } from "./pages/Checkout";
@@ -50,6 +51,12 @@ const router = createBrowserRouter([
       { path: "/", element: <Home /> },
       { path: "/shop", element: <Shop mode="all" /> },
       { path: "/category/:slug", element: <Shop mode="category" /> },
+      // Who a product is for cuts across every department, so these are their own routes
+      // rather than categories. One component serves all four paths.
+      { path: "/men", element: <Audience audience="men" /> },
+      { path: "/men/:department", element: <Audience audience="men" /> },
+      { path: "/women", element: <Audience audience="women" /> },
+      { path: "/women/:department", element: <Audience audience="women" /> },
       { path: "/new", element: <Shop mode="new" /> },
       { path: "/bestsellers", element: <Shop mode="bestsellers" /> },
       { path: "/sale", element: <Shop mode="sale" /> },

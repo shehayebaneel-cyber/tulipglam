@@ -47,7 +47,7 @@ export const adminApi = {
   catalogueHealth: () => req<CatalogueHealth>("/catalogue-health"),
   // products — paginated + filtered + sorted entirely on the server
   products: (p: ProductQuery) => req<ProductPage>(`/products${qs({ ...p })}`),
-  bulk: (body: { action: "status" | "category" | "brand" | "delete"; ids: number[]; status?: string; categoryId?: number; brandId?: string }) =>
+  bulk: (body: { action: "status" | "category" | "brand" | "audience" | "delete"; ids: number[]; status?: string; categoryId?: number; brandId?: string; audience?: string }) =>
     req<{ ok: boolean; count: number }>("/products/bulk", { method: "POST", body: JSON.stringify(body) }),
   product: (id: number) => req<AdminProductFull>(`/products/${id}`),
   createProduct: (b: unknown) => req<{ id: number }>("/products", { method: "POST", body: JSON.stringify(b) }),
@@ -119,6 +119,8 @@ export type ProductQuery = {
   priceMax?: string;
   hasImage?: string;
   hasVariants?: string;
+  /** "unisex" | "men" | "women", or "locked" / "unlocked" to review the classifier. */
+  audience?: string;
   sort?: string;
   dir?: string;
   page?: number;
@@ -129,6 +131,7 @@ export type ProductPage = { products: AdminProduct[]; total: number; page: numbe
 export type AdminProduct = {
   id: number; name: string; slug: string; sku: string; status: string; source: string;
   priceCents: number; saleCents: number | null; isBestSeller: boolean; glyph: string; tint: string;
+  audience: string; audienceLocked: boolean;
   updatedAt: string;
   brand: { id: number; name: string; slug: string } | null;
   category: { id: number; name: string; slug: string };
@@ -150,11 +153,12 @@ export type AdminProductFull = {
   priceCents: number; saleCents: number | null; isBestSeller: boolean; glyph: string; tint: string;
   shortDesc: string; description: string; howToUse: string; ingredients: string;
   isNewMode: string; concerns: string; attributes: string; videoUrl: string;
+  audience: string; audienceLocked: boolean;
   categoryId: number; brandId: number | null;
   variants: AdminVariant[]; images: AdminImage[];
 };
 export type AdminCategory = { id: number; slug: string; name: string; blurb: string; glyph: string; tint: string; sortOrder: number; active: boolean; parentId: number | null; _count: { products: number } };
-export type AdminBrand = { id: number; slug: string; name: string; blurb: string; featured: boolean; sortOrder: number; active: boolean; _count: { products: number } };
+export type AdminBrand = { id: number; slug: string; name: string; blurb: string; featured: boolean; sortOrder: number; active: boolean; audience: string; _count: { products: number } };
 export type AdminOrderItem = { id: number; name: string; brandName: string; variantLabel: string; glyph: string; tint: string; imageUrl: string; priceCents: number; qty: number };
 export type AdminOrderEvent = { id: number; status: string; note: string; createdAt: string };
 export type AdminOrder = {

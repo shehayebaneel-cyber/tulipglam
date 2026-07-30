@@ -1,16 +1,14 @@
 import { useMemo, useState } from "react";
 import { Button } from "../components/Button";
 import { useParams, useSearchParams, Link } from "react-router-dom";
-import { api, type Card } from "../lib/api";
+import { api, usd, type Card, type Facets, type SiteData } from "../lib/api";
 import { useStore } from "../lib/store";
 import { useFetch } from "../lib/hooks";
 import { ProductCard } from "../components/ProductCard";
-import { FilterIcon, CloseIcon, ChevronDown, Spinner, ChevronRight } from "../components/ui";
+import { FilterIcon, CloseIcon, ChevronDown, Spinner, ChevronRight, SearchIcon } from "../components/ui";
 
 type Mode = "all" | "category" | "new" | "bestsellers" | "sale" | "search";
 
-const ATTRIBUTES = ["vegan", "clean", "cruelty-free", "refillable", "mini"];
-const CONCERNS = ["hydration", "brightening", "anti-aging", "acne", "pores", "sensitivity", "protection", "frizz", "damage"];
 const SORTS = [
   ["featured", "Featured"], ["newest", "Newest"], ["price-asc", "Price: low to high"],
   ["price-desc", "Price: high to low"], ["name", "Name A–Z"],
@@ -20,18 +18,53 @@ const titleFor: Record<Mode, string> = {
   all: "All products", category: "", new: "New arrivals", bestsellers: "Best sellers", sale: "On sale", search: "Search",
 };
 
+const label = (t: string) => t.replace(/-/g, " ");
+
+/** "Showing 49–96 of 9,533" — collapses to a plain count when everything fits on one page. */
+function rangeLabel(d: { total: number; page: number; pages: number; limit: number } | null | undefined): string {
+  const total = d?.total ?? 0;
+  if (!total) return "No items";
+  if ((d?.pages ?? 1) <= 1) return `${total.toLocaleString()} item${total === 1 ? "" : "s"}`;
+  const first = (d!.page - 1) * d!.limit + 1;
+  const last = Math.min(d!.page * d!.limit, total);
+  return `Showing ${first.toLocaleString()}–${last.toLocaleString()} of ${total.toLocaleString()}`;
+}
+
+/** Everything the sidebar and the mobile sheet need, resolved once in `Shop`. */
+type FilterState = {
+  site: SiteData | null;
+  facets: Facets | undefined;
+  mode: Mode;
+  catParam: string;
+  brands: string[];
+  concerns: string[];
+  attrs: string[];
+  priceMin: string;
+  priceMax: string;
+  includeUnavailable: boolean;
+  setP: (key: string, val: string) => void;
+  toggleMulti: (key: string, arr: string[], val: string) => void;
+};
+
 export function Shop({ mode }: { mode: Mode }) {
   const { slug } = useParams();
   const { site } = useStore();
   const [params, setParams] = useSearchParams();
   const [sheet, setSheet] = useState(false);
 
-  const brand = params.get("brand") ?? "";
+  // Brand is multi-select — stored comma-joined in one param so the URL stays short and
+  // a filtered view can be pasted to someone else exactly as seen.
+  const brands = (params.get("brand") ?? "").split(",").filter(Boolean);
   const sort = params.get("sort") ?? "featured";
   const q = params.get("q") ?? "";
   const attrs = (params.get("attributes") ?? "").split(",").filter(Boolean);
   const concerns = (params.get("concerns") ?? "").split(",").filter(Boolean);
-  const catParam = mode === "category" ? slug : params.get("category") ?? "";
+  const priceMin = params.get("priceMin") ?? "";
+  const priceMax = params.get("priceMax") ?? "";
+  // Off by default: a shopper browsing wants things they can order today. Turning it on is
+  // an availability answer ("show me the rest too"), never a quantity.
+  const includeUnavailable = params.get("available") === "0";
+  const catParam = mode === "category" ? slug ?? "" : params.get("category") ?? "";
 
   // The catalogue is ~9.5k products, so the API is paginated — `page` lives in the URL
   // so a given page of results stays shareable and the back button works.
@@ -39,7 +72,7 @@ export function Shop({ mode }: { mode: Mode }) {
 
   const query = useMemo(() => ({
     category: catParam || undefined,
-    brand: brand || undefined,
+    brand: brands.join(",") || undefined,
     sort,
     q: mode === "search" ? q : undefined,
     new: mode === "new" ? "1" : undefined,
@@ -47,12 +80,17 @@ export function Shop({ mode }: { mode: Mode }) {
     sale: mode === "sale" ? "1" : undefined,
     attributes: attrs.join(",") || undefined,
     concerns: concerns.join(",") || undefined,
+    priceMin: priceMin || undefined,
+    priceMax: priceMax || undefined,
+    available: includeUnavailable ? "0" : undefined,
     page: page > 1 ? String(page) : undefined,
-  }), [catParam, brand, sort, q, mode, attrs.join(","), concerns.join(","), page]); // eslint-disable-line react-hooks/exhaustive-deps
+    facets: "1",
+  }), [catParam, brands.join(","), sort, q, mode, attrs.join(","), concerns.join(","), priceMin, priceMax, includeUnavailable, page]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const { data, loading } = useFetch(() => api.products(query), [JSON.stringify(query)]);
   const products = data?.products ?? [];
   const pages = data?.pages ?? 1;
+  const facets = data?.facets;
 
   const goPage = (n: number) => {
     const next = new URLSearchParams(params);
@@ -61,7 +99,16 @@ export function Shop({ mode }: { mode: Mode }) {
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
-  const cat = site?.categories.find((c) => c.slug === catParam);
+  // Flat lookup over both levels — a category filter can be a department or a child.
+  const catBySlug = useMemo(() => {
+    const m = new Map<string, { name: string; blurb: string }>();
+    for (const d of site?.categories ?? []) {
+      m.set(d.slug, d);
+      for (const c of d.children) m.set(c.slug, c);
+    }
+    return m;
+  }, [site]);
+  const cat = catBySlug.get(catParam);
   const heading = mode === "category" ? cat?.name ?? "Category" : mode === "search" ? (q ? `Results for “${q}”` : "Search") : titleFor[mode];
   const sub = mode === "category" ? cat?.blurb : undefined;
 
@@ -76,39 +123,32 @@ export function Shop({ mode }: { mode: Mode }) {
     if (set.has(val)) set.delete(val); else set.add(val);
     setP(key, [...set].join(","));
   };
-  const activeCount = (brand ? 1 : 0) + attrs.length + concerns.length + (mode !== "category" && catParam ? 1 : 0);
-  const clearAll = () => { const n = new URLSearchParams(); if (sort !== "featured") n.set("sort", sort); if (mode === "search" && q) n.set("q", q); setParams(n, { replace: true }); };
 
-  const Filters = () => (
-    <div className="space-y-6">
-      {mode !== "category" && !!site?.categories.length && (
-        <FilterGroup title="Category">
-          <label className="filter-row"><input type="radio" checked={!catParam} onChange={() => setP("category", "")} className="accent-plum" /> All categories</label>
-          {site.categories.map((c) => (
-            <label key={c.slug} className="filter-row"><input type="radio" checked={catParam === c.slug} onChange={() => setP("category", c.slug)} className="accent-plum" /> {c.name}</label>
-          ))}
-        </FilterGroup>
-      )}
-      {!!site?.brands.length && (
-        <FilterGroup title="Brand">
-          <label className="filter-row"><input type="radio" checked={!brand} onChange={() => setP("brand", "")} className="accent-plum" /> All brands</label>
-          {site.brands.map((b) => (
-            <label key={b.slug} className="filter-row"><input type="radio" checked={brand === b.slug} onChange={() => setP("brand", b.slug)} className="accent-plum" /> {b.name}</label>
-          ))}
-        </FilterGroup>
-      )}
-      <FilterGroup title="Good for">
-        {CONCERNS.map((c) => (
-          <label key={c} className="filter-row capitalize"><input type="checkbox" checked={concerns.includes(c)} onChange={() => toggleMulti("concerns", concerns, c)} className="accent-plum" /> {c.replace("-", " ")}</label>
-        ))}
-      </FilterGroup>
-      <FilterGroup title="Attributes">
-        {ATTRIBUTES.map((a) => (
-          <label key={a} className="filter-row capitalize"><input type="checkbox" checked={attrs.includes(a)} onChange={() => toggleMulti("attributes", attrs, a)} className="accent-plum" /> {a.replace("-", " ")}</label>
-        ))}
-      </FilterGroup>
-    </div>
-  );
+  // One chip per applied filter, each removable on its own. Before this the only way back
+  // was "Clear", which threw away every choice to undo one of them.
+  const chips: { key: string; label: string; clear: () => void }[] = [];
+  if (mode !== "category" && catParam) chips.push({ key: `c-${catParam}`, label: catBySlug.get(catParam)?.name ?? catParam, clear: () => setP("category", "") });
+  for (const b of brands) {
+    const name = site?.brands.find((x) => x.slug === b)?.name ?? b;
+    chips.push({ key: `b-${b}`, label: name, clear: () => toggleMulti("brand", brands, b) });
+  }
+  for (const c of concerns) chips.push({ key: `k-${c}`, label: label(c), clear: () => toggleMulti("concerns", concerns, c) });
+  for (const a of attrs) chips.push({ key: `a-${a}`, label: label(a), clear: () => toggleMulti("attributes", attrs, a) });
+  if (priceMin || priceMax) {
+    const text = priceMin && priceMax ? `$${priceMin}–$${priceMax}` : priceMin ? `Over $${priceMin}` : `Under $${priceMax}`;
+    chips.push({ key: "price", label: text, clear: () => { const n = new URLSearchParams(params); n.delete("priceMin"); n.delete("priceMax"); n.delete("page"); setParams(n, { replace: true }); } });
+  }
+  if (includeUnavailable) chips.push({ key: "avail", label: "Including unavailable", clear: () => setP("available", "") });
+
+  const activeCount = chips.length;
+  const clearAll = () => {
+    const n = new URLSearchParams();
+    if (sort !== "featured") n.set("sort", sort);
+    if (mode === "search" && q) n.set("q", q);
+    setParams(n, { replace: true });
+  };
+
+  const fs: FilterState = { site, facets, mode, catParam, brands, concerns, attrs, priceMin, priceMax, includeUnavailable, setP, toggleMulti };
 
   return (
     <div className="wrap py-6 sm:py-8">
@@ -124,30 +164,44 @@ export function Shop({ mode }: { mode: Mode }) {
           {sub && <p className="mt-1 text-sm text-muted">{sub}</p>}
         </div>
         <div className="flex items-center gap-2">
-          {/* the total across all pages, not just this page's 48 */}
-          <span className="hidden text-[13px] text-muted sm:inline">
-            {loading ? "…" : `${data?.total ?? 0} item${(data?.total ?? 0) === 1 ? "" : "s"}${pages > 1 ? ` · page ${page} of ${pages}` : ""}`}
-          </span>
+          {/* Position in the whole result set, not just this page's 48. At 194 pages "48 items"
+              on its own is meaningless — you need to know where you are. */}
+          <span className="hidden text-[13px] text-muted sm:inline">{loading ? "…" : rangeLabel(data)}</span>
           <div className="relative">
-            <select value={sort} onChange={(e) => setP("sort", e.target.value)} className="appearance-none rounded-full border border-line bg-surface py-2 pl-4 pr-9 text-[13px] font-medium text-ink outline-none focus:border-ink">
+            <select value={sort} onChange={(e) => setP("sort", e.target.value)} aria-label="Sort products"
+              className="focus-ring appearance-none rounded-full border border-line bg-surface py-2 pl-4 pr-9 text-[13px] font-medium text-ink outline-none">
               {SORTS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
             </select>
             <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
           </div>
-          <button onClick={() => setSheet(true)} className="inline-flex items-center gap-1.5 rounded-full border border-line bg-surface px-4 py-2 text-[13px] font-medium lg:hidden">
+          <button onClick={() => setSheet(true)} className="focus-ring inline-flex items-center gap-1.5 rounded-full border border-line bg-surface px-4 py-2 text-[13px] font-medium lg:hidden">
             <FilterIcon className="h-4 w-4" /> Filters{activeCount ? ` · ${activeCount}` : ""}
           </button>
         </div>
       </div>
 
+      {chips.length > 0 && (
+        <div className="mt-4 flex flex-wrap items-center gap-2">
+          {chips.map((c) => (
+            <button key={c.key} onClick={c.clear}
+              className="focus-ring group inline-flex items-center gap-1.5 rounded-full border border-line bg-surface py-1.5 pl-3 pr-2 text-[12px] font-medium text-ink hover:border-ink">
+              {c.label}
+              <CloseIcon className="h-3.5 w-3.5 text-muted group-hover:text-ink" />
+              <span className="sr-only">Remove filter</span>
+            </button>
+          ))}
+          <button onClick={clearAll} className="focus-ring rounded-full px-2 py-1.5 text-[12px] font-semibold text-plum hover:underline">Clear all</button>
+        </div>
+      )}
+
       <div className="mt-6 flex gap-8">
         {/* desktop sidebar */}
-        <aside className="hidden w-56 shrink-0 lg:block">
+        <aside className="hidden w-60 shrink-0 lg:block">
           <div className="flex items-center justify-between">
             <h2 className="text-[13px] font-semibold uppercase tracking-[0.14em] text-muted">Filters</h2>
-            {activeCount > 0 && <button onClick={clearAll} className="text-[12px] font-semibold text-plum hover:underline">Clear</button>}
+            {activeCount > 0 && <button onClick={clearAll} className="focus-ring rounded text-[12px] font-semibold text-plum hover:underline">Clear</button>}
           </div>
-          <div className="mt-4"><Filters /></div>
+          <div className="mt-4"><Filters fs={fs} /></div>
         </aside>
 
         {/* grid */}
@@ -158,7 +212,9 @@ export function Shop({ mode }: { mode: Mode }) {
             <div className="grid place-items-center rounded-2xl border border-dashed border-line-strong py-20 text-center">
               <div>
                 <p className="serif text-2xl text-ink">Nothing here yet</p>
-                <p className="mx-auto mt-2 max-w-xs text-sm text-muted">No products match these filters. Try clearing a few.</p>
+                <p className="mx-auto mt-2 max-w-xs text-sm text-muted">
+                  {activeCount > 0 ? "No products match these filters. Try removing one." : "There's nothing in this section right now."}
+                </p>
                 {activeCount > 0 && <button onClick={clearAll} className="btn btn-ghost mt-5 px-6 py-2.5">Clear filters</button>}
               </div>
             </div>
@@ -175,17 +231,23 @@ export function Shop({ mode }: { mode: Mode }) {
 
       {/* mobile filter sheet */}
       {sheet && (
-        <div className="fixed inset-0 z-50 lg:hidden" role="dialog" aria-modal="true">
+        <div className="fixed inset-0 z-50 lg:hidden" role="dialog" aria-modal="true" aria-label="Filters">
           <div className="absolute inset-0 bg-ink/40" onClick={() => setSheet(false)} />
-          <div className="absolute inset-x-0 bottom-0 max-h-[85vh] overflow-y-auto rounded-t-3xl bg-paper p-5 pb-8 shadow-pop">
-            <div className="mb-4 flex items-center justify-between">
+          <div className="absolute inset-x-0 bottom-0 flex max-h-[85vh] flex-col rounded-t-3xl bg-paper shadow-pop">
+            <div className="flex items-center justify-between px-5 pb-3 pt-5">
               <h2 className="serif text-xl text-ink">Filters</h2>
-              <button onClick={() => setSheet(false)} aria-label="Close" className="grid h-9 w-9 place-items-center rounded-full hover:bg-soft"><CloseIcon /></button>
+              <button onClick={() => setSheet(false)} aria-label="Close" className="focus-ring grid h-9 w-9 place-items-center rounded-full hover:bg-soft"><CloseIcon /></button>
             </div>
-            <Filters />
-            <div className="mt-6 flex gap-3">
+            {/* The list scrolls, the actions stay put — at 390px the sheet is tall enough that
+                "Show N items" was below the fold and looked missing. */}
+            <div className="min-h-0 flex-1 overflow-y-auto px-5">
+              <Filters fs={fs} />
+            </div>
+            <div className="flex gap-3 border-t border-line px-5 pb-8 pt-4">
               {activeCount > 0 && <button onClick={clearAll} className="btn btn-ghost flex-1 py-3">Clear</button>}
-              <Button onClick={() => setSheet(false)} variant="primary" className="flex-1">Show {data?.total ?? 0} items</Button>
+              <Button onClick={() => setSheet(false)} variant="primary" className="flex-1">
+                {loading ? "Show results" : `Show ${data?.total ?? 0} item${(data?.total ?? 0) === 1 ? "" : "s"}`}
+              </Button>
             </div>
           </div>
         </div>
@@ -194,11 +256,201 @@ export function Shop({ mode }: { mode: Mode }) {
   );
 }
 
+/**
+ * The filter panel, shared by the desktop sidebar and the mobile sheet.
+ *
+ * Declared at module scope, not inside `Shop`. As a nested function it was a new component
+ * type on every render, so React unmounted and remounted the whole panel on each keystroke —
+ * which would have made the brand search box impossible to type in.
+ */
+function Filters({ fs }: { fs: FilterState }) {
+  const { site, facets, mode, concerns, attrs, includeUnavailable, setP, toggleMulti } = fs;
+  return (
+    <div className="space-y-5 pb-2">
+      {/* Ordered by how often each is used, because at 390px the sheet scrolls: category and
+          brand first, the availability toggle last. */}
+      {mode !== "category" && !!site?.categories.length && <CategoryFilter fs={fs} />}
+
+      <BrandFilter fs={fs} />
+
+      <PriceFilter fs={fs} />
+
+      {/* Tag groups are driven by what the catalogue actually carries. They were a hardcoded
+          list of 9 concerns and 5 attributes, none of which any product had, so every one of
+          the 14 options led to an empty page. Tag products in admin and the groups return. */}
+      {!!facets?.concerns.length && (
+        <FilterGroup title="Good for">
+          {facets.concerns.map((c) => (
+            <label key={c.value} className="filter-row capitalize">
+              <input type="checkbox" checked={concerns.includes(c.value)} onChange={() => toggleMulti("concerns", concerns, c.value)} className="accent-plum" />
+              <span className="flex-1">{label(c.value)}</span>
+              <span className="num-tabular text-[11px] text-muted">{c.count}</span>
+            </label>
+          ))}
+        </FilterGroup>
+      )}
+      {!!facets?.attributes.length && (
+        <FilterGroup title="Attributes">
+          {facets.attributes.map((a) => (
+            <label key={a.value} className="filter-row capitalize">
+              <input type="checkbox" checked={attrs.includes(a.value)} onChange={() => toggleMulti("attributes", attrs, a.value)} className="accent-plum" />
+              <span className="flex-1">{label(a.value)}</span>
+              <span className="num-tabular text-[11px] text-muted">{a.count}</span>
+            </label>
+          ))}
+        </FilterGroup>
+      )}
+
+      <FilterGroup title="Availability">
+        <label className="filter-row">
+          <input type="checkbox" checked={includeUnavailable} onChange={() => setP("available", includeUnavailable ? "" : "0")} className="accent-plum" />
+          Include temporarily unavailable
+        </label>
+        <p className="pt-1 text-[11px] leading-snug text-muted">Everything is sourced to order — we confirm each item with you before dispatch.</p>
+      </FilterGroup>
+    </div>
+  );
+}
+
+/** Departments with their subcategories, one level deep, expanded when in scope. */
+function CategoryFilter({ fs }: { fs: FilterState }) {
+  const { site, catParam, setP } = fs;
+  return (
+    <FilterGroup title="Category">
+      <label className="filter-row">
+        <input type="radio" name="tg-cat" checked={!catParam} onChange={() => setP("category", "")} className="accent-plum" /> All categories
+      </label>
+      {(site?.categories ?? []).map((d) => {
+        const inScope = catParam === d.slug || d.children.some((c) => c.slug === catParam);
+        return (
+          <div key={d.slug}>
+            <label className="filter-row">
+              <input type="radio" name="tg-cat" checked={catParam === d.slug} onChange={() => setP("category", d.slug)} className="accent-plum" />
+              <span className="flex-1">{d.name}</span>
+              <span className="num-tabular text-[11px] text-muted">{d._count.products}</span>
+            </label>
+            {inScope && d.children.map((c) => (
+              <label key={c.slug} className="filter-row pl-6">
+                <input type="radio" name="tg-cat" checked={catParam === c.slug} onChange={() => setP("category", c.slug)} className="accent-plum" />
+                <span className="flex-1">{c.name}</span>
+                <span className="num-tabular text-[11px] text-muted">{c._count.products}</span>
+              </label>
+            ))}
+          </div>
+        );
+      })}
+    </FilterGroup>
+  );
+}
+
+/**
+ * Brand multi-select.
+ *
+ * The catalogue carries 405 brands. This was a 405-row radio list where picking one replaced
+ * the last, and it offered every brand on every page — including brands with nothing in the
+ * category being viewed. Now it is checkboxes over the server's facet counts (brands with
+ * results here, and how many), with a search box and a collapsed default so the sidebar
+ * doesn't run to several screens. Selected brands stay pinned at the top so a choice made
+ * before searching never scrolls out of reach.
+ */
+function BrandFilter({ fs }: { fs: FilterState }) {
+  const { site, facets, brands, toggleMulti } = fs;
+  const [term, setTerm] = useState("");
+  const [showAll, setShowAll] = useState(false);
+  const LIMIT = 8;
+
+  // Fall back to the site list before facets land, so the group doesn't pop in.
+  const all = useMemo(
+    () => facets?.brands ?? (site?.brands ?? []).map((b) => ({ slug: b.slug, name: b.name, count: b._count?.products ?? 0 })),
+    [facets, site],
+  );
+  const t = term.trim().toLowerCase();
+  const matches = t ? all.filter((b) => b.name.toLowerCase().includes(t)) : all;
+  const selected = matches.filter((b) => brands.includes(b.slug));
+  const rest = matches.filter((b) => !brands.includes(b.slug));
+  const shown = showAll || t ? rest : rest.slice(0, Math.max(0, LIMIT - selected.length));
+  const hidden = rest.length - shown.length;
+
+  if (!all.length) return null;
+  return (
+    <FilterGroup title="Brand">
+      {all.length > LIMIT && (
+        <div className="relative pb-1">
+          <SearchIcon className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted" />
+          <input
+            value={term} onChange={(e) => setTerm(e.target.value)} type="search" placeholder={`Search ${all.length} brands`}
+            aria-label="Search brands"
+            className="focus-ring w-full rounded-full border border-line bg-surface py-2 pl-8 pr-3 text-[13px] text-ink outline-none placeholder:text-muted"
+          />
+        </div>
+      )}
+      {[...selected, ...shown].map((b) => (
+        <label key={b.slug} className="filter-row">
+          <input type="checkbox" checked={brands.includes(b.slug)} onChange={() => toggleMulti("brand", brands, b.slug)} className="accent-plum" />
+          <span className="flex-1 truncate" title={b.name}>{b.name}</span>
+          <span className="num-tabular text-[11px] text-muted">{b.count}</span>
+        </label>
+      ))}
+      {t && !matches.length && <p className="py-1 text-[12px] text-muted">No brand matches “{term}”.</p>}
+      {!t && hidden > 0 && (
+        <button onClick={() => setShowAll(true)} className="focus-ring rounded pt-1 text-[12px] font-semibold text-plum hover:underline">
+          Show {hidden} more
+        </button>
+      )}
+      {!t && showAll && rest.length > LIMIT && (
+        <button onClick={() => setShowAll(false)} className="focus-ring rounded pt-1 text-[12px] font-semibold text-plum hover:underline">Show fewer</button>
+      )}
+    </FilterGroup>
+  );
+}
+
+/**
+ * Price range in whole dollars, applied on blur or Enter rather than per keystroke — typing
+ * "30" would otherwise fire a request for "3" first and repaginate under the cursor.
+ * The catalogue spans $0.21 to $735, so the facet range is shown as the placeholder.
+ */
+function PriceFilter({ fs }: { fs: FilterState }) {
+  const { facets, priceMin, priceMax, setP } = fs;
+  const [lo, setLo] = useState(priceMin);
+  const [hi, setHi] = useState(priceMax);
+  // Re-sync when a chip clears the range from outside this component.
+  const [seen, setSeen] = useState(`${priceMin}|${priceMax}`);
+  if (seen !== `${priceMin}|${priceMax}`) { setSeen(`${priceMin}|${priceMax}`); setLo(priceMin); setHi(priceMax); }
+
+  const clean = (v: string) => v.replace(/[^\d.]/g, "");
+  const apply = () => {
+    const a = clean(lo), b = clean(hi);
+    // A backwards range returns nothing and reads as a bug, so swap it rather than obey it.
+    const [min, max] = a && b && Number(a) > Number(b) ? [b, a] : [a, b];
+    if (min !== priceMin) setP("priceMin", min);
+    if (max !== priceMax) setP("priceMax", max);
+    setLo(min); setHi(max);
+  };
+  const bounds = facets?.price;
+  const cls = "focus-ring w-full rounded-lg border border-line bg-surface px-2.5 py-2 text-[13px] text-ink outline-none placeholder:text-muted";
+
+  return (
+    <FilterGroup title="Price">
+      <div className="flex items-center gap-2 pt-0.5">
+        <input value={lo} onChange={(e) => setLo(clean(e.target.value))} onBlur={apply} onKeyDown={(e) => e.key === "Enter" && apply()}
+          inputMode="decimal" aria-label="Minimum price" placeholder={bounds ? usd(bounds.minCents).replace("$", "") : "Min"} className={cls} />
+        <span className="text-muted">–</span>
+        <input value={hi} onChange={(e) => setHi(clean(e.target.value))} onBlur={apply} onKeyDown={(e) => e.key === "Enter" && apply()}
+          inputMode="decimal" aria-label="Maximum price" placeholder={bounds ? usd(bounds.maxCents).replace("$", "") : "Max"} className={cls} />
+      </div>
+      {bounds && bounds.maxCents > 0 && (
+        <p className="pt-1.5 text-[11px] text-muted">{usd(bounds.minCents)} – {usd(bounds.maxCents)} in this selection</p>
+      )}
+    </FilterGroup>
+  );
+}
+
 function FilterGroup({ title, children }: { title: string; children: React.ReactNode }) {
   const [open, setOpen] = useState(true);
   return (
     <div className="border-b border-line pb-4">
-      <button onClick={() => setOpen((o) => !o)} className="flex w-full items-center justify-between text-[13px] font-semibold text-ink">
+      <button onClick={() => setOpen((o) => !o)} aria-expanded={open}
+        className="focus-ring flex w-full items-center justify-between rounded text-[13px] font-semibold text-ink">
         {title} <ChevronDown className={`h-4 w-4 text-muted transition-transform ${open ? "" : "-rotate-90"}`} />
       </button>
       {open && <div className="mt-3 space-y-1.5">{children}</div>}
@@ -214,7 +466,7 @@ function Pagination({ page, pages, onGo }: { page: number; pages: number; onGo: 
   if (window[0] > 1) window.unshift(1);
   if (window[window.length - 1] < pages) window.push(pages);
 
-  const btn = "grid h-9 min-w-9 place-items-center rounded-full px-3 text-[13px] font-medium transition";
+  const btn = "focus-ring grid h-9 min-w-9 place-items-center rounded-full px-3 text-[13px] font-medium transition";
   return (
     <nav aria-label="Pagination" className="mt-10 flex flex-wrap items-center justify-center gap-1.5">
       <button onClick={() => onGo(page - 1)} disabled={page <= 1} className={`${btn} border border-line text-ink disabled:opacity-35`}>Prev</button>

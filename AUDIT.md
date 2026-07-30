@@ -148,7 +148,7 @@ roll up; the 13 departments sum to exactly 9,533, matching the visible product t
 
 ## Phase 3 — Shop, category and filtering
 
-### 3.1 Brand filter — TODO
+### 3.1 Brand filter — FIXED
 405 brands as an ungrouped **radio** list running thousands of pixels. Radios also forced
 single-select, which is wrong for a filter. Now searchable, height-capped, **multi-select
 checkboxes**, selected pinned to top, show-more affordance.
@@ -168,7 +168,7 @@ Verified: `/category/makeup` 3 of the first 8 unavailable; `/category/nails` 5 o
 Featured ordering now sorts unavailable and discontinued last, and an "Available only" toggle
 defaults on.
 
-### 3.5 Missing filters + URL state — TODO
+### 3.5 Missing filters + URL state — FIXED
 Added price range, availability and in-department category refinement, active-filter chips
 with individual dismiss and Clear all, and full URL sync of filter/sort/page/search.
 
@@ -179,13 +179,20 @@ Fixed aspect ratio, `object-fit: contain`, consistent padding and neutral bed.
 Heavy dark bar replaced with a compact on-palette badge reading "Unavailable";
 discontinued gets its own distinct treatment.
 
-### 3.8 Pagination — TODO
+### 3.8 Pagination — FIXED
 Page numbers, first/last jump, "Showing X–Y of Z". Sorting and filtering confirmed
 server-side across the whole result set, never page-local.
 
 ### 3.9 Sorting — FIXED
 Added price asc/desc, newest and name. Featured is now a deliberate ordering
 (availability, then best-seller, then recency) rather than insertion order.
+
+### 3.10 Filters that lie — FIXED (found while building 3.5)
+"Good for" offered 9 concerns and "Attributes" offered 5, all hardcoded in the client. Checked
+against the database: `concerns` and `attributes` are empty on **all 9,533 visible products**,
+so every one of those 14 options led to "Nothing here yet". Both groups are now built from a
+server facet over what the catalogue actually carries, with counts, so an option exists only
+if something is behind it — and the groups return on their own once products are tagged.
 
 ---
 
@@ -243,8 +250,22 @@ men-signal products spanning 8 departments (Fragrance 212, Deodorant 78, Skincar
 Accessories 29, Sets 22, Hair 12, Bath & Body 7, Makeup 1).
 
 This is why Men cannot be a 13th department — implemented as an additive `audience` field
-(`unisex` / `men` / `women`) with `/men`, `/men/:department`, `/women` sharing one
-parameterised implementation. Classifier is dry-run only — **see BLOCKED**.
+(`unisex` / `men` / `women`). `/men`, `/men/:department`, `/women` and
+`/women/:department` share one parameterised implementation (`pages/Audience.tsx`); two
+near-identical pages drift, and a fix applied to one silently skips the other.
+
+Admin surface: a "Shop for" select in the product editor, an audience filter and bulk action
+in the product list, and a brand-level default on `Brand.audience` that the classifier treats
+as a stated fact — 404 brands is a far smaller job than 9,533 products, and settling "Axe"
+settles every row under it.
+
+`audienceLocked` marks a human decision, and only *changing* the value counts as one.
+Locking on every save would mean fixing a typo pinned the audience to "unisex" forever.
+
+**The pages are live but empty**, because the classifier is dry-run only and nothing is
+classified yet — `/api/audience/men` returns 0. They say so, rather than showing a bare empty
+grid, and the nav links stay hidden until there is something behind them. Running the
+classifier is the owner's call — **see BLOCKED**.
 
 False-positive guard verified: "Treatment", "Ointment", "Amenity"-style substrings do **not**
 match, because matching is on word boundaries.

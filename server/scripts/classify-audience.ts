@@ -16,9 +16,14 @@
  * Signals, highest confidence first:
  *   high   — the product already sits in the "For Him" / "For Her" fragrance category
  *   high   — an unambiguous name token: "for men", "pour homme", "beard", "aftershave"
- *   medium — a weaker name token on its own: "men", "homme", "male", "shaving"
+ *   high   — the brand carries an owner-set default audience (Admin → Brands → Shop for)
+ *   medium — a weaker name token on its own: "men", "homme", "male"
  *   medium — the brand is predominantly one audience *in this catalogue* (measured, not assumed)
  *   low    — anything else. Left unisex.
+ *
+ * The brand default is a stated fact, so it ranks above measured skew and above a weak name
+ * token — 404 brands is a far smaller job than 9,533 products, and settling "Axe" once settles
+ * every one of its rows. A per-product audience set by hand still wins over both.
  *
  * Matching is on WORD BOUNDARIES, never substrings: "Treatment", "Ointment", "Amenity" and
  * "Supplement" all contain "men" and must not be classified as men's product. Verified in the
@@ -59,12 +64,14 @@ const WOMEN_STRONG = rx("for\\s+women|for\\s+her|pour\\s+femme|women'?s");
 const WOMEN_WEAK = rx("women|femme|female");
 
 const CONF_RANK: Record<Conf, number> = { high: 3, medium: 2, low: 1 };
+/** Brand.audience is "" when the owner hasn't said, which must not be treated as a value. */
+const AUDIENCE_VALUES = ["men", "women", "unisex"];
 
 async function main() {
   const products = await db.product.findMany({
     select: {
       id: true, name: true, audience: true, audienceLocked: true,
-      brand: { select: { id: true, name: true } },
+      brand: { select: { id: true, name: true, audience: true } },
       category: { select: { slug: true, name: true, parent: { select: { name: true } } } },
     },
   });
@@ -110,10 +117,16 @@ async function main() {
     // 2. unambiguous name token
     else if (MEN_STRONG.test(p.name) && !WOMEN_STRONG.test(p.name)) { to = "men"; confidence = "high"; why = "name states men's"; }
     else if (WOMEN_STRONG.test(p.name) && !MEN_STRONG.test(p.name)) { to = "women"; confidence = "high"; why = "name states women's"; }
-    // 3. weaker token
+    // 3. the owner has declared what this brand is
+    else if (p.brand && AUDIENCE_VALUES.includes(p.brand.audience)) {
+      to = p.brand.audience as Audience;
+      confidence = "high";
+      why = `${p.brand.name} is set to ${to} in admin`;
+    }
+    // 4. weaker token
     else if (MEN_WEAK.test(p.name) && !WOMEN_WEAK.test(p.name)) { to = "men"; confidence = "medium"; why = "name hints men's"; }
     else if (WOMEN_WEAK.test(p.name) && !MEN_WEAK.test(p.name)) { to = "women"; confidence = "medium"; why = "name hints women's"; }
-    // 4. brand skew
+    // 5. brand skew, measured
     else if (p.brand && brandAudience.has(p.brand.id)) {
       to = brandAudience.get(p.brand.id)!;
       confidence = "medium";
