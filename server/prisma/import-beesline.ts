@@ -221,7 +221,7 @@ async function main() {
   for (const c of TOPS) {
     await db.category.upsert({
       where: { slug: c.slug },
-      update: { name: c.name, blurb: c.blurb, glyph: c.glyph, tint: c.tint, sortOrder: c.sortOrder, active: true, parentId: null },
+      update: { name: c.name, blurb: c.blurb, glyph: c.glyph, tint: c.tint, sortOrder: c.sortOrder, parentId: null },
       create: { ...c, active: true },
     });
   }
@@ -230,7 +230,7 @@ async function main() {
     const { parent: _p, ...rest } = c;
     await db.category.upsert({
       where: { slug: c.slug },
-      update: { ...rest, active: true, parentId: parent.id },
+      update: { ...rest, parentId: parent.id },
       create: { ...rest, active: true, parentId: parent.id },
     });
   }

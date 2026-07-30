@@ -95,10 +95,9 @@ const router = createBrowserRouter([
       { path: "/", element: <Home /> },
       { path: "/shop", element: <Shop mode="all" /> },
       { path: "/category/:slug", element: <Shop mode="category" /> },
-      // Who a product is for cuts across every department, so these are their own routes
-      // rather than categories. One component serves all four paths.
-      { path: "/men", element: <Audience audience="men" /> },
-      { path: "/men/:department", element: <Audience audience="men" /> },
+      // Who a product is for cuts across every department, so this is its own route rather
+      // than a category. /men was retired on the owner's instruction; the component is still
+      // parameterised by audience, so restoring it is two lines.
       { path: "/women", element: <Audience audience="women" /> },
       { path: "/women/:department", element: <Audience audience="women" /> },
       { path: "/new", element: <Shop mode="new" /> },

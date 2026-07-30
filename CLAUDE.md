@@ -400,6 +400,35 @@ node scripts/test-seo.mjs                      # 32: head, SKU privacy, 404s, ro
 ```
 `test-seo.mjs` needs `web/dist` — in dev Vite serves index.html and no injection runs.
 
+## Retired sections (owner's decision, 30 July 2026) — do not resurrect
+
+`scripts/retire-sections.ts` deactivated three categories and set their products to `hidden`:
+
+| Section | Products | Why |
+|---|---|---|
+| `electricals` | 158 | Dyson/Braun/Remington dryers, stylers, epilators — not a beauty range |
+| `oral-care` | 150 | toothpaste, brushes, mouthwash |
+| `gift-sets` (Sets & Routines) | 788 | **"my supplier doesn't sell in sets"** |
+
+Catalogue went 9,533 → 8,437 visible. Reversible: `--write --restore`.
+
+**"Electronics" means the `electricals` SUBcategory, not its parent.** Accessories keeps 40
+non-electronic items (cotton pads, lenses, shaving, Dali's key charms).
+
+Not deleted, because every row belongs to an importer and the next run would recreate them.
+Three guards now stop that:
+1. The feel22 importer skips any product whose target category is `active: false`.
+2. All three importers stopped forcing `active: true` in the **update** branch of their category
+   upserts — they were reactivating whatever they defined. Beesline additionally had
+   `REACTIVATE = ["hair", "gift-sets"]`.
+3. `gift-sets` is feel22's `FALLBACK_CATEGORY` for unmapped types, so unmapped products now
+   land in a retired section and are skipped rather than silently listed. Watch for that if a
+   future import reports a lot of skips.
+
+**`/men` was removed as a section** — the shelf read "7,123 items" because it includes unisex.
+The route, the nav link and the SEO entry are gone (it 404s). `/women` stays. The `audience`
+field is untouched and still powers the "For him / For her" filter and department dropdowns.
+
 ## Phase 3 ideas (not started)
 Automated WhatsApp Business API notifications, richer promo/hero management UI (multiple banners),
 per-product New-Arrivals date overrides, product bundles, loyalty/points.

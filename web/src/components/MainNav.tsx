@@ -39,6 +39,9 @@ const GROUPS: { label: string; slugs: string[] }[] = [
   { label: "Body & Bath", slugs: ["bath-body"] },
   { label: "Deodorant", slugs: ["deodorant"] },
   { label: "Fragrance", slugs: ["fragrance"] },
+  // Retired by the owner: Oral Care and Sets & Routines are deactivated categories, so
+  // /api/site doesn't return them and these entries resolve to nothing. Left in place
+  // deliberately — reactivating either category in admin brings its nav entry straight back.
   { label: "Oral Care", slugs: ["oral-care"] },
   { label: "More", slugs: ["kids-baby", "wellness", "gift-sets", "accessories"] },
 ];
@@ -88,7 +91,10 @@ export function MainNav({ site }: { site: SiteData | null }) {
     return () => { document.removeEventListener("mousedown", onDown); document.removeEventListener("keydown", onKey); };
   }, [open]);
 
-  const showMen = (site?.flags?.menCount ?? 0) > 0;
+  // Men was removed as a top-level section on the owner's instruction: the shelf showed
+  // 7,123 items because it includes unisex, which made it read as the whole catalogue.
+  // The audience data itself stays — it is what powers the "For him" filter and the
+  // For him / For her entries in a department dropdown.
   const showWomen = (site?.flags?.womenCount ?? 0) > 0;
 
   return (
@@ -108,9 +114,8 @@ export function MainNav({ site }: { site: SiteData | null }) {
           : <GroupMenu key={g.label} label={g.label} cats={g.cats} open={open === g.label} onOpen={() => setOpen(g.label)} onClose={() => setOpen(null)} />
       ))}
 
-      {/* Audience routes suppress themselves until the classifier has been run — an empty
-          Men's section is worse than no Men's link, same rule as Sale. */}
-      {showMen && <TopLink to="/men">Men</TopLink>}
+      {/* Suppresses itself if nothing is classified — an empty shelf is worse than no link,
+          same rule as Sale. */}
       {showWomen && <TopLink to="/women">Women</TopLink>}
       <TopLink to="/brands">Brands</TopLink>
       {site?.flags?.hasSale && (
@@ -302,7 +307,6 @@ export function MobileNav({ site, onNavigate }: { site: SiteData | null; onNavig
       })}
 
       <hr className="my-2 border-line" />
-      {(site?.flags?.menCount ?? 0) > 0 && <Link to="/men" onClick={onNavigate} className={row}>Men</Link>}
       {(site?.flags?.womenCount ?? 0) > 0 && <Link to="/women" onClick={onNavigate} className={row}>Women</Link>}
       {([
         ["/new", "New Arrivals"],

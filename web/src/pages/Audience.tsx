@@ -162,13 +162,12 @@ export function Audience({ audience }: { audience: AudienceKey }) {
         )}
       </div>
 
-      {/* Sibling link. Someone who lands on the wrong one should not have to find the nav. */}
+      {/* There is no sibling shelf to link to any more — /men was retired — so this points
+          at the full catalogue instead of a route that would 404. */}
       {!!site && (
         <p className="mt-10 text-center text-[13px] text-muted">
-          Looking for {audience === "men" ? "women’s" : "men’s"}?{" "}
-          <Link to={audience === "men" ? "/women" : "/men"} className="font-semibold text-plum hover:underline">
-            Shop {audience === "men" ? "women’s" : "men’s"}
-          </Link>
+          Looking for something else?{" "}
+          <Link to="/shop" className="font-semibold text-plum hover:underline">Browse everything</Link>
         </p>
       )}
     </div>

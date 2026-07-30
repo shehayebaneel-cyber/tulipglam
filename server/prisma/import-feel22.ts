@@ -267,6 +267,28 @@ async function main() {
       [...badTypes].sort((a, b) => b[1] - a[1]).map(([t, c]) => `${t} (${c})`).join("\n  "));
   }
 
+  /**
+   * Sections the store has retired are not re-imported.
+   *
+   * The owner deactivated Electricals, Oral Care and Sets & Routines (see
+   * scripts/retire-sections.ts). Without this guard the next run would insert all 1,096 rows
+   * again as `active`, quietly undoing that decision — the importer is destructive within its
+   * own `source`, so it rebuilds from the export every time and has no memory of the change.
+   *
+   * Driven by `Category.active` rather than a list here, so retiring a section in admin is the
+   * only step needed and the two can never disagree.
+   */
+  const inactive = new Set(
+    (await db.category.findMany({ where: { active: false }, select: { slug: true } })).map((c) => c.slug),
+  );
+  let skippedRetired = 0;
+  for (const [id, slug] of place) {
+    if (inactive.has(slug)) { place.delete(id); skippedRetired++; }
+  }
+  if (skippedRetired) {
+    console.log(`Skipping ${skippedRetired} products bound for retired sections (${[...inactive].join(", ")}).`);
+  }
+
   const imgDir = path.resolve(import.meta.dirname, "../../web/public/products/feel22");
   const files = new Set(fs.existsSync(imgDir) ? fs.readdirSync(imgDir) : []);
   const missing = products.filter((p) => p.images.length && !files.has(p.images[0].file));
@@ -280,7 +302,7 @@ async function main() {
   for (const c of TOPS) {
     await db.category.upsert({
       where: { slug: c.slug },
-      update: { name: c.name, blurb: c.blurb, glyph: c.glyph, tint: c.tint, sortOrder: c.sortOrder, active: true, parentId: null },
+      update: { name: c.name, blurb: c.blurb, glyph: c.glyph, tint: c.tint, sortOrder: c.sortOrder, parentId: null },
       create: { ...c, active: true },
     });
   }
@@ -289,7 +311,7 @@ async function main() {
     const { parent: _p, ...rest } = c;
     await db.category.upsert({
       where: { slug: c.slug },
-      update: { ...rest, blurb: rest.name, active: true, parentId: parent.id },
+      update: { ...rest, blurb: rest.name, parentId: parent.id },
       create: { ...rest, blurb: rest.name, active: true, parentId: parent.id },
     });
   }
@@ -378,7 +400,10 @@ async function main() {
 
   for (const p of products) {
     if (skip.has(p.product_id)) continue; // already carried direct from the brand
-    const slug = place.get(p.product_id)!;
+    const slug = place.get(p.product_id);
+    // Bound for a retired section — removed from `place` above. Not an error: the owner
+    // deliberately took that section off sale.
+    if (!slug) continue;
     const meta = [...TOPS, ...SUBS].find((c) => c.slug === slug);
     const status = productStatus(p);
     const base = cents(basePrice(p));

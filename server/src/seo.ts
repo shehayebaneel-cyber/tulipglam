@@ -242,12 +242,14 @@ export async function metaForPath(pathname: string, ctx: Ctx): Promise<PageMeta>
     };
   }
 
-  if (parts[0] === "men" || parts[0] === "women") {
-    const who = parts[0] === "men" ? "Men’s" : "Women’s";
+  // /men was retired by the owner. It is not listed here, so it falls through to the 404 at the
+  // bottom — the router no longer has the route either, and a page that renders "not found"
+  // must not answer 200 or crawlers keep it indexed.
+  if (parts[0] === "women") {
     return {
       ...base,
-      title: titled(`${who} beauty and grooming`, siteName),
-      description: `${who} makeup, skincare, hair and fragrance at ${siteName}. Delivered across Lebanon, cash on delivery.`,
+      title: titled("Women’s beauty and skincare", siteName),
+      description: `Women’s makeup, skincare, hair and fragrance at ${siteName}. Delivered across Lebanon, cash on delivery.`,
     };
   }
 
