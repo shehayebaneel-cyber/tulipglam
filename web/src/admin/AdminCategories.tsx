@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { adminApi, type AdminCategory } from "./adminApi";
 import { ProductGlyph } from "../components/ProductGlyph";
-import { Spinner, PlusIcon, TrashIcon, CloseIcon, ChevronDown } from "../components/ui";
+import { Spinner, PlusIcon, TrashIcon, CloseIcon } from "../components/ui";
+import { Combobox } from "./primitives/Combobox";
 import type { Glyph } from "../lib/api";
 
 const GLYPHS: Glyph[] = ["bottle", "dropper", "jar", "tube", "lipstick", "compact", "mist"];
@@ -87,8 +88,23 @@ export function Modal({ title, onClose, children }: { title: string; onClose: ()
 export function L({ label, children }: { label: string; children: React.ReactNode }) {
   return <label className="block"><span className="mb-1 block text-[12px] font-medium text-ink/70">{label}</span>{children}</label>;
 }
-export function Sel({ value, onChange, options }: { value: string; onChange: (v: string) => void; options: [string, string][] }) {
+/**
+ * Kept for the pages that already use it (Categories, Coupons). Now backed by the shared
+ * Combobox so the admin has one dropdown everywhere instead of an OS-rendered option list.
+ */
+export function Sel({ value, onChange, options, ariaLabel = "Select an option" }: {
+  value: string;
+  onChange: (v: string) => void;
+  options: [string, string][];
+  ariaLabel?: string;
+}) {
   return (
-    <div className="relative"><select value={value} onChange={(e) => onChange(e.target.value)} className="field w-full appearance-none pr-9">{options.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select><ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" /></div>
+    <Combobox
+      value={value}
+      onChange={onChange}
+      options={options.map(([v, l]) => ({ value: v, label: l }))}
+      ariaLabel={ariaLabel}
+      buttonClassName="py-2.5"
+    />
   );
 }

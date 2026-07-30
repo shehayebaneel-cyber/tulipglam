@@ -107,9 +107,8 @@ export function Home() {
   const { site } = useStore();
   const { data, loading } = useFetch(() => api.home(), []);
   const categories = site?.categories ?? [];
-  const settings = site?.settings ?? {};
   const brands = site?.brands ?? [];
-  const promoOn = settings.promoActive !== "false";
+  const promo = data?.promo ?? null;
 
   return (
     <div className="pb-6">
@@ -204,15 +203,22 @@ export function Home() {
         </section>
       )}
 
-      {/* ---------------- PROMOTION ---------------- */}
-      {promoOn && (
+      {/* ---------------- PROMOTION ----------------
+          Entirely server-resolved. `promo` is null unless the title is set, the scope points
+          at a real brand/category that actually holds products, and — for the discount line
+          — something in that scope is genuinely marked down. There are no local fallbacks
+          on purpose: hardcoded copy here is how the store came to advertise deleted brands
+          at a discount that did not exist. */}
+      {promo && (
         <section className="wrap mt-14">
           <div className="relative overflow-hidden rounded-[22px] bg-plum px-7 py-10 text-white sm:px-12 sm:py-14">
             <TulipMark className="pointer-events-none absolute -right-6 -top-6 h-48 w-48 text-white/10" />
-            <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-white/70">Limited time</p>
-            <h2 className="serif mt-2 max-w-lg text-3xl font-medium leading-tight sm:text-4xl">{settings.promoTitle ?? "The Skincare Edit — up to 30% off"}</h2>
-            <p className="mt-3 max-w-md text-sm text-white/80">{settings.promoText ?? "Serums, moisturisers and masks. While stocks last."}</p>
-            <Link to="/sale" className="btn mt-6 bg-white px-7 py-3.5 text-plum btn-cta hover:bg-white/90">Shop the sale</Link>
+            {promo.discountText && (
+              <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-white/70">{promo.discountText}</p>
+            )}
+            <h2 className="serif mt-2 max-w-lg text-3xl font-medium leading-tight sm:text-4xl">{promo.title}</h2>
+            {promo.text && <p className="mt-3 max-w-md text-sm text-white/80">{promo.text}</p>}
+            <Link to={promo.href} className="btn btn-cta mt-6 bg-white px-7 py-3.5 text-plum hover:bg-white/90">{promo.ctaLabel}</Link>
           </div>
         </section>
       )}

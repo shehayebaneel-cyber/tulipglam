@@ -193,7 +193,7 @@ const firstSentence = (s: string) => {
 };
 
 async function main() {
-  const products: BlProduct[] = JSON.parse(fs.readFileSync(CATALOG, "utf8").replace(/^﻿/, ""));
+  const products: BlProduct[] = JSON.parse(fs.readFileSync(CATALOG, "utf8").replace(/^\uFEFF/, ""));
   console.log(`Loaded ${products.length} Beesline products.`);
 
   // -- validate before touching the database -------------------------------

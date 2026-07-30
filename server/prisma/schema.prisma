@@ -90,6 +90,16 @@ model Product {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  // Admin list sorts/filters on all of these across ~10k rows. See
+  // scripts/2026-07-30-admin-indexes.sql — additive, safe to run online.
+  @@index([status])
+  @@index([categoryId])
+  @@index([brandId])
+  @@index([source])
+  @@index([priceCents])
+  @@index([updatedAt])
+  @@index([name])
 }
 
 model ProductImage {
@@ -99,6 +109,8 @@ model ProductImage {
   url       String
   alt       String  @default("")
   sortOrder Int     @default(0)
+
+  @@index([productId, sortOrder])
 }
 
 // Shades / sizes. type = "shade" (has hex swatch) | "size" (has label).
@@ -116,6 +128,8 @@ model ProductVariant {
   priceCents Int? // optional override of base price
   available  Boolean @default(true)
   sortOrder  Int     @default(0)
+
+  @@index([productId, sortOrder])
 }
 
 model Review {
@@ -181,10 +195,22 @@ model Order {
   deliveryCents Int    @default(0)
   totalCents    Int
   paymentMethod String @default("cod")
+
+  // `awaiting_customer` is the pivotal state in a source-to-order business: we could not
+  // source something and are waiting on the shopper. These record which line is blocked,
+  // what we asked, and since when, so the admin can show it and chase it.
+  // Nullable / defaulted on purpose — additive and backwards-compatible.
+  awaitingItemId Int?
+  awaitingNote   String    @default("")
+  awaitingSince  DateTime?
+
   items       OrderItem[]
   events      OrderEvent[]
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+
+  @@index([status])
+  @@index([createdAt])
 }
 
 // ------------------------------------------------------------------ promotions

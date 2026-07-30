@@ -14,6 +14,8 @@ export type Card = {
 // instead of `hex`, and picking the shade swaps the gallery hero to it.
 export type Variant = { id: number; type: "shade" | "size"; label: string; hex: string; imageUrl: string; priceCents: number | null; available: boolean };
 export type Review = { id: number; author: string; rating: number; title: string; text: string; product?: string; createdAt?: string };
+/** Server-resolved homepage promo. `discountText` is "" unless something in scope is on sale. */
+export type ResolvedPromo = { title: string; text: string; discountText: string; href: string; ctaLabel: string };
 
 export type ProductFull = Card & {
   shortDesc: string; description: string; howToUse: string; ingredients: string;
@@ -64,7 +66,9 @@ export type Address = { id: number; label: string; fullName: string; phone: stri
 
 export const api = {
   site: () => req<SiteData>("/site"),
-  home: () => req<{ bestSellers: Card[]; newArrivals: Card[]; reviews: Review[] }>("/home"),
+  // `promo` is resolved on the server against real brands/categories and real sale prices.
+  // null means render nothing — the client must not substitute copy of its own.
+  home: () => req<{ promo: ResolvedPromo | null; bestSellers: Card[]; newArrivals: Card[]; reviews: Review[] }>("/home"),
   products: (q: Record<string, string | undefined>) => {
     const qs = new URLSearchParams(Object.entries(q).filter(([, v]) => v != null && v !== "") as [string, string][]).toString();
     // paginated — `total` is the count across all pages, `pages` the page count

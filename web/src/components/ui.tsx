@@ -76,3 +76,18 @@ export function Spinner({ className = "h-6 w-6" }: IconProps) {
     </svg>
   );
 }
+
+// ---- admin icons (line, 24px, currentColor) ----
+export const PencilIcon = (p: IconProps) => (<S {...p}><path d="M4 20h4l10-10-4-4L4 16v4Z" /><path d="M13.5 6.5l4 4" /></S>);
+export const TagIcon = (p: IconProps) => (<S {...p}><path d="M4 13V5a1 1 0 0 1 1-1h8l7 7-8 8-8-8Z" /><circle cx="8.5" cy="8.5" r="1.2" /></S>);
+export const LayersIcon = (p: IconProps) => (<S {...p}><path d="M12 3 4 7l8 4 8-4-8-4Z" /><path d="M4 12l8 4 8-4M4 17l8 4 8-4" /></S>);
+export const TicketIcon = (p: IconProps) => (<S {...p}><path d="M3 9V6.5A1.5 1.5 0 0 1 4.5 5h15A1.5 1.5 0 0 1 21 6.5V9a2.6 2.6 0 0 0 0 6v2.5A1.5 1.5 0 0 1 19.5 19h-15A1.5 1.5 0 0 1 3 17.5V15a2.6 2.6 0 0 0 0-6Z" /><path d="M14 5v14" strokeDasharray="2 2.6" /></S>);
+export const GiftIcon = (p: IconProps) => (<S {...p}><path d="M4 11h16v9H4zM3 7.5h18V11H3z" /><path d="M12 7.5V20" /><path d="M12 7.5C10.5 5 9 4 7.8 4.6 6.6 5.2 7 7 9 7.5M12 7.5c1.5-2.5 3-3.5 4.2-2.9 1.2.6.8 2.4-1.2 2.9" /></S>);
+export const UsersIcon = (p: IconProps) => (<S {...p}><circle cx="9" cy="8" r="3.2" /><path d="M3 20c0-3.3 2.7-5.5 6-5.5s6 2.2 6 5.5" /><path d="M16 5.4A3.2 3.2 0 0 1 16 11M18 14.8c2 .7 3 2.4 3 5.2" /></S>);
+export const ChatIcon = (p: IconProps) => (<S {...p}><path d="M20 12.5c0 3.6-3.6 6.5-8 6.5-1 0-2-.15-2.9-.42L5 20l1.1-3.1A6.9 6.9 0 0 1 4 12.5C4 8.9 7.6 6 12 6s8 2.9 8 6.5Z" /></S>);
+export const UploadIcon = (p: IconProps) => (<S {...p}><path d="M12 16V4M8 8l4-4 4 4" /><path d="M4 15v3.5A1.5 1.5 0 0 0 5.5 20h13a1.5 1.5 0 0 0 1.5-1.5V15" /></S>);
+export const SettingsIcon = (p: IconProps) => (<S {...p}><circle cx="12" cy="12" r="3" /><path d="M12 3v2.2M12 18.8V21M4.6 7.8l1.9 1.1M17.5 15.1l1.9 1.1M19.4 7.8l-1.9 1.1M6.5 15.1l-1.9 1.1" /></S>);
+export const GaugeIcon = (p: IconProps) => (<S {...p}><path d="M4.5 17a8.5 8.5 0 1 1 15 0" /><path d="M12 13.5 15.5 10" /><circle cx="12" cy="14.5" r="1.3" fill="currentColor" stroke="none" /></S>);
+export const AlertIcon = (p: IconProps) => (<S {...p}><path d="M12 4.5 21 19H3l9-14.5Z" /><path d="M12 10v4.2" /><circle cx="12" cy="16.8" r=".9" fill="currentColor" stroke="none" /></S>);
+export const ClipboardIcon = (p: IconProps) => (<S {...p}><path d="M9 4.5h6M8 6h8a1.5 1.5 0 0 1 1.5 1.5V19A1.5 1.5 0 0 1 16 20.5H8A1.5 1.5 0 0 1 6.5 19V7.5A1.5 1.5 0 0 1 8 6Z" /><path d="M9.5 11h5M9.5 14.5h5" /></S>);
+export const ExternalIcon = (p: IconProps) => (<S {...p}><path d="M14 4h6v6" /><path d="M20 4l-8.5 8.5" /><path d="M18 14v4.5A1.5 1.5 0 0 1 16.5 20h-11A1.5 1.5 0 0 1 4 18.5v-11A1.5 1.5 0 0 1 5.5 6H10" /></S>);

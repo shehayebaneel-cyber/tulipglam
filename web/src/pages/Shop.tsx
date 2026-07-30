@@ -72,7 +72,7 @@ export function Shop({ mode }: { mode: Mode }) {
   };
   const toggleMulti = (key: string, arr: string[], val: string) => {
     const set = new Set(arr);
-    set.has(val) ? set.delete(val) : set.add(val);
+    if (set.has(val)) set.delete(val); else set.add(val);
     setP(key, [...set].join(","));
   };
   const activeCount = (brand ? 1 : 0) + attrs.length + concerns.length + (mode !== "category" && catParam ? 1 : 0);

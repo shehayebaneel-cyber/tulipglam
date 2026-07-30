@@ -18,3 +18,33 @@ export const ORDER_STATUSES = [
 
 export const STATUS_KEYS = ORDER_STATUSES.map((s) => s.key);
 export const statusMeta = (key: string) => ORDER_STATUSES.find((s) => s.key === key) ?? ORDER_STATUSES[0];
+
+// ---------------------------------------------------------------- transitions
+// Legal moves between statuses, enforced server-side. Before this existed the admin sent
+// whatever its <select> held and the API wrote it, so an order could jump from `received`
+// straight to `delivered`, or leave a terminal state. The client offers only these; the
+// server independently rejects anything else.
+const TRANSITIONS: Record<string, readonly string[]> = {
+  received: ["confirming", "awaiting_customer", "confirmed", "on_hold", "cancelled", "unavailable"],
+  confirming: ["awaiting_customer", "confirmed", "on_hold", "cancelled", "unavailable"],
+  awaiting_customer: ["confirmed", "sourcing", "on_hold", "cancelled", "unavailable"],
+  confirmed: ["sourcing", "packed", "on_hold", "cancelled", "unavailable"],
+  sourcing: ["packed", "awaiting_customer", "on_hold", "cancelled", "unavailable"],
+  packed: ["dispatched", "on_hold", "cancelled"],
+  dispatched: ["out_for_delivery", "on_hold", "cancelled"],
+  out_for_delivery: ["delivered", "on_hold", "cancelled"],
+  delivered: ["completed"],
+  completed: [],
+  on_hold: ["confirming", "awaiting_customer", "confirmed", "sourcing", "cancelled", "unavailable"],
+  cancelled: [],
+  unavailable: [],
+};
+
+/** Statuses an order may legally move to from `from`. Empty for terminal states. */
+export const nextStatuses = (from: string): readonly string[] => TRANSITIONS[from] ?? [];
+
+/** Same-status is allowed (a no-op re-save); anything not in the table is rejected. */
+export const canTransition = (from: string, to: string): boolean =>
+  from === to || nextStatuses(from).includes(to);
+
+export const isTerminal = (key: string): boolean => nextStatuses(key).length === 0;

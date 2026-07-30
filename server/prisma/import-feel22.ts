@@ -178,10 +178,6 @@ const TYPE_MAP: Record<string, string> = {
 // The 6 products with no product_type at all.
 const FALLBACK_CATEGORY = "gift-sets";
 
-const STATUS_BY_QUALITY: Record<F2Variant["quality"], string> = {
-  ok: "active", out_of_stock: "unavailable", price_zero: "hidden",
-};
-
 // Shopify option names -> the schema's two variant kinds.
 function variantKind(optionNames: string[]): "size" | "shade" {
   return optionNames.some((n) => /size/i.test(n)) ? "size" : "shade";
@@ -249,7 +245,7 @@ const jaccard = (a: Set<string>, b: Set<string>) => {
 const isBundle = (s: string) => /[A-Za-z)]\s+\+\s+[A-Za-z]/.test(s.replace(/\(\s*\d+\s*\+\s*\d+[^)]*\)/g, " "));
 
 async function main() {
-  const products: F2Product[] = JSON.parse(fs.readFileSync(CATALOG, "utf8").replace(/^﻿/, ""));
+  const products: F2Product[] = JSON.parse(fs.readFileSync(CATALOG, "utf8").replace(/^\uFEFF/, ""));
   console.log(`Loaded ${products.length} Feel22 products.`);
 
   // -- validate -------------------------------------------------------------
@@ -448,7 +444,7 @@ async function main() {
   for (const part of chunk(imageRows, 1000)) await db.productImage.createMany({ data: part });
   for (const part of chunk(variantRows, 1000)) await db.productVariant.createMany({ data: part });
 
-  const n = productRows.length, nImg = imageRows.length, nVar = variantRows.length;
+  const nImg = imageRows.length, nVar = variantRows.length;
   console.log(`Attached ${nImg} images and ${nVar} variants.`);
   console.log("\nBy status:");
   for (const [s, c] of Object.entries(byStatus).sort((a, b) => b[1] - a[1])) console.log(`  ${s.padEnd(13)} ${c}`);

@@ -1,21 +1,48 @@
 import { useEffect, useState } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { adminApi, getKey, setKey, clearKey } from "./adminApi";
-import { TulipMark, Spinner, CloseIcon, MenuIcon } from "../components/ui";
+import {
+  TulipMark, Spinner, CloseIcon, MenuIcon, GaugeIcon, BoxIcon, TagIcon, LayersIcon,
+  TicketIcon, GiftIcon, UsersIcon, ChatIcon, UploadIcon, SettingsIcon, ClipboardIcon, ExternalIcon,
+} from "../components/ui";
+import { ToastProvider } from "./primitives/Toast";
 
-const NAV = [
-  ["/admin", "Dashboard", true],
-  ["/admin/orders", "Orders", false],
-  ["/admin/products", "Products", false],
-  ["/admin/categories", "Categories", false],
-  ["/admin/brands", "Brands", false],
-  ["/admin/coupons", "Coupons", false],
-  ["/admin/gift-cards", "Gift Cards", false],
-  ["/admin/customers", "Customers", false],
-  ["/admin/reviews", "Reviews", false],
-  ["/admin/import", "Import", false],
-  ["/admin/settings", "Settings", false],
-] as const;
+type Item = { to: string; label: string; icon: (p: { className?: string }) => React.ReactElement; end?: boolean };
+
+/** Grouped so the eleven destinations read as four short lists rather than one long one. */
+const NAV: { group: string; items: Item[] }[] = [
+  { group: "", items: [{ to: "/admin", label: "Dashboard", icon: GaugeIcon, end: true }] },
+  {
+    group: "Catalog",
+    items: [
+      { to: "/admin/products", label: "Products", icon: BoxIcon },
+      { to: "/admin/categories", label: "Categories", icon: LayersIcon },
+      { to: "/admin/brands", label: "Brands", icon: TagIcon },
+    ],
+  },
+  {
+    group: "Sales",
+    items: [
+      { to: "/admin/orders", label: "Orders", icon: ClipboardIcon },
+      { to: "/admin/coupons", label: "Coupons", icon: TicketIcon },
+      { to: "/admin/gift-cards", label: "Gift Cards", icon: GiftIcon },
+    ],
+  },
+  {
+    group: "People",
+    items: [
+      { to: "/admin/customers", label: "Customers", icon: UsersIcon },
+      { to: "/admin/reviews", label: "Reviews", icon: ChatIcon },
+    ],
+  },
+  {
+    group: "System",
+    items: [
+      { to: "/admin/import", label: "Import", icon: UploadIcon },
+      { to: "/admin/settings", label: "Settings", icon: SettingsIcon },
+    ],
+  },
+];
 
 export function AdminLayout() {
   const [authed, setAuthed] = useState<boolean | null>(null);
@@ -52,27 +79,48 @@ export function AdminLayout() {
     </div>
   );
 
+  // Active state is a left plum bar plus a soft tint — the old solid plum fill dominated the
+  // sidebar and fought the one-accent rule.
   const linkCls = ({ isActive }: { isActive: boolean }) =>
-    `block rounded-lg px-3 py-2 text-[14px] font-medium transition-colors ${isActive ? "bg-plum text-white" : "text-ink/75 hover:bg-soft"}`;
+    `focus-ring relative flex items-center gap-2.5 rounded-lg px-3 py-2 text-[13.5px] font-medium transition-colors ${
+      isActive
+        ? "bg-plum-soft text-plum before:absolute before:inset-y-1 before:left-0 before:w-[3px] before:rounded-full before:bg-plum"
+        : "text-ink/75 hover:bg-soft hover:text-ink"
+    }`;
 
   const Sidebar = () => (
     <>
       <div className="flex items-center gap-2 px-3 py-4 text-plum">
         <TulipMark className="h-6 w-6" /><span className="serif text-lg font-medium text-ink">TulipGlam</span>
       </div>
-      <nav className="space-y-1 px-2">
-        {NAV.map(([to, label, end]) => (
-          <NavLink key={to} to={to} end={end as boolean} onClick={() => setDrawer(false)} className={linkCls}>{label}</NavLink>
+      <nav aria-label="Admin sections" className="px-2">
+        {NAV.map((section) => (
+          <div key={section.group || "root"} className={section.group ? "mt-4" : ""}>
+            {section.group && <p className="th-label px-3 pb-1.5">{section.group}</p>}
+            <div className="space-y-0.5">
+              {section.items.map((item) => (
+                <NavLink key={item.to} to={item.to} end={item.end} onClick={() => setDrawer(false)} className={linkCls}>
+                  <item.icon className="h-[18px] w-[18px] shrink-0" />
+                  {item.label}
+                </NavLink>
+              ))}
+            </div>
+          </div>
         ))}
       </nav>
-      <div className="mt-auto space-y-1 px-2 pb-4">
-        <button onClick={() => navigate("/")} className="block w-full rounded-lg px-3 py-2 text-left text-[13px] text-muted hover:bg-soft">← View store</button>
-        <button onClick={() => { clearKey(); setAuthed(false); }} className="block w-full rounded-lg px-3 py-2 text-left text-[13px] text-sale hover:bg-soft">Sign out</button>
+      <div className="mt-auto space-y-0.5 px-2 pb-4 pt-6">
+        <button onClick={() => navigate("/")} className="focus-ring flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-[13px] text-muted-strong hover:bg-soft hover:text-ink">
+          <ExternalIcon className="h-[18px] w-[18px] shrink-0" /> View store
+        </button>
+        <button onClick={() => { clearKey(); setAuthed(false); }} className="focus-ring flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-[13px] text-sale hover:bg-sale/10">
+          <CloseIcon className="h-[18px] w-[18px] shrink-0" /> Sign out
+        </button>
       </div>
     </>
   );
 
   return (
+    <ToastProvider>
     <div className="min-h-screen bg-soft">
       <div className="mx-auto flex max-w-[1400px]">
         <aside className="sticky top-0 hidden h-screen w-56 shrink-0 flex-col border-r border-line bg-surface lg:flex">
@@ -94,12 +142,13 @@ export function AdminLayout() {
       {drawer && (
         <div className="fixed inset-0 z-50 lg:hidden">
           <div className="absolute inset-0 bg-ink/40" onClick={() => setDrawer(false)} />
-          <aside className="absolute left-0 top-0 flex h-full w-64 flex-col bg-surface shadow-pop">
-            <button onClick={() => setDrawer(false)} className="absolute right-3 top-4 grid h-9 w-9 place-items-center rounded-full hover:bg-soft"><CloseIcon /></button>
+          <aside className="absolute left-0 top-0 flex h-full w-64 flex-col overflow-y-auto bg-surface shadow-pop">
+            <button onClick={() => setDrawer(false)} aria-label="Close menu" className="focus-ring absolute right-3 top-4 grid h-9 w-9 place-items-center rounded-full hover:bg-soft"><CloseIcon /></button>
             <Sidebar />
           </aside>
         </div>
       )}
     </div>
+    </ToastProvider>
   );
 }

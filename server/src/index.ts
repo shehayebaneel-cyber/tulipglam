@@ -5,9 +5,11 @@ import fs from "fs";
 import { randomUUID } from "crypto";
 import { PrismaClient, Prisma } from "@prisma/client";
 import * as XLSX from "xlsx";
-import { ORDER_STATUSES, STATUS_KEYS, statusMeta } from "./status.js";
+import { ORDER_STATUSES, STATUS_KEYS, statusMeta, nextStatuses, canTransition } from "./status.js";
 import { hashPassword, checkPassword, signToken, withCustomer, requireCustomer } from "./auth.js";
 import { sendMail, orderConfirmationEmail, statusUpdateEmail } from "./mailer.js";
+import { DEV_ADMIN_KEY, validateSettings, setupChecks } from "./setup.js";
+import { resolvePromo } from "./promo.js";
 
 const db = new PrismaClient();
 const app = express();
@@ -15,7 +17,30 @@ app.use(cors());
 app.use(express.json({ limit: "12mb" })); // room for base64 image uploads
 
 const PORT = Number(process.env.PORT ?? 4230);
-const ADMIN_KEY = process.env.ADMIN_KEY ?? "tulip-admin-2026";
+const ADMIN_KEY = process.env.ADMIN_KEY ?? DEV_ADMIN_KEY;
+const IS_PROD = process.env.NODE_ENV === "production";
+
+// Refuse to serve production with the key that ships in the repo's dev .env. Anyone who
+// has read this codebase would otherwise have admin access to a live store.
+if (IS_PROD && ADMIN_KEY === DEV_ADMIN_KEY) {
+  console.error(
+    [
+      "",
+      "FATAL: ADMIN_KEY is still the development default.",
+      "",
+      "  The admin panel would accept the key committed to this repository, so anyone",
+      "  who has seen the source could sign in and edit the live catalogue.",
+      "",
+      "  Fix: set a long random ADMIN_KEY in the environment and redeploy.",
+      "    Render → your service → Environment → ADMIN_KEY",
+      "    Generate one with:  node -e \"console.log(require('crypto').randomBytes(32).toString('base64url'))\"",
+      "",
+      "  Refusing to start.",
+      "",
+    ].join("\n"),
+  );
+  process.exit(1);
+}
 
 const UPLOAD_DIR = process.env.UPLOAD_DIR || path.resolve(process.cwd(), "uploads");
 try { fs.mkdirSync(UPLOAD_DIR, { recursive: true }); } catch { /* noop */ }
@@ -93,7 +118,11 @@ app.get("/api/home", asyncH(async (_req, res) => {
     db.review.findMany({ where: { approved: true }, orderBy: { createdAt: "desc" }, take: 6, include: { product: { select: { name: true } } } }),
   ]);
   const newArrivals = fresh.filter((p) => computeIsNew(p, newDays)).slice(0, 8);
+  // Resolved server-side against real rows; null means the homepage renders no promo at
+  // all. The client must not fall back to any copy of its own.
+  const { promo } = await resolvePromo(db, settings);
   res.json({
+    promo,
     bestSellers: best.map((p) => cardOf(p, newDays)),
     newArrivals: (newArrivals.length ? newArrivals : fresh.slice(0, 8)).map((p) => cardOf(p, newDays)),
     reviews: reviews.map((r) => ({ id: r.id, author: r.author, rating: r.rating, text: r.text, title: r.title, product: r.product?.name ?? "" })),
@@ -480,16 +509,118 @@ admin.get("/products", asyncH(async (req, res) => {
   if (req.query.q) where.name = { contains: str(req.query.q) };
   // Paginated: unpaginated this returned all ~9.7k products as a 17 MB / 15-second
   // response, which made the admin product list unusable.
-  if (req.query.source) where.source = str(req.query.source);
-  if (req.query.brandId) where.brandId = num(req.query.brandId);
+  const and: Prisma.ProductWhereInput[] = [];
+
+  if (req.query.source) and.push({ source: str(req.query.source) });
+  // "none" targets products with no brand at all — what the catalogue-health link uses.
+  if (req.query.brandId === "none") and.push({ brandId: null });
+  else if (req.query.brandId) and.push({ brandId: num(req.query.brandId) });
+  // Shopper-visible only. `status` takes a single value, so this expresses the
+  // active-or-unavailable pair the catalogue-health counts use.
+  if (req.query.visible === "1") and.push({ status: { in: ["active", "unavailable"] } });
+
+  // A department holds no products directly, so filtering by one must include its
+  // children — same rollup the storefront listing uses.
+  if (req.query.categoryId) {
+    const catId = num(req.query.categoryId);
+    const cat = await db.category.findUnique({ where: { id: catId }, select: { id: true, children: { select: { id: true } } } });
+    if (!cat) return res.json({ products: [], total: 0, page: 1, pages: 1, limit: 50 });
+    and.push({ categoryId: { in: [cat.id, ...cat.children.map((c) => c.id)] } });
+  }
+
+  // Price range in dollars, inclusive. Compared against the base price.
+  const priceMin = str(req.query.priceMin).trim();
+  const priceMax = str(req.query.priceMax).trim();
+  if (priceMin || priceMax) {
+    const range: Prisma.IntFilter = {};
+    if (priceMin) range.gte = toCents(priceMin);
+    if (priceMax) range.lte = toCents(priceMax);
+    and.push({ priceCents: range });
+  }
+
+  if (req.query.hasImage === "1") and.push({ images: { some: {} } });
+  if (req.query.hasImage === "0") and.push({ images: { none: {} } });
+  if (req.query.hasVariants === "1") and.push({ variants: { some: {} } });
+  if (req.query.hasVariants === "0") and.push({ variants: { none: {} } });
+  // "no description" means neither field has copy — matches the catalogue-health count.
+  if (req.query.hasDescription === "1") and.push({ NOT: { shortDesc: "", description: "" } });
+  if (req.query.hasDescription === "0") and.push({ shortDesc: "", description: "" });
+
+  if (and.length) where.AND = and;
+
+  // Sorting is server-side across the whole result set — never just the current page.
+  const dir: Prisma.SortOrder = str(req.query.dir) === "asc" ? "asc" : "desc";
+  const SORTS: Record<string, Prisma.ProductOrderByWithRelationInput[]> = {
+    name: [{ name: dir }],
+    price: [{ priceCents: dir }],
+    status: [{ status: dir }, { name: "asc" }],
+    updated: [{ updatedAt: dir }],
+    category: [{ category: { name: dir } }, { name: "asc" }],
+    brand: [{ brand: { name: dir } }, { name: "asc" }],
+  };
+  const orderBy = SORTS[str(req.query.sort)] ?? [{ updatedAt: "desc" as const }];
+
   const limit = Math.min(Math.max(num(req.query.limit, 50), 1), 200);
   const page = Math.max(num(req.query.page, 1), 1);
   const [total, products] = await Promise.all([
     db.product.count({ where }),
-    db.product.findMany({ where, orderBy: { updatedAt: "desc" }, skip: (page - 1) * limit, take: limit,
-      include: { brand: true, category: true, images: { orderBy: { sortOrder: "asc" }, take: 1 }, _count: { select: { variants: true } } } }),
+    db.product.findMany({ where, orderBy, skip: (page - 1) * limit, take: limit,
+      // image count as well as the thumbnail: the delete dialog warns about what it destroys
+      include: { brand: true, category: true, images: { orderBy: { sortOrder: "asc" }, take: 1 }, _count: { select: { variants: true, images: true } } } }),
   ]);
   res.json({ products, total, page, pages: Math.max(1, Math.ceil(total / limit)), limit });
+}));
+
+// ---- bulk product actions ----
+// Each takes an explicit id list. Scoped by id only — never by source, so a bulk action
+// can't sweep beyond what the operator selected.
+const MAX_BULK = 500;
+function bulkIds(body: unknown): number[] {
+  const raw = (body as { ids?: unknown })?.ids;
+  if (!Array.isArray(raw)) return [];
+  return [...new Set(raw.map((v) => num(v)).filter((n) => Number.isInteger(n) && n > 0))].slice(0, MAX_BULK);
+}
+
+admin.post("/products/bulk", asyncH(async (req, res) => {
+  const ids = bulkIds(req.body);
+  if (!ids.length) return res.status(400).json({ error: "Select at least one product." });
+  const action = str(req.body.action);
+
+  if (action === "status") {
+    const status = str(req.body.status);
+    if (!STATUS_PRODUCT.includes(status)) return res.status(400).json({ error: "Bad status." });
+    const r = await db.product.updateMany({ where: { id: { in: ids } }, data: { status } });
+    return res.json({ ok: true, count: r.count });
+  }
+
+  if (action === "category") {
+    const categoryId = num(req.body.categoryId);
+    const cat = await db.category.findUnique({ where: { id: categoryId }, select: { id: true } });
+    if (!cat) return res.status(400).json({ error: "That category no longer exists." });
+    const r = await db.product.updateMany({ where: { id: { in: ids } }, data: { categoryId } });
+    return res.json({ ok: true, count: r.count });
+  }
+
+  if (action === "brand") {
+    // "" clears the brand; otherwise the brand must exist.
+    const raw = str(req.body.brandId);
+    const brandId = raw ? num(raw) : null;
+    if (brandId !== null) {
+      const brand = await db.brand.findUnique({ where: { id: brandId }, select: { id: true } });
+      if (!brand) return res.status(400).json({ error: "That brand no longer exists." });
+    }
+    const r = await db.product.updateMany({ where: { id: { in: ids } }, data: { brandId } });
+    return res.json({ ok: true, count: r.count });
+  }
+
+  if (action === "delete") {
+    // Past orders keep their name/price snapshot; only the link is dropped.
+    await db.orderItem.updateMany({ where: { productId: { in: ids } }, data: { productId: null } });
+    const r = await db.product.deleteMany({ where: { id: { in: ids } } });
+    return res.json({ ok: true, count: r.count });
+  }
+
+  res.status(400).json({ error: "Unknown bulk action." });
 }));
 
 admin.get("/products/:id", asyncH(async (req, res) => {
@@ -550,14 +681,19 @@ admin.post("/products", asyncH(async (req, res) => {
 admin.put("/products/:id", asyncH(async (req, res) => {
   const id = num(req.params.id);
   const b = req.body ?? {};
-  const { slug, ...data } = productData(b);
+  // slug is handled separately below, so drop the generated one
+  const { slug: _generatedSlug, ...data } = productData(b);
   await db.product.update({ where: { id }, data: { ...data, ...(str(b.slug).trim() ? { slug: str(b.slug).trim() } : {}) } });
   await syncChildren(id, b);
   res.json({ ok: true });
 }));
 
 admin.delete("/products/:id", asyncH(async (req, res) => {
-  await db.product.delete({ where: { id: num(req.params.id) } });
+  const id = num(req.params.id);
+  // Unlink first so past orders keep their price/name snapshot and the delete can't trip
+  // a foreign key. Matches the bulk path.
+  await db.orderItem.updateMany({ where: { productId: id }, data: { productId: null } });
+  await db.product.delete({ where: { id } });
   res.json({ ok: true });
 }));
 
@@ -631,25 +767,166 @@ admin.get("/orders", asyncH(async (req, res) => {
   const where: Prisma.OrderWhereInput = {};
   if (req.query.status) where.status = str(req.query.status);
   if (req.query.q) where.OR = [{ number: { contains: str(req.query.q) } }, { fullName: { contains: str(req.query.q) } }, { phone: { contains: str(req.query.q) } }];
-  const orders = await db.order.findMany({ where, orderBy: { createdAt: "desc" }, include: { items: true } });
-  res.json({ orders });
+  const limit = Math.min(Math.max(num(req.query.limit, 50), 1), 200);
+  const page = Math.max(num(req.query.page, 1), 1);
+  const [total, orders] = await Promise.all([
+    db.order.count({ where }),
+    db.order.findMany({ where, orderBy: { createdAt: "desc" }, skip: (page - 1) * limit, take: limit, include: { items: true } }),
+  ]);
+  res.json({ orders, total, page, pages: Math.max(1, Math.ceil(total / limit)), limit });
 }));
+
 admin.get("/orders/:id", asyncH(async (req, res) => {
   const order = await db.order.findUnique({ where: { id: num(req.params.id) }, include: { items: true, events: { orderBy: { createdAt: "asc" } } } });
   if (!order) return res.status(404).json({ error: "Not found." });
-  res.json(order);
+  const settings = await getSettings();
+  const area = order.area ? await db.deliveryArea.findFirst({ where: { name: order.area }, select: { name: true, feeCents: true } }) : null;
+  res.json({
+    ...order,
+    // context the admin needs to explain the money, rather than recomputing it client-side
+    context: {
+      freeDeliveryThresholdCents: num(settings.freeDeliveryThresholdCents, 6000),
+      defaultDeliveryCents: num(settings.defaultDeliveryCents, 300),
+      areaFeeCents: area?.feeCents ?? null,
+      freeDeliveryApplied: order.deliveryCents === 0 && order.subtotalCents >= num(settings.freeDeliveryThresholdCents, 6000),
+      whatsappConfigured: !validateSettingsField("whatsappNumber", settings.whatsappNumber ?? ""),
+    },
+    nextStatuses: nextStatuses(order.status),
+  });
 }));
+
+/** Single-field settings check, for places that only care about one key. */
+function validateSettingsField(key: string, value: string): string | null {
+  const errs = validateSettings({ [key]: value });
+  return errs[key] ?? (value.trim() ? null : "Not set.");
+}
+
 admin.put("/orders/:id/status", asyncH(async (req, res) => {
   const status = str(req.body.status);
   const note = str(req.body.note);
   if (!STATUS_KEYS.includes(status as (typeof STATUS_KEYS)[number])) return res.status(400).json({ error: "Bad status." });
-  const order = await db.order.update({ where: { id: num(req.params.id) }, data: { status,
-    events: { create: { status, note } } } });
+
+  const current = await db.order.findUnique({ where: { id: num(req.params.id) }, select: { status: true } });
+  if (!current) return res.status(404).json({ error: "Not found." });
+
+  // Enforced here, not just offered in the UI: an order must not skip the sourcing
+  // workflow or climb back out of a terminal state.
+  if (!canTransition(current.status, status)) {
+    const allowed = nextStatuses(current.status);
+    return res.status(400).json({
+      error: allowed.length
+        ? `Cannot move from “${statusMeta(current.status).label}” to “${statusMeta(status).label}”. Allowed next: ${allowed.map((k) => statusMeta(k).label).join(", ")}.`
+        : `“${statusMeta(current.status).label}” is a final status — this order cannot change again.`,
+    });
+  }
+
+  // Leaving awaiting_customer clears the blocked-item record.
+  const clearAwaiting = current.status === "awaiting_customer" && status !== "awaiting_customer";
+  const order = await db.order.update({
+    where: { id: num(req.params.id) },
+    data: {
+      status,
+      ...(clearAwaiting ? { awaitingItemId: null, awaitingNote: "", awaitingSince: null } : {}),
+      events: { create: { status, note } },
+    },
+  });
   if (order.email) {
     const settings = await getSettings();
     sendMail(settings, order.email, `Order ${order.number}: ${statusMeta(status).label}`, statusUpdateEmail(settings.storeName ?? "TulipGlam", order.fullName, order.number, statusMeta(status).label, note));
   }
   res.json({ ok: true, status: order.status });
+}));
+
+// Flag a line we could not source and move the order into awaiting_customer.
+admin.post("/orders/:id/awaiting", asyncH(async (req, res) => {
+  const id = num(req.params.id);
+  const itemId = num(req.body.itemId);
+  const note = str(req.body.note).trim();
+  const order = await db.order.findUnique({ where: { id }, select: { status: true, items: { select: { id: true } }, email: true, number: true, fullName: true } });
+  if (!order) return res.status(404).json({ error: "Not found." });
+  if (!order.items.some((i) => i.id === itemId)) return res.status(400).json({ error: "That item is not on this order." });
+  if (!canTransition(order.status, "awaiting_customer")) {
+    return res.status(400).json({ error: `Cannot ask the customer from “${statusMeta(order.status).label}”.` });
+  }
+  if (!note) return res.status(400).json({ error: "Say what you asked the customer — it is shown on the order." });
+
+  await db.order.update({
+    where: { id },
+    data: {
+      status: "awaiting_customer",
+      awaitingItemId: itemId, awaitingNote: note, awaitingSince: new Date(),
+      events: { create: { status: "awaiting_customer", note } },
+    },
+  });
+  res.json({ ok: true });
+}));
+
+// One-click resolutions for awaiting_customer.
+//   accept  — customer took a substitute: nothing to recost, back to confirmed
+//   remove  — drop the line and recompute every figure server-side
+//   cancel  — customer walked away
+admin.post("/orders/:id/resolve", asyncH(async (req, res) => {
+  const id = num(req.params.id);
+  const action = str(req.body.action);
+  const note = str(req.body.note).trim();
+  const order = await db.order.findUnique({ where: { id }, include: { items: true } });
+  if (!order) return res.status(404).json({ error: "Not found." });
+  if (order.status !== "awaiting_customer") return res.status(400).json({ error: "This order is not awaiting the customer." });
+
+  const clear = { awaitingItemId: null, awaitingNote: "", awaitingSince: null };
+
+  if (action === "accept") {
+    await db.order.update({ where: { id }, data: { status: "confirmed", ...clear,
+      events: { create: { status: "confirmed", note: note || "Customer accepted a substitute." } } } });
+    return res.json({ ok: true });
+  }
+
+  if (action === "cancel") {
+    await db.order.update({ where: { id }, data: { status: "cancelled", ...clear,
+      events: { create: { status: "cancelled", note: note || "Customer cancelled after an item could not be sourced." } } } });
+    return res.json({ ok: true });
+  }
+
+  if (action === "remove") {
+    const itemId = order.awaitingItemId;
+    const item = order.items.find((i) => i.id === itemId);
+    if (!item) return res.status(400).json({ error: "No blocked item is recorded on this order." });
+    if (order.items.length === 1) return res.status(400).json({ error: "That is the only item — cancel the order instead." });
+
+    // Recomputed here, on the server, from the surviving lines. The client sends no money.
+    const remaining = order.items.filter((i) => i.id !== itemId);
+    const subtotal = remaining.reduce((sum, i) => sum + i.priceCents * i.qty, 0);
+
+    const settings = await getSettings();
+    const threshold = num(settings.freeDeliveryThresholdCents, 6000);
+    const area = order.area ? await db.deliveryArea.findFirst({ where: { name: order.area }, select: { feeCents: true } }) : null;
+    let delivery = area?.feeCents ?? num(settings.defaultDeliveryCents, 300);
+    if (subtotal >= threshold) delivery = 0;
+
+    // Re-evaluate the stored coupon against the smaller subtotal — it may no longer qualify.
+    const { discount } = await evalCoupon(order.couponCode, subtotal);
+    const afterDiscount = subtotal - discount + delivery;
+    // The gift card was already debited at checkout; never charge more of it than the new
+    // total needs, and never refund it here — that is a manual decision.
+    const giftUsed = Math.min(order.giftCardCents, Math.max(0, afterDiscount));
+    const total = afterDiscount - giftUsed;
+
+    await db.$transaction([
+      db.orderItem.delete({ where: { id: item.id } }),
+      db.order.update({
+        where: { id },
+        data: {
+          status: "confirmed", ...clear,
+          subtotalCents: subtotal, discountCents: discount, giftCardCents: giftUsed,
+          deliveryCents: delivery, totalCents: total,
+          events: { create: { status: "confirmed", note: note || `Removed “${item.name}” at the customer's request. Total recalculated.` } },
+        },
+      }),
+    ]);
+    return res.json({ ok: true });
+  }
+
+  res.status(400).json({ error: "Unknown resolution." });
 }));
 
 // ---- reviews moderation ----
@@ -666,13 +943,69 @@ admin.delete("/reviews/:id", asyncH(async (req, res) => {
   res.json({ ok: true });
 }));
 
+// ---- setup audit ----
+// What stands between this store and being safe to promote. Drives the Dashboard banner.
+admin.get("/setup", asyncH(async (_req, res) => {
+  const settings = await getSettings();
+  const { promo, reason } = await resolvePromo(db, settings);
+  const promoWanted = (settings.promoActive ?? "").trim().toLowerCase() === "true";
+  res.json({
+    checks: setupChecks({
+      settings,
+      adminKeyIsDefault: ADMIN_KEY === DEV_ADMIN_KEY,
+      promoActiveButUnresolved: promoWanted && !promo,
+      promoUnresolvedReason: reason,
+    }),
+    // never echo the key itself, only whether it is still the shipped default
+    adminKeyIsDefault: ADMIN_KEY === DEV_ADMIN_KEY,
+  });
+}));
+
+// ---- catalogue health ----
+// Counts of products that would embarrass the store if a customer landed on them.
+admin.get("/catalogue-health", asyncH(async (_req, res) => {
+  const visible: Prisma.ProductWhereInput = { status: { in: ["active", "unavailable"] } };
+  const [total, noImage, noBrand, noPrice, noDescription, hidden, bySource] = await Promise.all([
+    db.product.count(),
+    db.product.count({ where: { AND: [visible, { images: { none: {} } }] } }),
+    db.product.count({ where: { AND: [visible, { brandId: null }] } }),
+    db.product.count({ where: { AND: [visible, { priceCents: { lte: 0 } }] } }),
+    db.product.count({ where: { AND: [visible, { shortDesc: "", description: "" }] } }),
+    db.product.count({ where: { status: "hidden" } }),
+    db.product.groupBy({ by: ["source"], _count: { _all: true }, _max: { createdAt: true } }),
+  ]);
+  res.json({
+    total,
+    // Each filter reproduces exactly the query behind its count, so clicking through lands
+    // on the same set of rows the number describes.
+    issues: [
+      { key: "noImage", label: "Visible with no image", count: noImage, filter: "visible=1&hasImage=0" },
+      { key: "noBrand", label: "Visible with no brand", count: noBrand, filter: "visible=1&brandId=none" },
+      { key: "noPrice", label: "Visible with no price", count: noPrice, filter: "visible=1&priceMax=0" },
+      { key: "noDescription", label: "Visible with no description", count: noDescription, filter: "visible=1&hasDescription=0" },
+      { key: "hidden", label: "Hidden — needs a decision", count: hidden, filter: "status=hidden" },
+    ],
+    // "recent imports" derived from Product.source rather than an import log table
+    imports: bySource
+      .map((s) => ({ source: s.source || "manual", count: s._count._all, lastAt: s._max.createdAt }))
+      .sort((a, b) => b.count - a.count),
+  });
+}));
+
 // ---- settings + delivery areas ----
 admin.get("/settings", asyncH(async (_req, res) => {
   res.json({ settings: await getSettings(), areas: await db.deliveryArea.findMany({ orderBy: { sortOrder: "asc" } }) });
 }));
 admin.put("/settings", asyncH(async (req, res) => {
-  const entries = Object.entries(req.body?.settings ?? {});
-  for (const [key, value] of entries) await db.setting.upsert({ where: { key }, update: { value: str(value) }, create: { key, value: str(value) } });
+  const patch = (req.body?.settings ?? {}) as Record<string, unknown>;
+  // Reject placeholders and malformed values before anything is persisted, so a bad
+  // WhatsApp number can never reach the storefront. All-or-nothing: one bad field
+  // blocks the whole save rather than half-applying it.
+  const errors = validateSettings(patch);
+  if (Object.keys(errors).length) return res.status(400).json({ error: "Some settings need fixing.", errors });
+  for (const [key, value] of Object.entries(patch)) {
+    await db.setting.upsert({ where: { key }, update: { value: str(value) }, create: { key, value: str(value) } });
+  }
   res.json({ ok: true });
 }));
 admin.put("/delivery-areas", asyncH(async (req, res) => {
@@ -806,7 +1139,7 @@ admin.post("/import", asyncH(async (req, res) => {
       const p = existing
         ? await db.product.update({ where: { slug }, data: base })
         : await db.product.create({ data: { ...base, slug } });
-      existing ? updated++ : created++;
+      if (existing) updated++; else created++;
 
       const parseVariants = (s: string, type: "shade" | "size") => str(s).split(";").map((x) => x.trim()).filter(Boolean).map((x, k) => {
         const [label, hex] = x.split(":").map((y) => y.trim());

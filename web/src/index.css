@@ -16,6 +16,9 @@
   --color-muted: #8b8790; /* secondary text */
   --color-line: #eae7ec; /* hairlines */
   --color-line-strong: #ddd8e0;
+  /* `muted` is ~3.5:1 on white — fine for large display text, short of 4.5:1 for the
+     small meta text and column headers used throughout the admin tables. */
+  --color-muted-strong: #6b6673;
 
   /* accent — tulip plum */
   --color-plum: #6c2a55;
@@ -205,4 +208,61 @@ body {
 .prose-tg p {
   margin: 0;
   white-space: pre-line;
+}
+
+/* ================================================================ admin
+   Utilities used only by /admin. The storefront keeps its own scale. */
+
+/* Every interactive element gets the same visible ring. Keyboard-only by design:
+   :focus-visible so mouse clicks stay quiet. */
+.focus-ring:focus-visible {
+  outline: 2px solid var(--color-plum);
+  outline-offset: 2px;
+  border-radius: 0.5rem;
+}
+
+/* Table numerals.
+   The design calls for prices in Fraunces, but Fraunces publishes SOFT/WONK/opsz/wght
+   and no verifiable `tnum` feature — without tabular figures the decimal points in a
+   9,000-row table do not line up. So table cells use the sans, whose stack (Hanken
+   Grotesk → system-ui → Segoe UI) does support tabular-nums, and Fraunces is kept for
+   display prices outside tables. If Fraunces is ever confirmed to ship tnum, changing
+   the font-family here is the only edit needed. */
+.num-tabular {
+  font-family: var(--font-sans);
+  font-variant-numeric: tabular-nums lining-nums;
+  font-feature-settings: "tnum" 1, "lnum" 1;
+  letter-spacing: 0;
+}
+
+/* Column header: uppercase micro-label at a contrast-safe grey. */
+.th-label {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--color-muted-strong);
+  white-space: nowrap;
+}
+
+/* Long product names must never wrap — a wrapped cell breaks row alignment across a
+   virtualised-feeling 200-row page. */
+.cell-truncate {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@keyframes skeleton-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+.skeleton {
+  background: var(--color-soft);
+  border-radius: 0.375rem;
+  animation: skeleton-pulse 1.4s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .skeleton { animation: none; }
 }

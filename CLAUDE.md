@@ -25,7 +25,17 @@ before proceeding.
 ## Commands
 - Dev: `cd server && npm run dev` + `cd web && npm run dev`
 - Typecheck: `npx tsc --noEmit` in web/ and server/
+- Lint: `npm run lint` in web/ and server/ (ESLint 9 flat config, gated at `--max-warnings 0`)
 - DB: `npx prisma db push`
+
+### Lint scope (read before "fixing" the config)
+`eslint-plugin-react-hooks` v7 ships the React-Compiler-era rules
+(`set-state-in-effect`, `static-components`, `refs`, `immutability`, `use-memo`) in its
+`recommended` preset. They flag ordinary patterns all through this codebase — `useFetch`,
+the store provider, Checkout, Shop — so only `rules-of-hooks` and `exhaustive-deps` are on.
+Turning the rest on is a worthwhile separate task, not a config tweak.
+`react-refresh/only-export-components` is off too: this codebase deliberately colocates
+components with their constants (`PRODUCT_STATUSES` beside `StatusBadge`).
 
 ## Brand
 - Name: **TulipGlam** (owner has the name only — I create logo/wordmark + full look).
@@ -251,6 +261,82 @@ in components/ui.tsx). Product photos stubbed with line silhouettes (`ProductGly
 - Checkout recomputes ALL money server-side (coupon + gift card + delivery) — never trusts client.
 - Order model gained: customerId, discountCents, giftCardCents, couponCode, giftCardCode.
 - New `.env` keys: JWT_SECRET (change in prod), optional SMTP_*.
+
+## Admin rebuild + production fixes (2026-07-30)
+
+### The promo can no longer lie
+`GET /api/home` returns a `promo` object resolved in `server/src/promo.ts`, or **null**.
+The client renders exactly what it is given and has no fallback copy — hardcoded defaults in
+`Home.tsx` are how the live store came to advertise deleted brands at a discount that did not
+exist. It refuses to render when: it is switched off, has no title, its scope is a
+brand/category that does not exist or is inactive or holds no visible products, or **the
+wording promises a discount while nothing in scope has a sale price**. That last rule covers
+claims written into the title or body, not just the separate `promoDiscountText` field,
+because we must not rewrite the owner's words to make them true.
+
+Settings: `promoActive`, `promoTitle`, `promoText`, `promoDiscountText`, `promoScopeType`
+(`""` | `brand` | `category` | `sale`), `promoScopeSlug`, `promoCtaLabel`.
+
+### Settings are validated, never guessed
+`server/src/setup.ts` holds both the save-time validators and the Dashboard audit, in one
+file so they cannot disagree. Placeholder-looking values are rejected with a per-field
+message (long runs of the same digit, sequential digits, `example.com`, "yourhandle"…), and
+the save is all-or-nothing. `PUT /api/admin/settings` answers `400 { error, errors: {field: msg} }`.
+
+The **Setup incomplete** banner on the Dashboard (`GET /api/admin/setup`) lists everything
+unconfigured, in three tiers: `placeholder` (a wrong value that looks right — worst),
+`missing`, `unverified` (valid but self-referential, e.g. an Instagram handle matching the
+store name). This is the mechanism for surfacing real values that are needed; nothing is
+invented anywhere.
+
+### The server refuses to boot with the dev admin key
+`NODE_ENV=production` plus `ADMIN_KEY === "tulip-admin-2026"` exits 1 with instructions.
+The key itself is never echoed by any endpoint — only the boolean `adminKeyIsDefault`.
+
+### Admin products (9,672 rows, used daily)
+`web/src/admin/ProductList.tsx`, built on primitives in `web/src/admin/primitives/`:
+`DataTable`, `Combobox`, `StatusBadge`, `ConfirmDialog`, `FilterBar`, `Pagination`, `Toast`,
+plus `hooks.ts` and `format.ts`. Orders/Customers/Brands/Reviews should adopt these next.
+
+- Filtering, sorting and pagination are **all server-side** — sorting only the current page
+  would be a lie at 194 pages. Sorts: name, price, category, brand, status, updated.
+  Filters: status, category (department rolls up its children), brand, source, price range,
+  has-image, has-variants, has-description, visible-only.
+- Every bit of that state lives in the URL, so refresh, back/forward and sharing all work.
+- Selection survives paging but resets when a filter changes. Shift+click extends a range.
+- `GET /api/admin/catalogue-health` counts are clickable, and each link reproduces exactly
+  the query behind its number (that is why `visible=1` and `hasDescription` exist).
+- Deleting warns when the product belongs to an importer source, because the next import
+  recreates it — Hidden or Discontinued is the real answer.
+- All four statuses are first-class. `unavailable` reads as a caution, not an error: in a
+  source-to-order business it is a normal answer.
+
+**There is no stock column, field or filter anywhere, and must never be.** `ProductVariant.available`
+predates this work and is a per-shade availability flag the storefront uses to disable a
+swatch; it is not a quantity. Dropping it would be a destructive migration, so it stays.
+
+### Admin orders
+- The 13-status workflow is enforced in `server/src/status.ts` (`nextStatuses`,
+  `canTransition`). Before this the API wrote whatever the client sent, so an order could
+  jump `received` → `delivered` or climb out of a terminal state. The UI offers only legal
+  moves and the server independently rejects the rest.
+- `awaiting_customer` has dedicated UI: which line could not be sourced, what was asked, how
+  long it has waited, and three one-click resolutions. **Remove-the-item recomputes subtotal,
+  delivery, coupon and gift card on the server** — dropping a line can push the order back
+  under the free-delivery threshold or below a coupon minimum. New additive Order columns:
+  `awaitingItemId`, `awaitingNote`, `awaitingSince`.
+- Order detail shows the full money breakdown with the context needed to explain it
+  (area fee, whether the free-delivery threshold applied, coupon and gift-card codes).
+- WhatsApp actions are **disabled with an explanation** when the store number is missing or a
+  placeholder, rather than opening a dead `wa.me` link.
+
+### Indexes
+`Product` had only its primary key and the slug unique, so every admin sort and filter was a
+sequential scan, and Prisma does not index relation scalars on PostgreSQL. 12 indexes added
+(status, categoryId, brandId, source, priceCents, updatedAt, name; ProductImage and
+ProductVariant on `(productId, sortOrder)`; Order on status and createdAt). Declared in
+`schema.prisma` and applied via `db push`; `server/scripts/2026-07-30-admin-indexes.sql` is
+the lock-free `CONCURRENTLY` equivalent for larger tables and is a no-op now.
 
 ## Phase 3 ideas (not started)
 Automated WhatsApp Business API notifications, richer promo/hero management UI (multiple banners),
