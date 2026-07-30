@@ -40,6 +40,14 @@ import { PrismaClient } from "@prisma/client";
 const db = new PrismaClient();
 
 const WRITE = process.argv.includes("--write");
+/**
+ * Limit the proposals to one department and its subcategories, e.g. `--category=deodorant`.
+ *
+ * Brand skew is still measured across the whole catalogue: scoping the *measurement* would
+ * change the signal, so a scoped run and a full run agree on every row they share. Only which
+ * rows are proposed and written changes.
+ */
+const ONLY_CATEGORY = process.argv.find((a) => a.startsWith("--category="))?.split("=")[1] ?? "";
 const MIN_CONF = (process.argv.find((a) => a.startsWith("--min-confidence="))?.split("=")[1] ?? "medium") as Conf;
 
 type Conf = "high" | "medium" | "low";
@@ -75,6 +83,23 @@ async function main() {
       category: { select: { slug: true, name: true, parent: { select: { name: true } } } },
     },
   });
+  // Resolved after loading, so brand skew below still sees the whole catalogue.
+  let inScope: (p: (typeof products)[number]) => boolean = () => true;
+  if (ONLY_CATEGORY) {
+    const cat = await db.category.findUnique({
+      where: { slug: ONLY_CATEGORY },
+      select: { slug: true, name: true, children: { select: { slug: true } } },
+    });
+    if (!cat) {
+      console.error(`No category with slug "${ONLY_CATEGORY}".`);
+      await db.$disconnect();
+      process.exit(1);
+    }
+    const slugs = new Set([cat.slug, ...cat.children.map((c) => c.slug)]);
+    inScope = (p) => slugs.has(p.category.slug);
+    console.log(`Scoped to ${cat.name}${cat.children.length ? ` and its ${cat.children.length} subcategories` : ""}.`);
+  }
+
   console.log(`Loaded ${products.length} products. ${products.filter((p) => p.audienceLocked).length} are locked by hand and will be skipped.\n`);
 
   // Brand skew, measured from this catalogue rather than assumed from a hardcoded list.
@@ -100,6 +125,7 @@ async function main() {
 
   for (const p of products) {
     if (p.audienceLocked) continue;
+    if (!inScope(p)) continue;
 
     const dept = p.category.parent?.name ?? p.category.name;
     const base = {

@@ -241,7 +241,7 @@ function publicSettings(all: Record<string, string>): Record<string, string> {
 
 // header/footer/home bootstrap: settings + categories + featured brands + areas
 app.get("/api/site", asyncH(async (_req, res) => {
-  const [settings, tops, brands, areas, saleCount, audienceCounts] = await Promise.all([
+  const [settings, tops, brands, areas, saleCount, audienceCounts, audienceByCat] = await Promise.all([
     getSettings(),
     // full two-level tree: the nav needs children to build its dropdown panels
     db.category.findMany({ where: { active: true }, orderBy: { sortOrder: "asc" },
@@ -250,11 +250,27 @@ app.get("/api/site", asyncH(async (_req, res) => {
     db.deliveryArea.findMany({ where: { active: true }, orderBy: { sortOrder: "asc" } }),
     db.product.count({ where: { AND: [VISIBLE, { saleCents: { not: null } }] } }),
     db.product.groupBy({ by: ["audience"], where: VISIBLE, _count: { _all: true } }),
+    // Per-category audience split, so a department that holds its products directly can offer
+    // "For him / For her" in the nav without inventing subcategories for them.
+    db.product.groupBy({ by: ["categoryId", "audience"], where: { AND: [VISIBLE, { audience: { in: ["men", "women"] } }] }, _count: { _all: true } }),
   ]);
+
+  // categoryId -> { men, women }, rolled up into the department the same way product counts are.
+  const audByCat = new Map<number, { men: number; women: number }>();
+  for (const row of audienceByCat) {
+    const cat = tops.find((c) => c.id === row.categoryId);
+    if (!cat) continue;
+    for (const id of [cat.id, ...(cat.parentId ? [cat.parentId] : [])]) {
+      const e = audByCat.get(id) ?? { men: 0, women: 0 };
+      if (row.audience === "men") e.men += row._count._all; else e.women += row._count._all;
+      audByCat.set(id, e);
+    }
+  }
 
   const shape = (c: (typeof tops)[number], count = c._count.products) => ({
     id: c.id, slug: c.slug, name: c.name, blurb: c.blurb, glyph: c.glyph, tint: c.tint,
     sortOrder: c.sortOrder, _count: { products: count },
+    audience: audByCat.get(c.id) ?? { men: 0, women: 0 },
   });
   // A department holds no products directly — they sit in its children — so its own _count is
   // 0. Displaying that made the nav and the category cards read "Makeup 0" for a department
@@ -447,19 +463,20 @@ app.get("/api/products", asyncH(async (req, res) => {
   // Facets are computed from the same WHERE as the results, minus the facet's own filter, so
   // counts stay meaningful and zero-result options can be hidden. Previously /category/nails
   // offered all 405 brands including ones with no nail products at all.
-  const facetWhere = (exclude: "brand" | "price" | "concerns" | "attributes" | null): Prisma.ProductWhereInput => {
+  const facetWhere = (exclude: "brand" | "price" | "concerns" | "attributes" | "audience" | null): Prisma.ProductWhereInput => {
     const kept = and.filter((clause) => {
       if (exclude === "brand" && "brand" in clause) return false;
       if (exclude === "price" && "priceCents" in clause) return false;
       if (exclude === "concerns" && "concerns" in clause) return false;
       if (exclude === "attributes" && "attributes" in clause) return false;
+      if (exclude === "audience" && "audience" in clause) return false;
       return true;
     });
     return kept.length ? { ...where, AND: kept } : { status: where.status };
   };
 
   const wantFacets = req.query.facets === "1";
-  const [total, products, brandFacet, priceAgg, concernRows, attributeRows] = await Promise.all([
+  const [total, products, brandFacet, priceAgg, concernRows, attributeRows, audienceRows] = await Promise.all([
     db.product.count({ where }),
     db.product.findMany({ where, include: cardInclude, orderBy, skip: (page - 1) * limit, take: limit }),
     wantFacets
@@ -471,6 +488,10 @@ app.get("/api/products", asyncH(async (req, res) => {
     // per-tag counts are summed from those. Exact, and cheap enough to run beside the others.
     wantFacets ? db.product.groupBy({ by: ["concerns"], where: facetWhere("concerns"), _count: { _all: true } }) : Promise.resolve([]),
     wantFacets ? db.product.groupBy({ by: ["attributes"], where: facetWhere("attributes"), _count: { _all: true } }) : Promise.resolve([]),
+    // Who it's for, counted over the current selection. The filter hides itself when nothing
+    // here is marked men's or women's — otherwise it is another control that leads nowhere,
+    // exactly like the concerns and attributes lists were.
+    wantFacets ? db.product.groupBy({ by: ["audience"], where: facetWhere("audience"), _count: { _all: true } }) : Promise.resolve([]),
   ]);
 
   let facets: unknown = undefined;
@@ -486,6 +507,7 @@ app.get("/api/products", asyncH(async (req, res) => {
       price: { minCents: priceAgg?._min.priceCents ?? 0, maxCents: priceAgg?._max.priceCents ?? 0 },
       concerns: tagFacet(concernRows, "concerns"),
       attributes: tagFacet(attributeRows, "attributes"),
+      audience: Object.fromEntries(audienceRows.map((r) => [r.audience || "unisex", r._count._all])) as Record<string, number>,
     };
   }
 

@@ -43,14 +43,21 @@ const GROUPS: { label: string; slugs: string[] }[] = [
   { label: "More", slugs: ["kids-baby", "wellness", "gift-sets", "accessories"] },
 ];
 
+/** Men's/women's counts for a department, children already rolled up by the server. */
+const split = (c: Cat) => c.audience ?? { men: 0, women: 0 };
+/** Worth offering a "For him / For her" cut only if both sides actually hold products. */
+const hasSplit = (c: Cat) => split(c).men > 0 && split(c).women > 0;
+
 /**
- * A heading that is one department with no subcategories is a link, not a menu.
+ * A heading that is one department with no subcategories, and no men's/women's split, is a
+ * link rather than a menu.
  *
- * Deodorant and Oral Care hold their products directly. As part of a bigger panel they showed
- * a "Shop all →" stub; standing alone, a dropdown whose only content is a link to the thing you
- * just clicked is a wasted interaction.
+ * Oral Care holds its products directly and reads the same for everyone, so a dropdown whose
+ * only content is a link to the thing you just clicked would be a wasted interaction.
+ * Deodorant does have a split — 78 men's and 29 women's — so it gets a menu offering it,
+ * built from the `audience` field rather than from subcategories that don't exist.
  */
-const isDirectLink = (cats: Cat[]) => cats.length === 1 && cats[0].children.length === 0;
+const isDirectLink = (cats: Cat[]) => cats.length === 1 && cats[0].children.length === 0 && !hasSplit(cats[0]);
 
 export function MainNav({ site }: { site: SiteData | null }) {
   const [open, setOpen] = useState<string | null>(null);
@@ -181,7 +188,30 @@ function GroupMenu({ label, cats, open, onOpen, onClose }: {
                       </Link>
                     </li>
                   ))}
-                  {dept.children.length === 0 && (
+                  {/* A department with no subcategories but a real men's/women's split gets
+                      that split as its menu — the audience field standing in for children
+                      that were never needed. Counts come from the server, so an option can
+                      never lead to an empty page. */}
+                  {dept.children.length === 0 && hasSplit(dept) && (
+                    <>
+                      <li>
+                        <Link to={`/category/${dept.slug}`} onClick={onClose} className="block whitespace-nowrap py-0.5 text-[12.5px] text-ink/75 hover:text-plum">
+                          All {dept.name.toLowerCase()}
+                        </Link>
+                      </li>
+                      <li>
+                        <Link to={`/category/${dept.slug}?audience=women-only`} onClick={onClose} className="flex items-center gap-2 whitespace-nowrap py-0.5 text-[12.5px] text-ink/75 hover:text-plum">
+                          For her <span className="num-tabular text-[11px] text-muted">{split(dept).women}</span>
+                        </Link>
+                      </li>
+                      <li>
+                        <Link to={`/category/${dept.slug}?audience=men-only`} onClick={onClose} className="flex items-center gap-2 whitespace-nowrap py-0.5 text-[12.5px] text-ink/75 hover:text-plum">
+                          For him <span className="num-tabular text-[11px] text-muted">{split(dept).men}</span>
+                        </Link>
+                      </li>
+                    </>
+                  )}
+                  {dept.children.length === 0 && !hasSplit(dept) && (
                     <li>
                       <Link to={`/category/${dept.slug}`} onClick={onClose} className="inline-flex items-center gap-0.5 whitespace-nowrap py-0.5 text-[12.5px] text-plum hover:gap-1">
                         Shop all <ChevronRight className="h-3 w-3" />
@@ -253,6 +283,14 @@ export function MobileNav({ site, onNavigate }: { site: SiteData | null; onNavig
                     {dept.children.map((child) => (
                       <Link key={child.slug} to={`/category/${child.slug}`} onClick={onNavigate} className="block py-1.5 pl-3 text-[13.5px] text-ink/75 hover:text-plum">
                         {child.name}
+                      </Link>
+                    ))}
+                    {/* Same audience stand-in as the desktop panel. */}
+                    {dept.children.length === 0 && hasSplit(dept) && (["women", "men"] as const).map((who) => (
+                      <Link key={who} to={`/category/${dept.slug}?audience=${who}-only`} onClick={onNavigate}
+                        className="flex items-center justify-between py-1.5 pl-3 text-[13.5px] text-ink/75 hover:text-plum">
+                        <span>{who === "men" ? "For him" : "For her"}</span>
+                        <span className="num-tabular text-[11px] text-muted">{split(dept)[who]}</span>
                       </Link>
                     ))}
                   </div>

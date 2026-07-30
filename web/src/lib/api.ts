@@ -24,7 +24,16 @@ export type ProductFull = Card & {
   reviews: Review[]; ratingAvg: number; reviewCount: number; related: Card[];
 };
 
-export type Category = { id: number; slug: string; name: string; blurb: string; glyph: Glyph; tint: string; sortOrder: number; _count?: { products: number } };
+export type Category = {
+  id: number; slug: string; name: string; blurb: string; glyph: Glyph; tint: string; sortOrder: number;
+  _count?: { products: number };
+  /**
+   * How many products in this category are marked men's / women's, children rolled up.
+   * Lets a department that holds its products directly offer "For him / For her" in the nav
+   * without inventing subcategories to hold them.
+   */
+  audience?: { men: number; women: number };
+};
 export type Brand = { id: number; slug: string; name: string; blurb: string; featured: boolean; _count?: { products: number } };
 export type Area = { id: number; name: string; feeCents: number; active: boolean };
 export type StatusMeta = { key: string; label: string; hint: string; tone: string; terminal?: boolean };
@@ -62,6 +71,8 @@ export type Facets = {
   price: { minCents: number; maxCents: number };
   concerns: { value: string; count: number }[];
   attributes: { value: string; count: number }[];
+  /** Products per audience in the current selection, e.g. { unisex: 123, men: 78, women: 29 }. */
+  audience: Record<string, number>;
 };
 
 export type OrderItem = { id: number; name: string; brandName: string; variantLabel: string; glyph: Glyph; tint: string; imageUrl: string; priceCents: number; qty: number };

@@ -43,6 +43,7 @@ type FilterState = {
   priceMin: string;
   priceMax: string;
   includeUnavailable: boolean;
+  audience: string;
   setP: (key: string, val: string) => void;
   toggleMulti: (key: string, arr: string[], val: string) => void;
 };
@@ -65,6 +66,10 @@ export function Shop({ mode }: { mode: Mode }) {
   // Off by default: a shopper browsing wants things they can order today. Turning it on is
   // an availability answer ("show me the rest too"), never a quantity.
   const includeUnavailable = params.get("available") === "0";
+  // "men-only" / "women-only" rather than "men" / "women": on the /men shelf it makes sense to
+  // include unisex, but as a filter inside a department "For him" must mean the ones actually
+  // marked men's — otherwise picking it changes almost nothing.
+  const audience = params.get("audience") ?? "";
   const catParam = mode === "category" ? slug ?? "" : params.get("category") ?? "";
 
   // The catalogue is ~9.5k products, so the API is paginated — `page` lives in the URL
@@ -84,9 +89,10 @@ export function Shop({ mode }: { mode: Mode }) {
     priceMin: priceMin || undefined,
     priceMax: priceMax || undefined,
     available: includeUnavailable ? "0" : undefined,
+    audience: audience || undefined,
     page: page > 1 ? String(page) : undefined,
     facets: "1",
-  }), [catParam, brands.join(","), sort, q, mode, attrs.join(","), concerns.join(","), priceMin, priceMax, includeUnavailable, page]); // eslint-disable-line react-hooks/exhaustive-deps
+  }), [catParam, brands.join(","), sort, q, mode, attrs.join(","), concerns.join(","), priceMin, priceMax, includeUnavailable, audience, page]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const { data, loading, error, reload } = useFetch(() => api.products(query), [JSON.stringify(query)]);
   const products = data?.products ?? [];
@@ -139,6 +145,7 @@ export function Shop({ mode }: { mode: Mode }) {
     const text = priceMin && priceMax ? `$${priceMin}–$${priceMax}` : priceMin ? `Over $${priceMin}` : `Under $${priceMax}`;
     chips.push({ key: "price", label: text, clear: () => { const n = new URLSearchParams(params); n.delete("priceMin"); n.delete("priceMax"); n.delete("page"); setParams(n, { replace: true }); } });
   }
+  if (audience) chips.push({ key: "aud", label: audience.startsWith("men") ? "For him" : "For her", clear: () => setP("audience", "") });
   if (includeUnavailable) chips.push({ key: "avail", label: "Including unavailable", clear: () => setP("available", "") });
 
   const activeCount = chips.length;
@@ -149,7 +156,7 @@ export function Shop({ mode }: { mode: Mode }) {
     setParams(n, { replace: true });
   };
 
-  const fs: FilterState = { site, facets, mode, catParam, brands, concerns, attrs, priceMin, priceMax, includeUnavailable, setP, toggleMulti };
+  const fs: FilterState = { site, facets, mode, catParam, brands, concerns, attrs, priceMin, priceMax, includeUnavailable, audience, setP, toggleMulti };
 
   return (
     <div className="wrap py-6 sm:py-8">
@@ -274,6 +281,8 @@ function Filters({ fs }: { fs: FilterState }) {
     <div className="space-y-5 pb-2">
       {/* Ordered by how often each is used, because at 390px the sheet scrolls: category and
           brand first, the availability toggle last. */}
+      <AudienceFilter fs={fs} />
+
       {mode !== "category" && !!site?.categories.length && <CategoryFilter fs={fs} />}
 
       <BrandFilter fs={fs} />
@@ -314,6 +323,38 @@ function Filters({ fs }: { fs: FilterState }) {
         <p className="pt-1 text-[11px] leading-snug text-muted">Everything is sourced to order — we confirm each item with you before dispatch.</p>
       </FilterGroup>
     </div>
+  );
+}
+
+/**
+ * Who it's for.
+ *
+ * Hidden entirely while nothing in the current selection is marked men's or women's — the same
+ * rule as the concerns and attributes groups. A "For him" option that returns the whole
+ * department is worse than no option, and until the audience classifier has been run over the
+ * catalogue that is exactly what it would be.
+ */
+function AudienceFilter({ fs }: { fs: FilterState }) {
+  const { facets, audience, setP } = fs;
+  const men = facets?.audience?.men ?? 0;
+  const women = facets?.audience?.women ?? 0;
+  if (!men && !women) return null;
+
+  const opts: [string, string, number][] = [
+    ["", "Everyone", (facets?.audience?.unisex ?? 0) + men + women],
+    ...(women ? [["women-only", "For her", women] as [string, string, number]] : []),
+    ...(men ? [["men-only", "For him", men] as [string, string, number]] : []),
+  ];
+  return (
+    <FilterGroup title="Shop for">
+      {opts.map(([value, label_, count]) => (
+        <label key={value || "all"} className="filter-row">
+          <input type="radio" name="tg-audience" checked={audience === value} onChange={() => setP("audience", value)} className="accent-plum" />
+          <span className="flex-1">{label_}</span>
+          <span className="num-tabular text-[11px] text-muted">{count}</span>
+        </label>
+      ))}
+    </FilterGroup>
   );
 }
 
