@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, usd } from "../lib/api";
 import { useStore } from "../lib/store";
@@ -21,13 +21,6 @@ const CATEGORY_IMG: Record<string, string> = {
   hair: "/category/hair.webp",
   fragrance: "/category/fragrance.webp",
   "gift-sets": "/category/gift-sets.webp",
-};
-
-// Zoom per category card. 1 = the artwork as exported; higher crops the pale outer
-// margin so the products sit larger in the frame. Keep it modest — the label is
-// baked into the image, so a big number will clip the text.
-const CATEGORY_ZOOM: Record<string, number> = {
-  makeup: 1.15,
 };
 
 function SectionHead({ eyebrow, title, to }: { eyebrow: string; title: string; to?: string }) {
@@ -183,13 +176,7 @@ export function Home() {
               {CATEGORY_IMG[c.slug] ? (
                 // self-contained card image (label + tagline are baked into the artwork)
                 <div className="aspect-[3/2] overflow-hidden" style={{ background: c.tint }}>
-                  <img
-                    src={CATEGORY_IMG[c.slug]}
-                    alt={c.name}
-                    loading="lazy"
-                    className="zoom-img h-full w-full object-cover"
-                    style={{ "--zoom": CATEGORY_ZOOM[c.slug] ?? 1 } as CSSProperties}
-                  />
+                  <img src={CATEGORY_IMG[c.slug]} alt={c.name} loading="lazy" className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105" />
                 </div>
               ) : (
                 <>

@@ -109,16 +109,6 @@ body {
   display: none;
 }
 
-/* Card artwork zoom. Set --zoom on the element to crop in on the exported image;
-   the hover lift stays proportional so a zoomed image never scales back down. */
-.zoom-img {
-  transform: scale(var(--zoom, 1));
-  transition: transform 300ms;
-}
-.group:hover .zoom-img {
-  transform: scale(calc(var(--zoom, 1) * 1.05));
-}
-
 /* ---- buttons ---- */
 .btn {
   display: inline-flex;
