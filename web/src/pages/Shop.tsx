@@ -66,9 +66,10 @@ export function Shop({ mode }: { mode: Mode }) {
   // Off by default: a shopper browsing wants things they can order today. Turning it on is
   // an availability answer ("show me the rest too"), never a quantity.
   const includeUnavailable = params.get("available") === "0";
-  // "men-only" / "women-only" rather than "men" / "women": on the /men shelf it makes sense to
-  // include unisex, but as a filter inside a department "For him" must mean the ones actually
-  // marked men's — otherwise picking it changes almost nothing.
+  // "men-only" / "women-only" rather than "men" / "women". The server's plain "men" also
+  // includes unisex, which made sense for the /men shelf that used to exist; as a filter
+  // inside a department "For him" has to mean the ones actually marked men's, or picking it
+  // barely changes the results.
   const audience = params.get("audience") ?? "";
   const catParam = mode === "category" ? slug ?? "" : params.get("category") ?? "";
 

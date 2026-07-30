@@ -425,9 +425,15 @@ Three guards now stop that:
    land in a retired section and are skipped rather than silently listed. Watch for that if a
    future import reports a lot of skips.
 
-**`/men` was removed as a section** — the shelf read "7,123 items" because it includes unisex.
-The route, the nav link and the SEO entry are gone (it 404s). `/women` stays. The `audience`
-field is untouched and still powers the "For him / For her" filter and department dropdowns.
+**`/men` and `/women` were removed as sections.** The shelves read "7,123 items" because an
+audience page includes unisex. Gone: the routes, both nav links, `pages/Audience.tsx`, the
+`/api/audience/:audience` endpoint, `api.audience()`, the SEO entries, and `menCount`/
+`womenCount` on `flags`. Both paths 404.
+
+**The `audience` field itself is untouched and still in use** — do not remove it. It drives the
+"For him / For her" filter in the shop sidebar, the department dropdowns (per-category counts
+on `/api/site`), the `Facets.audience` counts, `Brand.audience`, the admin editor/filter/bulk
+action, and `scripts/classify-audience.ts`.
 
 ## Phase 3 ideas (not started)
 Automated WhatsApp Business API notifications, richer promo/hero management UI (multiple banners),

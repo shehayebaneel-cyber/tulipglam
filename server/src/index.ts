@@ -241,7 +241,7 @@ function publicSettings(all: Record<string, string>): Record<string, string> {
 
 // header/footer/home bootstrap: settings + categories + featured brands + areas
 app.get("/api/site", asyncH(async (_req, res) => {
-  const [settings, tops, brands, areas, saleCount, audienceCounts, audienceByCat] = await Promise.all([
+  const [settings, tops, brands, areas, saleCount, audienceByCat] = await Promise.all([
     getSettings(),
     // full two-level tree: the nav needs children to build its dropdown panels
     db.category.findMany({ where: { active: true }, orderBy: { sortOrder: "asc" },
@@ -249,7 +249,6 @@ app.get("/api/site", asyncH(async (_req, res) => {
     db.brand.findMany({ where: { active: true }, include: { _count: { select: { products: { where: VISIBLE } } } } }),
     db.deliveryArea.findMany({ where: { active: true }, orderBy: { sortOrder: "asc" } }),
     db.product.count({ where: { AND: [VISIBLE, { saleCents: { not: null } }] } }),
-    db.product.groupBy({ by: ["audience"], where: VISIBLE, _count: { _all: true } }),
     // Per-category audience split, so a department that holds its products directly can offer
     // "For him / For her" in the nav without inventing subcategories for them.
     db.product.groupBy({ by: ["categoryId", "audience"], where: { AND: [VISIBLE, { audience: { in: ["men", "women"] } }] }, _count: { _all: true } }),
@@ -284,8 +283,6 @@ app.get("/api/site", asyncH(async (_req, res) => {
     .filter((c) => c.parentId === null)
     .map((c) => ({ ...shape(c, rolledUp(c)), children: tops.filter((k) => k.parentId === c.id).map((k) => shape(k)) }));
 
-  const audience = Object.fromEntries(audienceCounts.map((a) => [a.audience || "unisex", a._count._all]));
-
   res.json({
     settings: publicSettings(settings),
     categories,
@@ -297,11 +294,9 @@ app.get("/api/site", asyncH(async (_req, res) => {
     areas,
     statuses: ORDER_STATUSES,
     // Feature flags so the client never advertises a section that would come back empty.
-    flags: {
-      hasSale: saleCount > 0,
-      menCount: audience.men ?? 0,
-      womenCount: audience.women ?? 0,
-    },
+    // The men/women totals went with the /men and /women shelves; the per-category split
+    // below is what the department dropdowns and the shop filter still use.
+    flags: { hasSale: saleCount > 0 },
     trust: trustItems(settings),
   });
 }));
@@ -327,40 +322,6 @@ app.get("/api/home", asyncH(async (_req, res) => {
     newArrivals: (newArrivals.length ? newArrivals : spreadBrands(fresh, 8, 2)).map((p) => cardOf(p, newDays)),
     reviews: reviews.map((r) => ({ id: r.id, author: r.author, rating: r.rating, text: r.text, title: r.title, product: r.product?.name ?? "" })),
   });
-}));
-
-/**
- * Which departments actually hold product for an audience, with counts. Drives the /men and
- * /women sub-navigation so it can only ever offer departments that lead somewhere.
- */
-app.get("/api/audience/:audience", asyncH(async (req, res) => {
-  const audience = str(req.params.audience);
-  if (audience !== "men" && audience !== "women") return res.status(404).json({ error: "Not found." });
-
-  const scope: Prisma.ProductWhereInput = { AND: [VISIBLE, { audience }] };
-  const [total, rows, cats] = await Promise.all([
-    db.product.count({ where: scope }),
-    db.product.groupBy({ by: ["categoryId"], where: scope, _count: { _all: true } }),
-    db.category.findMany({ where: { active: true }, select: { id: true, slug: true, name: true, parentId: true, sortOrder: true } }),
-  ]);
-
-  // Roll child counts up into their department, since /men/:department is department-level.
-  const byId = new Map(cats.map((c) => [c.id, c]));
-  const perDept = new Map<number, number>();
-  for (const r of rows) {
-    const cat = byId.get(r.categoryId);
-    if (!cat) continue;
-    const deptId = cat.parentId ?? cat.id;
-    perDept.set(deptId, (perDept.get(deptId) ?? 0) + r._count._all);
-  }
-
-  const departments = [...perDept.entries()]
-    .map(([id, count]) => ({ ...byId.get(id)!, count }))
-    .filter((d) => d.count > 0)
-    .sort((a, b) => a.sortOrder - b.sortOrder)
-    .map((d) => ({ slug: d.slug, name: d.name, count: d.count }));
-
-  res.json({ audience, total, departments });
 }));
 
 // product listing with filters, search, sort

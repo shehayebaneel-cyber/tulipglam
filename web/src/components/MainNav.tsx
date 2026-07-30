@@ -91,12 +91,6 @@ export function MainNav({ site }: { site: SiteData | null }) {
     return () => { document.removeEventListener("mousedown", onDown); document.removeEventListener("keydown", onKey); };
   }, [open]);
 
-  // Men was removed as a top-level section on the owner's instruction: the shelf showed
-  // 7,123 items because it includes unisex, which made it read as the whole catalogue.
-  // The audience data itself stays — it is what powers the "For him" filter and the
-  // For him / For her entries in a department dropdown.
-  const showWomen = (site?.flags?.womenCount ?? 0) > 0;
-
   return (
     // NEVER put an overflow value on this element. `overflow-x: auto` makes `overflow-y`
     // compute to `auto` as well, which turns the nav into a clipping container — and the
@@ -114,9 +108,6 @@ export function MainNav({ site }: { site: SiteData | null }) {
           : <GroupMenu key={g.label} label={g.label} cats={g.cats} open={open === g.label} onOpen={() => setOpen(g.label)} onClose={() => setOpen(null)} />
       ))}
 
-      {/* Suppresses itself if nothing is classified — an empty shelf is worse than no link,
-          same rule as Sale. */}
-      {showWomen && <TopLink to="/women">Women</TopLink>}
       <TopLink to="/brands">Brands</TopLink>
       {site?.flags?.hasSale && (
         <NavLink to="/sale" className={({ isActive }) => `whitespace-nowrap rounded-lg px-3 py-2 text-[13px] font-semibold tracking-wide text-sale transition-colors hover:bg-plum-soft ${isActive ? "bg-plum-soft" : ""}`}>Sale</NavLink>
@@ -307,7 +298,6 @@ export function MobileNav({ site, onNavigate }: { site: SiteData | null; onNavig
       })}
 
       <hr className="my-2 border-line" />
-      {(site?.flags?.womenCount ?? 0) > 0 && <Link to="/women" onClick={onNavigate} className={row}>Women</Link>}
       {([
         ["/new", "New Arrivals"],
         ["/bestsellers", "Best Sellers"],

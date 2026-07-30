@@ -242,16 +242,12 @@ export async function metaForPath(pathname: string, ctx: Ctx): Promise<PageMeta>
     };
   }
 
-  // /men was retired by the owner. It is not listed here, so it falls through to the 404 at the
-  // bottom — the router no longer has the route either, and a page that renders "not found"
-  // must not answer 200 or crawlers keep it indexed.
-  if (parts[0] === "women") {
-    return {
-      ...base,
-      title: titled("Women’s beauty and skincare", siteName),
-      description: `Women’s makeup, skincare, hair and fragrance at ${siteName}. Delivered across Lebanon, cash on delivery.`,
-    };
-  }
+  // /men and /women were retired by the owner, so neither is listed here and both fall through
+  // to the 404 at the bottom. The router has no route for them either, and a page that renders
+  // "not found" must not answer 200 or crawlers keep it indexed.
+  //
+  // The `audience` field is still very much in use — it drives the "For him / For her" filter
+  // and the department dropdowns. It just no longer has shelves of its own.
 
   const STATIC: Record<string, [string, string]> = {
     shop: ["All products", `Every product at ${siteName}, delivered across Lebanon.`],

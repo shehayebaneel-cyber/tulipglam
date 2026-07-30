@@ -147,9 +147,10 @@ export function ProductEditor({ product, cats, brands, onClose, onSaved }: {
             <label className="flex items-center gap-2 text-[13px]"><input type="checkbox" checked={f.isBestSeller} onChange={(e) => set("isBestSeller", e.target.checked)} className="focus-ring accent-plum" /> Mark as best seller</label>
             <Field label="New badge"><Combobox value={f.isNewMode} onChange={(v) => set("isNewMode", v)} ariaLabel="New badge behaviour" buttonClassName="py-2.5"
               options={[{ value: "auto", label: "Auto (recent)" }, { value: "always", label: "Always show New" }, { value: "never", label: "Never" }]} /></Field>
-            {/* Drives /men and /women. Unisex is the default and appears on both, so it is the
-                right answer for most of the catalogue — only mark a product when the packaging
-                or the product itself is clearly for one. */}
+            {/* Drives the "For him / For her" filter in the shop sidebar and the department
+                dropdowns. Unisex is the default and is the right answer for most of the
+                catalogue — only mark a product when the packaging or the product itself is
+                clearly for one. */}
             <Field label="Shop for">
               <Combobox value={f.audience} onChange={(v) => set("audience", v)} ariaLabel="Audience" buttonClassName="py-2.5"
                 options={[{ value: "unisex", label: "Anyone (shown in both)" }, { value: "women", label: "Women" }, { value: "men", label: "Men" }]} />

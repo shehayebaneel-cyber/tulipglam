@@ -44,8 +44,12 @@ export type TrustItem = { title: string; body: string };
 /**
  * Feature flags resolved on the server. The client uses these to avoid advertising a section
  * that would come back empty — a "Sale" link leading to nothing is worse than no link.
+ *
+ * The men's/women's counts that used to live here went with the /men and /women shelves. The
+ * `audience` field itself is very much alive: it drives the "For him / For her" filter, the
+ * department dropdowns, and the admin tooling.
  */
-export type SiteFlags = { hasSale: boolean; menCount: number; womenCount: number };
+export type SiteFlags = { hasSale: boolean };
 
 export type SiteData = {
   settings: Record<string, string>;
@@ -115,10 +119,6 @@ export const api = {
     return req<{ products: Card[]; facets?: Facets; total: number; page: number; pages: number; limit: number }>(`/products${qs ? `?${qs}` : ""}`);
   },
   product: (slug: string) => req<ProductFull>(`/products/${slug}`),
-  // Departments that actually hold product for this audience, with counts, so /men and /women
-  // can only ever link somewhere that has something.
-  audience: (audience: "men" | "women") =>
-    req<{ audience: string; total: number; departments: { slug: string; name: string; count: number }[] }>(`/audience/${audience}`),
   search: (q: string) => req<{ products: Card[] }>(`/search?q=${encodeURIComponent(q)}`),
   brands: () => req<{ brands: Brand[] }>("/brands"),
   createOrder: (body: unknown) => req<{ number: string; totalCents: number; subtotalCents: number; discountCents: number; giftCardCents: number; deliveryCents: number; whatsappNumber: string }>("/orders", { method: "POST", body: JSON.stringify(body) }),
