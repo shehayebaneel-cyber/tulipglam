@@ -1,7 +1,8 @@
 import { useState } from "react";
-import { Link, NavLink, useNavigate } from "react-router-dom";
-import { Wordmark, SearchIcon, HeartIcon, BagIcon, MenuIcon, CloseIcon, TulipMark, UserIcon } from "./ui";
+import { Link, useNavigate } from "react-router-dom";
+import { Wordmark, SearchIcon, HeartIcon, BagIcon, MenuIcon, CloseIcon, UserIcon } from "./ui";
 import { useStore } from "../lib/store";
+import { MainNav, MobileNav } from "./MainNav";
 
 export function Header() {
   const [menu, setMenu] = useState(false);
@@ -9,7 +10,6 @@ export function Header() {
   const [q, setQ] = useState("");
   const navigate = useNavigate();
   const { site, cartCount, wishlist, customer } = useStore();
-  const categories = site?.categories ?? [];
   const announcement = site?.settings.announcement ?? "Free delivery over $60 · Cash on delivery across Lebanon";
 
   const submit = (e: React.FormEvent) => {
@@ -18,9 +18,6 @@ export function Header() {
     setSearch(false); setMenu(false);
     navigate(`/search?q=${encodeURIComponent(q.trim())}`);
   };
-
-  const link = ({ isActive }: { isActive: boolean }) =>
-    `text-[13px] font-medium tracking-wide transition-colors hover:text-plum ${isActive ? "text-plum" : "text-ink/80"}`;
 
   return (
     <header className="sticky top-0 z-40 border-b border-line bg-paper/90 backdrop-blur">
@@ -65,18 +62,9 @@ export function Header() {
         )}
 
         {/* desktop category nav */}
-        <nav className="hidden items-center justify-center gap-7 pb-3 lg:flex">
-          {categories.map((c) => (
-            <NavLink key={c.slug} to={`/category/${c.slug}`} className={link}>{c.name}</NavLink>
-          ))}
-          <NavLink to="/brands" className={link}>Brands</NavLink>
-          {/* Only shown when something is actually reduced. Zero products have a sale price, so
-              this link previously led to an empty page — and it was the one element allowed to
-              use the sale red, which made the emptiness louder. */}
-          {site?.flags?.hasSale && (
-            <NavLink to="/sale" className={({ isActive }) => `text-[13px] font-semibold tracking-wide text-sale hover:opacity-80 ${isActive ? "opacity-80" : ""}`}>Sale</NavLink>
-          )}
-        </nav>
+        {/* 15 flat items wrapped mid-label ("Bath &/Body", "Kids &/Baby"); now 6 grouped
+            headings with dropdown panels, all derived from the database. */}
+        <MainNav site={site ?? null} />
       </div>
 
       {/* mobile drawer */}
@@ -88,27 +76,10 @@ export function Header() {
               <Wordmark />
               <button onClick={() => setMenu(false)} aria-label="Close" className="grid h-10 w-10 place-items-center rounded-full text-ink hover:bg-soft"><CloseIcon /></button>
             </div>
-            <nav className="flex-1 overflow-y-auto p-3">
-              <Link to="/shop" onClick={() => setMenu(false)} className="flex items-center gap-3 rounded-xl px-3 py-3 font-semibold hover:bg-soft">Shop all</Link>
-              {categories.map((c) => (
-                <Link key={c.slug} to={`/category/${c.slug}`} onClick={() => setMenu(false)} className="flex items-center gap-3 rounded-xl px-3 py-3 text-[15px] hover:bg-soft">
-                  <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg" style={{ background: c.tint }}><TulipMark className="h-4 w-4 text-plum" /></span>
-                  {c.name}
-                </Link>
-              ))}
-              <hr className="my-2 border-line" />
-              {([
-                ["/new", "New Arrivals"],
-                ["/bestsellers", "Best Sellers"],
-                // same rule as desktop: no Sale entry unless something is reduced
-                ...(site?.flags?.hasSale ? [["/sale", "Sale"]] : []),
-                ["/brands", "Brands"],
-                ["/gift-cards", "Gift Cards"],
-                ["/track", "Order Tracking"],
-                ["/contact", "Contact"],
-              ] as [string, string][]).map(([to, label]) => (
-                <Link key={to} to={to} onClick={() => setMenu(false)} className="block rounded-xl px-3 py-2.5 text-[15px] hover:bg-soft">{label}</Link>
-              ))}
+            {/* Accordion: at 390px a flat list of 15 departments plus their children is
+                unusable, so groups collapse and only one opens at a time. */}
+            <nav aria-label="Departments" className="flex-1 overflow-y-auto p-3">
+              <MobileNav site={site ?? null} onNavigate={() => setMenu(false)} />
             </nav>
           </div>
         </div>

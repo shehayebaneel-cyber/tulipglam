@@ -111,6 +111,31 @@ function spreadBrands<T extends { brandId: number | null }>(items: T[], limit: n
   return picked;
 }
 
+type BrandWithCount = { id: number; slug: string; name: string; featured: boolean; sortOrder: number; _count: { products: number } };
+
+/**
+ * "Brands we love" — an editorial slot, so it must never be an accident of ordering.
+ *
+ * It previously showed Dali, Beesline, ACM, Abercrombie and Fitch, Acnevit, Adidas… which
+ * looked alphabetical but was really heap order (see the sortOrder=50 note above), and put a
+ * one-product brand and a fashion label in a premium beauty store's featured row.
+ *
+ * Curated first: brands flagged `featured` in admin, in their configured order. Only if none
+ * are flagged does it fall back — and then by catalogue depth, never by name or insertion
+ * order. `minProducts` keeps thin brands out of the fallback entirely.
+ */
+function featuredBrands(brands: BrandWithCount[], minProducts: number): BrandWithCount[] {
+  const curated = brands
+    .filter((b) => b.featured && b._count.products > 0)
+    .sort((a, b) => a.sortOrder - b.sortOrder || COLLATOR.compare(sortKey(a.name), sortKey(b.name)));
+  if (curated.length) return curated.slice(0, 8);
+
+  return [...brands]
+    .filter((b) => b._count.products >= minProducts)
+    .sort((a, b) => b._count.products - a._count.products || COLLATOR.compare(sortKey(a.name), sortKey(b.name)))
+    .slice(0, 8);
+}
+
 function trustItems(settings: Record<string, string>): { title: string; body: string }[] {
   const raw = (settings.trustItems ?? "").trim();
   const lines = (raw ? raw.split("\n") : DEFAULT_TRUST).map((l) => l.trim()).filter(Boolean);
@@ -171,16 +196,21 @@ app.get("/api/site", asyncH(async (_req, res) => {
     db.product.groupBy({ by: ["audience"], where: VISIBLE, _count: { _all: true } }),
   ]);
 
-  const shape = (c: (typeof tops)[number]) => ({
+  const shape = (c: (typeof tops)[number], count = c._count.products) => ({
     id: c.id, slug: c.slug, name: c.name, blurb: c.blurb, glyph: c.glyph, tint: c.tint,
-    sortOrder: c.sortOrder, _count: c._count,
+    sortOrder: c.sortOrder, _count: { products: count },
   });
+  // A department holds no products directly — they sit in its children — so its own _count is
+  // 0. Displaying that made the nav and the category cards read "Makeup 0" for a department
+  // with 1,951 products. Roll the children up.
+  const rolledUp = (c: (typeof tops)[number]) =>
+    c._count.products + tops.filter((k) => k.parentId === c.id).reduce((n, k) => n + k._count.products, 0);
   // Full two-level tree. `name` is the single source of truth for every label — nav, cards,
   // breadcrumbs, filters and page titles all read it, so they can no longer disagree the way
   // "Fragrance"/"Fragrances" and "Hair"/"Haircare" did when card labels lived inside images.
   const categories = tops
     .filter((c) => c.parentId === null)
-    .map((c) => ({ ...shape(c), children: tops.filter((k) => k.parentId === c.id).map(shape) }));
+    .map((c) => ({ ...shape(c, rolledUp(c)), children: tops.filter((k) => k.parentId === c.id).map((k) => shape(k)) }));
 
   const audience = Object.fromEntries(audienceCounts.map((a) => [a.audience || "unisex", a._count._all]));
 
@@ -191,6 +221,7 @@ app.get("/api/site", asyncH(async (_req, res) => {
     // tiebreak, and 403 brands share sortOrder=50 — so Postgres returned heap order and
     // "Dr Pawpaw" landed between "Lakme" and "Lazartigue".
     brands: brands.sort((a, b) => COLLATOR.compare(sortKey(a.name), sortKey(b.name))),
+    featuredBrands: featuredBrands(brands, num(settings.featuredBrandMinProducts, 8)),
     areas,
     statuses: ORDER_STATUSES,
     // Feature flags so the client never advertises a section that would come back empty.
@@ -224,6 +255,40 @@ app.get("/api/home", asyncH(async (_req, res) => {
     newArrivals: (newArrivals.length ? newArrivals : spreadBrands(fresh, 8, 2)).map((p) => cardOf(p, newDays)),
     reviews: reviews.map((r) => ({ id: r.id, author: r.author, rating: r.rating, text: r.text, title: r.title, product: r.product?.name ?? "" })),
   });
+}));
+
+/**
+ * Which departments actually hold product for an audience, with counts. Drives the /men and
+ * /women sub-navigation so it can only ever offer departments that lead somewhere.
+ */
+app.get("/api/audience/:audience", asyncH(async (req, res) => {
+  const audience = str(req.params.audience);
+  if (audience !== "men" && audience !== "women") return res.status(404).json({ error: "Not found." });
+
+  const scope: Prisma.ProductWhereInput = { AND: [VISIBLE, { audience }] };
+  const [total, rows, cats] = await Promise.all([
+    db.product.count({ where: scope }),
+    db.product.groupBy({ by: ["categoryId"], where: scope, _count: { _all: true } }),
+    db.category.findMany({ where: { active: true }, select: { id: true, slug: true, name: true, parentId: true, sortOrder: true } }),
+  ]);
+
+  // Roll child counts up into their department, since /men/:department is department-level.
+  const byId = new Map(cats.map((c) => [c.id, c]));
+  const perDept = new Map<number, number>();
+  for (const r of rows) {
+    const cat = byId.get(r.categoryId);
+    if (!cat) continue;
+    const deptId = cat.parentId ?? cat.id;
+    perDept.set(deptId, (perDept.get(deptId) ?? 0) + r._count._all);
+  }
+
+  const departments = [...perDept.entries()]
+    .map(([id, count]) => ({ ...byId.get(id)!, count }))
+    .filter((d) => d.count > 0)
+    .sort((a, b) => a.sortOrder - b.sortOrder)
+    .map((d) => ({ slug: d.slug, name: d.name, count: d.count }));
+
+  res.json({ audience, total, departments });
 }));
 
 // product listing with filters, search, sort

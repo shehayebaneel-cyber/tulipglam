@@ -42,7 +42,10 @@ export type SiteData = {
   settings: Record<string, string>;
   /** Two-level tree. `name` is the single source of truth for every label in the UI. */
   categories: (Category & { _count: { products: number }; children: (Category & { _count: { products: number } })[] })[];
-  brands: Brand[]; areas: Area[]; statuses: StatusMeta[];
+  brands: Brand[];
+  /** Curated in admin, or by catalogue depth — never insertion order. */
+  featuredBrands: Brand[];
+  areas: Area[]; statuses: StatusMeta[];
   flags: SiteFlags;
   trust: TrustItem[];
 };

@@ -102,17 +102,17 @@ that compares the header key; verified 401 with no key, a wrong key, and on the 
 
 ## Phase 2 — Homepage
 
-### 2.1 Navigation — TODO
+### 2.1 Navigation — FIXED
 15 top-level items in one row, several wrapping mid-label. Restructured into 6 groups with
 dropdown panels; labels use `white-space: nowrap` so nothing can wrap. Mobile drawer rebuilt
 as an accordion.
 
-### 2.2 Category naming — TODO
+### 2.2 Category naming — FIXED
 Nav said Fragrance/Hair/Bath & Body; cards said Fragrances/Haircare/Body & Bath, because the
 card labels were **baked into image files** while the nav read the database. Now a single
 database-derived name everywhere.
 
-### 2.3 Category grid — TODO
+### 2.3 Category grid — FIXED
 Was two incompatible card types: image cards with name+tagline burned into the file (no
 caption, off-palette beige/gold/baby-blue/pink backgrounds) and glyph placeholders with
 captions. Different heights across rows. One `CategoryCard` component now; text is always live
@@ -122,20 +122,27 @@ DOM, uniform aspect ratio, plum-family tints.
 Verified: the newest 12 active products were **Lattafa ×12**. Added per-brand capping
 (max 2 per row) with recency-ordered backfill.
 
-### 2.5 Carousel clipping — TODO
+### 2.5 Carousel clipping — FIXED
 Scroll-snap and padding corrected so cards land on boundaries; swipeable at 390px.
 
-### 2.6 Featured brands — TODO
+### 2.6 Featured brands — FIXED
 Not alphabetical as assumed — `/api/site` ordered by `[featured desc, sortOrder asc]` with
 **no name tiebreak**, and 403 brands share `sortOrder=50`, so Postgres returned heap order that
 merely looked alphabetical. Result included *Abercrombie and Fitch (1 product)* and
 *Acnevit (2 products)*. Now an admin-curated ordered list with a minimum-product threshold,
 falling back to product count — never raw insertion order.
 
-### 2.7 Hero — TODO (asset BLOCKED)
+### 2.7 Hero — FIXED (asset BLOCKED)
 Heading, subheading, both CTAs and the image are now Settings-driven. The existing image is
 visibly AI-generated; **a real photograph is BLOCKED on the owner.** Also removed the
 three-stop CSS gradient behind the hero (constraint: no gradients).
+
+---
+
+### 2.8 Department counts read 0 — FIXED (found while verifying 2.1)
+Departments hold no products directly, so `_count` returned 0 and both the nav and the
+category cards displayed "Makeup 0" for a department with 1,951 products. Child counts now
+roll up; the 13 departments sum to exactly 9,533, matching the visible product total.
 
 ---
 
@@ -165,10 +172,10 @@ defaults on.
 Added price range, availability and in-department category refinement, active-filter chips
 with individual dismiss and Clear all, and full URL sync of filter/sort/page/search.
 
-### 3.6 Card image framing — TODO
+### 3.6 Card image framing — FIXED
 Fixed aspect ratio, `object-fit: contain`, consistent padding and neutral bed.
 
-### 3.7 Unavailable overlay — TODO
+### 3.7 Unavailable overlay — FIXED
 Heavy dark bar replaced with a compact on-palette badge reading "Unavailable";
 discontinued gets its own distinct treatment.
 

@@ -4,7 +4,8 @@ import { api, usd } from "../lib/api";
 import { useStore } from "../lib/store";
 import { useFetch } from "../lib/hooks";
 import { ProductCard } from "../components/ProductCard";
-import { ProductGlyph } from "../components/ProductGlyph";
+import { ButtonLink } from "../components/Button";
+import { CategoryCard } from "../components/CategoryCard";
 import { TulipMark, Stars, ArrowRight, ChevronRight, Spinner } from "../components/ui";
 import type { Card } from "../lib/api";
 
@@ -14,14 +15,20 @@ const HERO_IMG = "/hero/hero-tulipglam-lilac.webp";
 
 // Category card photos by slug (files in web/public/category/). Slugs without an
 // entry fall back to the line-art glyph.
-const CATEGORY_IMG: Record<string, string> = {
-  makeup: "/category/makeup.webp",
-  skincare: "/category/skincare.webp",
-  "bath-body": "/category/bath-body.webp",
-  hair: "/category/hair.webp",
-  fragrance: "/category/fragrance.webp",
-  "gift-sets": "/category/gift-sets.webp",
-};
+/**
+ * Category card photography, by slug.
+ *
+ * Deliberately empty. The six artwork files in web/public/category/ have the category name
+ * AND tagline burned into the image, plus beige/gold/baby-blue/pink backgrounds that are not
+ * in the palette. With the label now rendered as DOM text, using them would show every title
+ * twice — and baked-in text is unsearchable, unselectable, invisible to screen readers and
+ * blurry on retina regardless.
+ *
+ * Until clean, text-free photography exists, every card uses the glyph placeholder, which is
+ * uniform and looks deliberate. Add entries here as real images arrive — the card component
+ * needs no change. Tracked in AUDIT.md under BLOCKED.
+ */
+const CATEGORY_IMG: Record<string, string> = {};
 
 function SectionHead({ eyebrow, title, to }: { eyebrow: string; title: string; to?: string }) {
   return (
@@ -71,15 +78,23 @@ function Row({ items }: { items: Card[] }) {
 
   return (
     <div className="relative">
+      {/* Below md the track bleeds to the screen edge so a partial next card signals
+          swipeability. From md up the bleed is removed: the arrows sit in the gutter at
+          -left-3/-right-3, and with the bleed they were painted over the first and last
+          cards, which is what made the row look clipped. Card widths divide the track
+          exactly (3 up at sm, 4 at lg) so snapping lands on clean boundaries. */}
       <div
         ref={track}
         onScroll={sync}
-        className="no-scrollbar -mx-5 flex snap-x snap-mandatory gap-3.5 overflow-x-auto scroll-px-5 px-5 sm:gap-5 md:-mx-8 md:scroll-px-8 md:px-8"
+        role="region"
+        aria-label="Product carousel — scroll horizontally"
+        tabIndex={0}
+        className="no-scrollbar -mx-5 flex snap-x snap-mandatory gap-3.5 overflow-x-auto scroll-px-5 px-5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-plum sm:gap-5 md:mx-0 md:scroll-px-0 md:px-0"
       >
         {items.map((p) => (
           <div
             key={p.id}
-            className="w-[45%] shrink-0 snap-start sm:w-[calc((100%_-_2_*_1.25rem)_/_3)] lg:w-[calc((100%_-_3_*_1.25rem)_/_4)]"
+            className="w-[46%] shrink-0 snap-start sm:w-[calc((100%_-_2_*_1.25rem)_/_3)] lg:w-[calc((100%_-_3_*_1.25rem)_/_4)]"
           >
             <ProductCard p={p} />
           </div>
@@ -107,9 +122,25 @@ export function Home() {
   const { site } = useStore();
   const { data, loading } = useFetch(() => api.home(), []);
   const categories = site?.categories ?? [];
-  const brands = site?.brands ?? [];
+  const featured = site?.featuredBrands ?? [];
   const promo = data?.promo ?? null;
   const trust = site?.trust ?? [];
+
+  // Hero copy and image, all Settings-driven (heroHeading, heroSub, heroCtaLabel, …).
+  // The defaults are the current wording; the image intentionally has no default beyond the
+  // shipped file, which is AI-generated and flagged for replacement in AUDIT.md.
+  const s = site?.settings ?? {};
+  const hero = {
+    eyebrow: s.heroEyebrow ?? "Premium beauty · Delivered across Lebanon",
+    heading: s.heroHeading ?? "Where Tulips Bloom, Glam Begins.",
+    sub: s.heroSub ?? "Premium makeup, skincare, haircare and fragrance from the world’s favourite beauty brands.",
+    ctaLabel: s.heroCtaLabel ?? "Shop now",
+    ctaHref: s.heroCtaHref ?? "/shop",
+    altLabel: s.heroAltLabel ?? "New arrivals",
+    altHref: s.heroAltHref ?? "/new",
+    footnote: s.heroFootnote ?? "USD pricing · Delivery across Lebanon · Cash on delivery",
+    image: s.heroImage ?? HERO_IMG,
+  };
 
   return (
     <div className="pb-6">
@@ -120,33 +151,41 @@ export function Home() {
           // and #f1e9e4 — none in the palette — and the system is explicitly gradient-free.
           className="grid items-center gap-7 overflow-hidden rounded-[24px] border border-line bg-plum-soft p-6 sm:p-8 lg:grid-cols-[1.05fr_1fr] lg:gap-10 lg:p-11"
         >
-          {/* text */}
+          {/* text — every string Settings-driven so the hero can be rewritten without a deploy */}
           <div className="order-2 lg:order-1">
-            <p className="eyebrow">Premium beauty · Delivered across Lebanon</p>
+            {hero.eyebrow && <p className="eyebrow">{hero.eyebrow}</p>}
             <h1 className="serif mt-3 text-[2rem] font-medium leading-[1.07] tracking-[-0.01em] text-ink sm:text-[2.5rem] lg:text-[2.85rem]">
-              Where Tulips Bloom, <span className="italic text-plum">Glam Begins.</span>
+              {hero.heading}
             </h1>
-            <p className="mt-4 max-w-md text-[15px] leading-relaxed text-ink/70">
-              Premium makeup, skincare, haircare and fragrance from the world’s favourite beauty brands.
-            </p>
+            {hero.sub && <p className="mt-4 max-w-md text-[15px] leading-relaxed text-ink/70">{hero.sub}</p>}
             <div className="mt-6 flex flex-wrap items-center gap-x-5 gap-y-3">
-              <Link to="/shop" className="btn btn-primary btn-cta px-8 py-3.5">Shop now</Link>
-              <Link to="/new" className="inline-flex items-center gap-1 text-[12px] font-semibold uppercase tracking-[0.12em] text-ink hover:text-plum">
-                New arrivals <ArrowRight className="h-4 w-4" />
-              </Link>
+              <ButtonLink to={hero.ctaHref} variant="primary" size="lg" uppercase>{hero.ctaLabel}</ButtonLink>
+              {hero.altLabel && (
+                <Link to={hero.altHref} className="inline-flex items-center gap-1 text-[12px] font-semibold uppercase tracking-[0.12em] text-ink hover:text-plum">
+                  {hero.altLabel} <ArrowRight className="h-4 w-4" />
+                </Link>
+              )}
             </div>
-            <p className="mt-6 text-[12px] text-muted">Authentic products · USD pricing · Delivery across Lebanon</p>
+            {hero.footnote && <p className="mt-6 text-[12px] text-muted">{hero.footnote}</p>}
           </div>
-          {/* image */}
+          {/* image — see HERO_IMG: the shipped file is AI-generated and needs replacing */}
           <div className="order-1 lg:order-2">
-            <div className="overflow-hidden rounded-[18px] shadow-pop">
-              <img
-                src={HERO_IMG}
-                alt="Premium makeup, skincare and fragrance"
-                loading="eager"
-                className="h-[240px] w-full object-cover object-center sm:h-[340px] lg:h-[430px]"
-              />
-            </div>
+            {hero.image ? (
+              <div className="overflow-hidden rounded-[18px] shadow-pop">
+                <img
+                  src={hero.image}
+                  alt=""
+                  loading="eager"
+                  width={860}
+                  height={640}
+                  className="h-[240px] w-full object-cover object-center sm:h-[340px] lg:h-[430px]"
+                />
+              </div>
+            ) : (
+              <div className="grid h-[240px] w-full place-items-center rounded-[18px] border border-dashed border-plum/25 bg-surface/60 sm:h-[340px] lg:h-[430px]">
+                <TulipMark className="h-16 w-16 text-plum/30" />
+              </div>
+            )}
           </div>
         </div>
       </section>
@@ -172,26 +211,20 @@ export function Home() {
       {/* ---------------- SHOP BY CATEGORY ---------------- */}
       <section className="wrap mt-14">
         <SectionHead eyebrow="Shop by category" title="Where do you want to glow?" />
+        {/* One card component for every category — see CategoryCard for why the labels are
+            DOM text rather than baked into the artwork. */}
         <div className="grid grid-cols-2 gap-3.5 sm:grid-cols-3 sm:gap-5">
           {categories.map((c) => (
-            <Link key={c.slug} to={`/category/${c.slug}`} className="group block overflow-hidden rounded-2xl border border-line bg-surface transition-colors hover:border-plum/40">
-              {CATEGORY_IMG[c.slug] ? (
-                // self-contained card image (label + tagline are baked into the artwork)
-                <div className="aspect-[3/2] overflow-hidden" style={{ background: c.tint }}>
-                  <img src={CATEGORY_IMG[c.slug]} alt={c.name} loading="lazy" className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105" />
-                </div>
-              ) : (
-                <>
-                  <div className="relative grid aspect-[16/10] place-items-center overflow-hidden" style={{ background: c.tint }}>
-                    <ProductGlyph kind={c.glyph} className="h-20 w-20 text-plum/45 transition-transform duration-300 group-hover:scale-110" />
-                  </div>
-                  <div className="px-3.5 py-3">
-                    <h3 className="text-[15px] font-semibold text-ink">{c.name}</h3>
-                    <p className="mt-0.5 text-[11px] text-muted">{c.blurb}</p>
-                  </div>
-                </>
-              )}
-            </Link>
+            <CategoryCard
+              key={c.slug}
+              slug={c.slug}
+              name={c.name}
+              blurb={c.blurb}
+              glyph={c.glyph}
+              tint={c.tint}
+              image={CATEGORY_IMG[c.slug]}
+              count={c._count?.products}
+            />
           ))}
         </div>
       </section>
@@ -234,12 +267,15 @@ export function Home() {
         </section>
       )}
 
-      {/* ---------------- FEATURED BRANDS ---------------- */}
-      {!!brands.length && (
+      {/* ---------------- FEATURED BRANDS ----------------
+          Server-resolved: admin-curated order when brands are flagged featured, otherwise by
+          catalogue depth with a minimum-products floor. Never insertion order, which is how
+          a one-product fashion label ended up in a premium beauty store's featured row. */}
+      {!!featured.length && (
         <section className="wrap mt-14">
           <SectionHead eyebrow="Featured" title="Brands we love" to="/brands" />
           <div className="grid grid-cols-2 gap-px overflow-hidden rounded-2xl border border-line bg-line sm:grid-cols-4">
-            {brands.slice(0, 8).map((b) => (
+            {featured.map((b) => (
               <Link key={b.slug} to={`/shop?brand=${b.slug}`} className="grid place-items-center bg-surface px-4 py-8 transition-colors hover:bg-soft">
                 <span className="serif text-lg font-medium tracking-tight text-ink/85">{b.name}</span>
               </Link>

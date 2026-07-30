@@ -12,16 +12,29 @@ export function ProductCard({ p }: { p: Card }) {
   const [imgFailed, setImgFailed] = useState(false);
   const off = p.onSale && p.saleCents != null ? Math.round((1 - p.saleCents / p.priceCents) * 100) : 0;
   const wished = inWish(p.slug);
-  const soldOut = p.status === "unavailable";
+  // Not orderable. Named for the status rather than "sold out" — nothing here is stocked,
+  // so it is an availability answer, not a quantity.
+  const soldOut = p.status === "unavailable" || p.status === "discontinued";
   const hasVariants = false; // cards add the base product; variant choice happens on the product page
 
   return (
     <Link to={`/product/${p.slug}`} className="group flex flex-col">
       {/* image bed */}
-      <div className="relative overflow-hidden rounded-2xl" style={{ background: p.tint }}>
-        <div className="aspect-[4/5] w-full">
+      {/* Neutral bed and `object-contain` with padding: supplier photos arrive at wildly
+          different shapes — a wide Babyliss airbrush next to a tall narrow bottle — and
+          `object-cover` cropped some to fill while others floated tiny. Containing every
+          image in an identical frame makes the grid read as one shelf. */}
+      <div className="relative overflow-hidden rounded-2xl bg-soft">
+        <div className="aspect-[4/5] w-full p-3">
           {p.image && !imgFailed ? (
-            <img src={p.image} alt={p.name} loading="lazy" onError={() => setImgFailed(true)} className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.04]" />
+            <img
+              src={p.image}
+              alt={`${p.brand?.name ? `${p.brand.name} ` : ""}${p.name}`}
+              loading="lazy"
+              decoding="async"
+              onError={() => setImgFailed(true)}
+              className="h-full w-full object-contain transition-transform duration-300 group-hover:scale-[1.04]"
+            />
           ) : (
             <ProductGlyph kind={p.glyph} className="h-full w-full p-8 text-plum/45 transition-transform duration-300 group-hover:scale-[1.04]" />
           )}
@@ -32,8 +45,18 @@ export function ProductCard({ p }: { p: Card }) {
           {p.isNew && off === 0 && <span className="rounded-full bg-ink px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.1em] text-paper">New</span>}
           {p.isBestSeller && off === 0 && !p.isNew && <span className="rounded-full bg-plum px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.1em] text-white">Bestseller</span>}
         </div>
-        {soldOut && (
-          <div className="absolute inset-x-0 bottom-0 bg-ink/75 py-1.5 text-center text-[11px] font-semibold text-paper">Temporarily unavailable</div>
+        {/* Was a heavy dark bar across the whole image with text long enough to look clipped.
+            Now a compact badge in the same corner language as the other flags. Discontinued
+            gets its own treatment — it is permanent, not a "check back later". */}
+        {p.status === "unavailable" && (
+          <span className="absolute bottom-2.5 left-2.5 rounded-full bg-warn-soft px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-warn ring-1 ring-inset ring-warn-line">
+            Unavailable
+          </span>
+        )}
+        {p.status === "discontinued" && (
+          <span className="absolute bottom-2.5 left-2.5 rounded-full bg-soft px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-muted ring-1 ring-inset ring-line-strong">
+            Discontinued
+          </span>
         )}
         {/* wishlist */}
         <button
