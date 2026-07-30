@@ -76,7 +76,10 @@ export function Product() {
           <div className="relative overflow-hidden rounded-3xl" style={{ background: p.tint }}>
             <div className="aspect-square w-full">
               {heroUrl && !failedImgs.has(heroUrl) ? (
-                <img src={heroUrl} alt={heroAlt} onError={() => setFailedImgs((s) => new Set(s).add(heroUrl))} className="h-full w-full object-cover" />
+                /* This page's LCP element — the reason it is eager and high priority, while
+                    the thumbnails below are lazy. */
+                <img src={heroUrl} alt={heroAlt} loading="eager" fetchPriority="high" decoding="async"
+                  onError={() => setFailedImgs((s) => new Set(s).add(heroUrl))} className="h-full w-full object-cover" />
               ) : (
                 <ProductGlyph kind={p.glyph} className="h-full w-full p-16 text-plum/45" />
               )}
@@ -94,7 +97,7 @@ export function Product() {
               {gallery.map((im, i) => (
                 <button key={i} onClick={() => { setImgIdx(i); setShowShadeImg(false); }}
                   className={`h-16 w-16 overflow-hidden rounded-xl border-2 ${i === imgIdx && !(showShadeImg && shadeImg) ? "border-plum" : "border-transparent"}`}>
-                  <img src={im.url} alt="" className="h-full w-full object-cover" />
+                  <img src={im.url} alt="" loading="lazy" decoding="async" className="h-full w-full object-cover" />
                 </button>
               ))}
             </div>

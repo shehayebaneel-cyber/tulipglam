@@ -10,6 +10,7 @@ import { hashPassword, checkPassword, signToken, withCustomer, requireCustomer }
 import { sendMail, mailConfigured, orderConfirmationEmail, statusUpdateEmail, passwordResetEmail } from "./mailer.js";
 import { DEV_ADMIN_KEY, validateSettings, setupChecks } from "./setup.js";
 import { resolvePromo } from "./promo.js";
+import { metaForPath, renderHead, injectHead, robotsTxt, sitemapXml } from "./seo.js";
 
 const db = new PrismaClient();
 const app = express();
@@ -222,6 +223,7 @@ app.get("/api/health", (_req, res) => res.json({ ok: true }));
 const PUBLIC_SETTINGS = [
   "storeName", "announcement", "whatsappNumber", "instagramUrl", "contactEmail", "siteUrl",
   "freeDeliveryThresholdCents", "defaultDeliveryCents", "newArrivalDays", "featuredBrandMinProducts",
+  "deliveryEstimate", "returnsWindow",
   "promoActive", "promoTitle", "promoText", "promoDiscountText", "promoCtaLabel",
   "heroEyebrow", "heroHeading", "heroSub", "heroCtaLabel", "heroCtaHref",
   "heroAltLabel", "heroAltHref", "heroFootnote", "heroImage",
@@ -1612,11 +1614,85 @@ admin.post("/import", asyncH(async (req, res) => {
 
 app.use("/api/admin", admin);
 
+// ---- crawler-facing routes ----
+// Both are served whether or not the built web exists, so they can be checked in development.
+
+/**
+ * Where this store lives, for canonical URLs and absolute image URLs.
+ *
+ * The `siteUrl` setting wins, because behind Render's proxy the request host is the internal
+ * one. Falling back to the request keeps everything working before it is set.
+ */
+function originOf(req: express.Request, settings: Record<string, string>): string {
+  const configured = str(settings.siteUrl).trim();
+  if (configured) return configured.replace(/\/+$/, "");
+  // Behind Render's proxy the scheme is only in the forwarded header.
+  const proto = str(req.get("x-forwarded-proto")).split(",")[0] || req.protocol;
+  return `${proto}://${req.get("host") ?? "localhost"}`;
+}
+async function seoContext(req: express.Request) {
+  const settings = await getSettings();
+  return { db, origin: originOf(req, settings), settings, visible: VISIBLE };
+}
+
+app.get("/robots.txt", asyncH(async (req, res) => {
+  const { origin } = await seoContext(req);
+  res.type("text/plain").send(robotsTxt(origin));
+}));
+
+app.get("/sitemap.xml", asyncH(async (req, res) => {
+  const xml = await sitemapXml(await seoContext(req));
+  // Ten minutes. The catalogue changes on an import, not per request, and regenerating ~9,500
+  // rows on every crawler hit is pure waste.
+  res.type("application/xml").set("Cache-Control", "public, max-age=600").send(xml);
+}));
+
 // serve built web in production (single service like the other stores)
 const WEB_DIST = path.resolve(process.cwd(), "..", "web", "dist");
 if (fs.existsSync(WEB_DIST)) {
-  app.use(express.static(WEB_DIST));
-  app.get("*", (_req, res) => res.sendFile(path.join(WEB_DIST, "index.html")));
+  /**
+   * Cache headers.
+   *
+   * Everything was served with Express's default, which is a `Last-Modified` revalidation —
+   * so a returning shopper made a conditional request for every file including all ~48 product
+   * photos on a shop page. Each is a full round trip to us-east-2 before a 304 comes back.
+   *
+   * `/assets/*` filenames carry a content hash, so they can be immutable for a year: a changed
+   * file gets a new name and a stale one can never be served.
+   *
+   * Product photos are not hashed — a re-import can overwrite a filename in place — so they get
+   * a week rather than a year. Long enough that a repeat visit is free, short enough that a
+   * corrected photo reaches people without a cache-busting scheme this store has no way to run.
+   */
+  app.use(express.static(WEB_DIST, {
+    index: false,
+    setHeaders: (res, filePath) => {
+      const rel = filePath.slice(WEB_DIST.length).replace(/\\/g, "/");
+      if (rel.startsWith("/assets/")) res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+      else if (/^\/(products|hero|category)\//.test(rel)) res.setHeader("Cache-Control", "public, max-age=604800");
+      // index.html is left alone: it must be revalidated or a deploy never reaches anyone.
+    },
+  }));
+
+  /**
+   * The SPA fallback, with a head resolved on the server.
+   *
+   * A client-side app shows one title and one description to any crawler that doesn't run
+   * JavaScript — and WhatsApp's link preview crawler doesn't. Since pasting a product link into
+   * a chat is how products actually get shared here, every share produced the same generic
+   * homepage card with no photo, name or price.
+   *
+   * Also fixes a quieter problem: this route answered 200 for every unknown path, so a
+   * mistyped URL was indexable as a real page. Unknown paths and missing slugs now answer 404
+   * with the app's own not-found screen.
+   */
+  const template = fs.readFileSync(path.join(WEB_DIST, "index.html"), "utf8");
+  app.get("*", asyncH(async (req, res) => {
+    const ctx = await seoContext(req);
+    const meta = await metaForPath(req.path, ctx);
+    const html = injectHead(template, renderHead(meta, ctx.settings.storeName || "TulipGlam"));
+    res.status(meta.status ?? 200).type("html").send(html);
+  }));
 }
 
 app.listen(PORT, () => console.log(`TulipGlam API on http://localhost:${PORT}`));

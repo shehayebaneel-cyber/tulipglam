@@ -17,6 +17,19 @@ const STORE_FIELDS: FieldDef[] = [
   { key: "newArrivalDays", label: "New badge lasts (days)", hint: "Products set to “auto” show New for this long." },
 ];
 
+/**
+ * Sentences on the policy pages that only you can answer.
+ *
+ * Each one used to be hardcoded prose making a promise nobody had agreed to — "most orders
+ * arrive within 2–5 working days" with no courier integration behind it, and a 48-hour returns
+ * deadline out of thin air. While one of these is blank the sentence simply doesn't appear.
+ */
+const POLICY_FIELDS: FieldDef[] = [
+  { key: "deliveryEstimate", label: "How long delivery takes", hint: "A full sentence, shown on the Delivery page. e.g. “Most orders arrive within 3 working days.” Leave blank and the page says we’ll confirm a timeframe on the call." },
+  { key: "returnsWindow", label: "Window to report a problem", hint: "e.g. “48 hours” or “3 days”. Shown on the Returns page. Leave blank and it says “as soon as you notice”." },
+  { key: "siteUrl", label: "Public site address", hint: "e.g. https://tulipglam.com — used for links in emails, the sitemap, and WhatsApp link previews." },
+];
+
 const EMAIL_FIELDS: FieldDef[] = [
   { key: "emailFrom", label: "From address", hint: "e.g. TulipGlam <orders@yourdomain.com>" },
   { key: "smtpHost", label: "SMTP host", hint: "Leave blank to disable email — orders still work over WhatsApp." },
@@ -113,6 +126,15 @@ export function AdminSettings() {
         <div className="space-y-6">
           <Card title="Store">
             <div className="space-y-3">{STORE_FIELDS.map(field)}</div>
+          </Card>
+
+          <Card title="Policy pages">
+            <p className="mb-3 text-[12px] leading-relaxed text-muted-strong">
+              These fill in sentences on the Delivery and Returns pages. Those sentences used to be hardcoded and made
+              promises nobody had agreed to — a 2–5 day delivery window with no courier behind it, and a 48-hour returns
+              deadline. Leave one blank and its sentence simply doesn’t appear.
+            </p>
+            <div className="space-y-3">{POLICY_FIELDS.map(field)}</div>
           </Card>
 
           <Card title="Homepage promo">

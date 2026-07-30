@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { api, type Brand } from "../lib/api";
 import { useFetch } from "../lib/hooks";
 import { Spinner, SearchIcon, CloseIcon } from "../components/ui";
+import { ErrorState } from "../components/ErrorState";
 
 /**
  * Which letter a brand files under.
@@ -19,7 +20,7 @@ function letterOf(name: string): string {
 }
 
 export function Brands() {
-  const { data, loading } = useFetch(() => api.brands(), []);
+  const { data, loading, error, reload } = useFetch(() => api.brands(), []);
   const brands = useMemo(() => data?.brands ?? [], [data]);
 
   const [term, setTerm] = useState("");
@@ -77,6 +78,8 @@ export function Brands() {
 
       {loading ? (
         <div className="grid place-items-center py-24 text-plum"><Spinner /></div>
+      ) : error ? (
+        <div className="mt-8"><ErrorState title="We couldn’t load the brand list" detail={error} onRetry={reload} /></div>
       ) : (
         <>
           {/* 405 brands in an unsearchable grid meant scrolling past four hundred cards to

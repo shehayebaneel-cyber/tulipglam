@@ -304,13 +304,92 @@ until it is deliberately named.
 ---
 
 ## Phase 7 — Cross-cutting
-7.1 Accessibility — **TODO**. Note: the header account/wishlist/bag icons *already had*
+7.1 Accessibility — **FIXED**. Note: the header account/wishlist/bag icons *already had*
     `aria-label`s; the real failures were contrast (above) and keyboard operation of nav,
     filters and carousels.
-7.2 Performance — **TODO**
-7.3 SEO/metadata — **TODO**
-7.4 Error handling — **TODO**
-7.5 Policy pages — **TODO**
+7.2 Performance — **FIXED**.
+- **The whole back office shipped to every shopper.** Twelve admin screens sat in the same
+  bundle as the storefront, so a phone downloaded and parsed all of it before seeing a product.
+  One operator uses admin; thousands of visitors were paying for it. Split out with `lazy()`:
+  **556 KB → 433 KB** (124 KB gzipped), with ~112 KB of admin now loaded only on /admin.
+  Storefront pages stay eager on purpose — they are the critical path.
+- **Everything revalidated on every visit.** Express's default is a `Last-Modified` check, so a
+  returning shopper made a conditional round trip to us-east-2 for each of ~48 product photos
+  before a single 304 came back. `/assets/*` is content-hashed so it is now immutable for a
+  year; product photos get a week, because a re-import can overwrite a filename in place.
+- LCP images (hero, product main) are `fetchPriority="high"`; everything below the fold is
+  lazy. Layout shift was already handled — every image sits in an aspect-ratio box.
+
+- **Placeholder-as-label, everywhere.** Checkout, Account, Gift cards and Login used the
+  placeholder as the only label, so once you had typed, nothing on screen said which box held
+  the phone number — and a screen reader got no reliable name for the control. Checkout is the
+  form an order depends on. Real `<label>`s throughout via `components/Field.tsx`, plus
+  `autocomplete` so a phone can fill the address in one tap.
+- **No skip link.** The header holds a menu button, wordmark, search, account, wishlist, bag and
+  six nav groups with dropdowns, so reaching the products by keyboard meant tabbing through all
+  of it on every page. Added, with `tabIndex={-1}` on `<main>` so focus actually moves rather
+  than the page merely scrolling.
+- Show/hide password reports state with `aria-pressed`, not just a swapped icon.
+
+Still open: the two Google Fonts families are third-party and render-blocking. Self-hosting
+them is a separate task with its own risk (unicode-range subsetting).
+7.3 SEO/metadata — **FIXED**, server-side.
+Client-side meta tags would have been useless for the one channel that matters: **WhatsApp's
+link preview crawler does not run JavaScript**, and pasting a product link into a chat is how
+products actually get shared here. Every share produced the same generic homepage card with no
+photo, name or price.
+
+`server/src/seo.ts` resolves the `<head>` on the server and injects it into the built
+index.html — title, description, canonical, Open Graph, Twitter card, and JSON-LD
+(`Product` + `BreadcrumbList`, `Store` on the homepage).
+
+Details that matter:
+- `availability` is `LimitedAvailability`, never `InStock` — nothing here is stocked, and
+  `InStock` would be a structured-data claim the business cannot make.
+- **No `sku`.** `Product.sku` is the *supplier's* reorder code. My first version published it
+  in JSON-LD, which would have handed a competitor the sourcing list. Caught and removed;
+  there is now a test asserting neither product nor variant SKUs reach any public surface.
+- The catch-all route answered **200 for every unknown path**, so mistyped URLs were indexable
+  as real pages. Unknown paths and missing slugs now answer 404.
+- Cart, checkout, account, login, wishlist and search are `noindex`.
+- `robots.txt` and `sitemap.xml` are generated from live data — **9,587 URLs, 1.5 MB**, inside
+  the 50,000-URL protocol limit, cached 10 minutes.
+
+32 checks in `scripts/test-seo.mjs`. Requires a build: in development Vite serves index.html
+itself and none of the injection runs.
+
+**Needs `siteUrl` set in Settings** — behind Render's proxy the request host is internal.
+Flagged on the Dashboard until then.
+7.4 Error handling — **FIXED**.
+Home, Shop, Brands and the audience pages all destructured `error` from `useFetch` and then
+ignored it, so a 500 or a dropped connection rendered **"Nothing here yet"** — telling a shopper
+the catalogue is empty when nothing had loaded. Same class of problem as the promo that
+advertised a discount that didn't exist: the page states something untrue with confidence.
+
+Added `ErrorState` (what failed, and a retry that actually works — `useFetch` gained `reload`,
+since the only recovery before was a full refresh) and an `ErrorBoundary` around the app so a
+render crash shows a page instead of a blank screen.
+
+The 404 offered exactly one link, home — the least useful destination for someone who arrived
+with something specific in mind. It now seeds a search from the path they tried, since a dead
+product link (stale bookmark, or a slug an import renamed) is the common case.
+7.5 Policy pages — **FIXED**. Four claims the business could not back:
+- *"Orders of $60 or more qualify for free delivery"* — the same hardcoded figure as the
+  announcement bar, duplicating `freeDeliveryThresholdCents`. Now read from it.
+- *"Most orders arrive within 2–5 working days"* — an invented delivery promise. There is no
+  courier integration, no tracking and no SLA behind it, and a customer holding us to it would
+  be right to. Now the `deliveryEstimate` setting; the sentence doesn't appear until someone
+  who knows the answer fills it in.
+- *"everything we carry is 100% genuine, sourced from official brand channels"* — the worst of
+  them. The catalogue comes from three retail suppliers, not from the brands, so this is an
+  authenticity guarantee the store is in no position to give. Replaced with what is true.
+- *"contact us within 48 hours"* — a deadline nobody chose. Now the `returnsWindow` setting.
+
+Also: the privacy page claimed we collect "only name, contact number and delivery address",
+which was incomplete and therefore inaccurate — it now describes what the code actually stores
+(email, a password hash, saved addresses, and the cart/wishlist/token that live in the
+browser), and the gift-card page stops promising email delivery when no mail is configured.
+Every policy page carries a last-updated date.
 7.6 Checkout money math — **FIXED**. `scripts/test-checkout-money.mjs` drives real orders
 through the API and deletes them afterwards. 17 checks: the free-delivery threshold at the
 last qualifying cent below it, exactly on it, and past it (proving the comparison is `>=`,

@@ -5,6 +5,7 @@ import { useStore } from "../lib/store";
 import { useFetch } from "../lib/hooks";
 import { ProductCard } from "../components/ProductCard";
 import { ChevronRight, Spinner } from "../components/ui";
+import { ErrorState } from "../components/ErrorState";
 
 export type AudienceKey = "men" | "women";
 
@@ -37,7 +38,7 @@ export function Audience({ audience }: { audience: AudienceKey }) {
     sort,
     page: page > 1 ? String(page) : undefined,
   }), [audience, department, sort, page]);
-  const { data, loading } = useFetch(() => api.products(query), [JSON.stringify(query)]);
+  const { data, loading, error, reload } = useFetch(() => api.products(query), [JSON.stringify(query)]);
 
   const products = data?.products ?? [];
   const pages = data?.pages ?? 1;
@@ -133,6 +134,8 @@ export function Audience({ audience }: { audience: AudienceKey }) {
           </div>
         ) : loading ? (
           <div className="grid place-items-center py-24 text-plum"><Spinner /></div>
+        ) : error ? (
+          <ErrorState title="We couldn’t load these products" detail={error} onRetry={reload} />
         ) : products.length === 0 ? (
           <div className="grid place-items-center rounded-2xl border border-dashed border-line-strong py-20 text-center">
             <div>

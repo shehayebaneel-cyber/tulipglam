@@ -4,6 +4,7 @@ import { api, usd } from "../lib/api";
 import { useStore } from "../lib/store";
 import { useFetch } from "../lib/hooks";
 import { ProductCard } from "../components/ProductCard";
+import { ErrorState } from "../components/ErrorState";
 import { ButtonLink } from "../components/Button";
 import { CategoryCard } from "../components/CategoryCard";
 import { TulipMark, Stars, ArrowRight, ChevronRight, Spinner } from "../components/ui";
@@ -120,7 +121,7 @@ function Row({ items }: { items: Card[] }) {
 
 export function Home() {
   const { site } = useStore();
-  const { data, loading } = useFetch(() => api.home(), []);
+  const { data, loading, error, reload } = useFetch(() => api.home(), []);
   const categories = site?.categories ?? [];
   const featured = site?.featuredBrands ?? [];
   const promo = data?.promo ?? null;
@@ -176,6 +177,11 @@ export function Home() {
                   src={hero.image}
                   alt=""
                   loading="eager"
+                  // The homepage's Largest Contentful Paint element. Without an explicit
+                  // priority the browser finds it only once the CSS resolves and it queues
+                  // behind the bundle; width/height reserve its box so nothing shifts.
+                  fetchPriority="high"
+                  decoding="sync"
                   width={860}
                   height={640}
                   className="h-[240px] w-full object-cover object-center sm:h-[340px] lg:h-[430px]"
@@ -230,6 +236,14 @@ export function Home() {
       </section>
 
       {loading && <div className="wrap mt-14 grid place-items-center py-10 text-plum"><Spinner /></div>}
+
+      {/* The hero and the category grid come from /api/site and survive this failing; the
+          collections below do not. Saying so beats a homepage that silently ends early. */}
+      {error && (
+        <div className="wrap mt-14">
+          <ErrorState title="We couldn’t load this week’s picks" detail={error} onRetry={reload} compact />
+        </div>
+      )}
 
       {/* ---------------- BEST SELLERS ---------------- */}
       {!!data?.bestSellers.length && (

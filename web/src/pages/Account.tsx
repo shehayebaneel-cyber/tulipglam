@@ -59,7 +59,7 @@ function OrdersTab({ orders, statuses }: { orders: Order[] | null; statuses: { k
           <div className="flex -space-x-3">
             {o.items.slice(0, 3).map((it) => (
               <span key={it.id} className="grid h-11 w-10 place-items-center overflow-hidden rounded-lg border-2 border-surface" style={{ background: it.tint }}>
-                {it.imageUrl ? <img src={it.imageUrl} alt="" className="h-full w-full object-cover" /> : <ProductGlyph kind={it.glyph as never} className="h-full w-full p-1.5 text-plum/45" />}
+                {it.imageUrl ? <img src={it.imageUrl} alt="" loading="lazy" decoding="async" className="h-full w-full object-cover" /> : <ProductGlyph kind={it.glyph as never} className="h-full w-full p-1.5 text-plum/45" />}
               </span>
             ))}
           </div>
@@ -111,11 +111,11 @@ function AddressesTab({ addresses, reload, areas }: { addresses: Address[] | nul
           <div className="relative max-h-[88vh] w-full max-w-md overflow-y-auto rounded-2xl bg-paper p-6 shadow-pop">
             <div className="mb-4 flex items-center justify-between"><h2 className="serif text-xl text-ink">{edit.id ? "Edit address" : "New address"}</h2><button onClick={() => setEdit(null)} className="grid h-8 w-8 place-items-center rounded-full hover:bg-soft"><CloseIcon /></button></div>
             <div className="space-y-3">
-              <input placeholder="Label (Home, Work…)" value={edit.label} onChange={(e) => setEdit({ ...edit, label: e.target.value })} className="field" />
-              <input placeholder="Recipient name" value={edit.fullName} onChange={(e) => setEdit({ ...edit, fullName: e.target.value })} className="field" />
-              <input placeholder="Phone" value={edit.phone} onChange={(e) => setEdit({ ...edit, phone: e.target.value })} className="field" />
+              <input placeholder="Label (Home, Work…)" aria-label="Address label" value={edit.label} onChange={(e) => setEdit({ ...edit, label: e.target.value })} className="field focus-ring" />
+              <input placeholder="Recipient name" aria-label="Recipient name" autoComplete="name" value={edit.fullName} onChange={(e) => setEdit({ ...edit, fullName: e.target.value })} className="field focus-ring" />
+              <input placeholder="Phone" aria-label="Phone" inputMode="tel" autoComplete="tel" value={edit.phone} onChange={(e) => setEdit({ ...edit, phone: e.target.value })} className="field focus-ring" />
               <select value={edit.area} onChange={(e) => setEdit({ ...edit, area: e.target.value })} className="field w-full"><option value="">Select area…</option>{areas.map((a) => <option key={a.id} value={a.name}>{a.name}</option>)}</select>
-              <input placeholder="City / town" value={edit.city} onChange={(e) => setEdit({ ...edit, city: e.target.value })} className="field" />
+              <input placeholder="City / town" aria-label="City or town" autoComplete="address-level2" value={edit.city} onChange={(e) => setEdit({ ...edit, city: e.target.value })} className="field focus-ring" />
               <textarea placeholder="Full address" value={edit.address} onChange={(e) => setEdit({ ...edit, address: e.target.value })} rows={2} className="field resize-none" />
               <label className="flex items-center gap-2 text-[13px]"><input type="checkbox" checked={edit.isDefault} onChange={(e) => setEdit({ ...edit, isDefault: e.target.checked })} className="accent-plum" /> Set as default</label>
               <div className="flex gap-2 pt-1"><Button onClick={save} variant="primary" className="flex-1">Save</Button><Button onClick={() => setEdit(null)} variant="tertiary">Cancel</Button></div>
@@ -138,9 +138,9 @@ function ProfileTab({ onSaved, wishCount }: { onSaved: (c: import("../lib/api").
       <div className="rounded-2xl border border-line bg-surface p-5">
         <h2 className="text-[13px] font-semibold uppercase tracking-wide text-muted">Your details</h2>
         <div className="mt-3 space-y-3">
-          <input placeholder="Full name" value={f.fullName} onChange={(e) => setF((s) => ({ ...s, fullName: e.target.value }))} className="field" />
-          <input placeholder="Phone" value={f.phone} onChange={(e) => setF((s) => ({ ...s, phone: e.target.value }))} className="field" />
-          <input value={customer?.email ?? ""} disabled className="field opacity-60" />
+          <input placeholder="Full name" aria-label="Full name" autoComplete="name" value={f.fullName} onChange={(e) => setF((s) => ({ ...s, fullName: e.target.value }))} className="field focus-ring" />
+          <input placeholder="Phone" aria-label="Phone" inputMode="tel" autoComplete="tel" value={f.phone} onChange={(e) => setF((s) => ({ ...s, phone: e.target.value }))} className="field focus-ring" />
+          <input value={customer?.email ?? ""} disabled aria-label="Email address (cannot be changed)" className="field opacity-60" />
           <Button onClick={save} variant="primary">Save changes</Button>
           {msg && <span className="ml-3 text-[13px] text-ok">{msg}</span>}
         </div>

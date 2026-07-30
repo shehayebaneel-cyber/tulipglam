@@ -247,6 +247,18 @@ export function setupChecks(input: AuditInput): SetupCheck[] {
     out.push({ key: "storeName", label: "Store name", severity: "missing", fix: "/admin/settings", message: "No store name — it appears in emails and page titles." });
   }
 
+  // Without this the server falls back to the request host, which behind Render's proxy is an
+  // internal name. Canonical URLs, sitemap entries, reset links and every WhatsApp link preview
+  // are built from it, so a wrong value is worse than a slow one.
+  const site = val("siteUrl");
+  if (!site) {
+    out.push({ key: "siteUrl", label: "Public site address", severity: "missing", fix: "/admin/settings",
+      message: "No public address set. Links in emails, the sitemap and WhatsApp link previews fall back to whatever host the request arrived on, which behind a proxy is the wrong one." });
+  } else if (!/^https:\/\/[^\s/]+\.[^\s/]+/.test(site)) {
+    out.push({ key: "siteUrl", label: "Public site address", severity: "placeholder", fix: "/admin/settings",
+      message: `“${site}” is not a full https:// address with a domain. Shared links will break.` });
+  }
+
   // A promise on every page of the site that checkout would not keep.
   const claimMismatch = checkFreeDeliveryClaim(val("announcement"), Number(val("freeDeliveryThresholdCents") || "0"));
   if (claimMismatch) {

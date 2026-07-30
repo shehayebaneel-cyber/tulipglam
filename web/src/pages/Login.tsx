@@ -1,8 +1,9 @@
-import { cloneElement, useId, useState } from "react";
+import { useState } from "react";
 import { Button } from "../components/Button";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import { useStore } from "../lib/store";
-import { TulipMark, EyeIcon, EyeOffIcon } from "../components/ui";
+import { TulipMark } from "../components/ui";
+import { Field, PasswordField } from "../components/Field";
 
 /** Matches the server's rule so the requirement is stated before the form is rejected. */
 const MIN_PASSWORD = 6;
@@ -73,62 +74,6 @@ export function Login({ mode }: { mode: "login" | "register" }) {
         </p>
         <p className="mt-2 text-center text-[12px] text-muted">or just <Link to="/shop" className="underline hover:text-plum">continue as a guest</Link></p>
       </div>
-    </div>
-  );
-}
-
-/** Labelled field. The id and description are wired here so no caller can forget them. */
-export function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactElement<React.InputHTMLAttributes<HTMLInputElement>> }) {
-  const id = useId();
-  const hintId = `${id}-hint`;
-  return (
-    <div>
-      <label htmlFor={id} className="mb-1 block text-[12px] font-semibold text-ink">{label}</label>
-      {cloneElement(children, { id, ...(hint ? { "aria-describedby": hintId } : {}) })}
-      {hint && <p id={hintId} className="mt-1 text-[11px] text-muted">{hint}</p>}
-    </div>
-  );
-}
-
-/**
- * Password input with a show/hide toggle.
- *
- * Typing a password blind on a phone keyboard is where most failed sign-ins come from. The
- * button reports its state with `aria-pressed` rather than only swapping an icon, and the
- * input keeps its autocomplete hint so password managers still fill it.
- */
-export function PasswordField({
-  label, hint, value, onChange, autoComplete, minLength,
-}: {
-  label: string;
-  hint?: string;
-  value: string;
-  onChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
-  autoComplete: string;
-  minLength?: number;
-}) {
-  const [shown, setShown] = useState(false);
-  const id = useId();
-  const hintId = `${id}-hint`;
-  return (
-    <div>
-      <label htmlFor={id} className="mb-1 block text-[12px] font-semibold text-ink">{label}</label>
-      <div className="relative">
-        <input
-          id={id} required type={shown ? "text" : "password"} value={value} onChange={onChange}
-          autoComplete={autoComplete} minLength={minLength}
-          aria-describedby={hint ? hintId : undefined}
-          className="field focus-ring w-full pr-11"
-        />
-        <button
-          type="button" onClick={() => setShown((s) => !s)} aria-pressed={shown}
-          aria-label={shown ? "Hide password" : "Show password"}
-          className="focus-ring absolute right-1.5 top-1/2 grid h-8 w-8 -translate-y-1/2 place-items-center rounded-full text-muted hover:text-ink"
-        >
-          {shown ? <EyeOffIcon className="h-[18px] w-[18px]" /> : <EyeIcon className="h-[18px] w-[18px]" />}
-        </button>
-      </div>
-      {hint && <p id={hintId} className="mt-1 text-[11px] text-muted">{hint}</p>}
     </div>
   );
 }

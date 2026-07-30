@@ -66,8 +66,8 @@ export function GiftCards() {
             ))}
           </div>
           <div className="mt-5 grid gap-3">
-            <input placeholder="Recipient's name" value={to} onChange={(e) => setTo(e.target.value)} className="field" />
-            <input placeholder="Your name" value={from} onChange={(e) => setFrom(e.target.value)} className="field" />
+            <input placeholder="Recipient's name" aria-label="Recipient's name" value={to} onChange={(e) => setTo(e.target.value)} className="field focus-ring" />
+            <input placeholder="Your name" aria-label="Your name" autoComplete="name" value={from} onChange={(e) => setFrom(e.target.value)} className="field focus-ring" />
             <textarea placeholder="Add a message (optional)" value={msg} onChange={(e) => setMsg(e.target.value)} rows={3} className="field resize-none" />
           </div>
           {/* Was WhatsApp green (#25D366) — the loudest element on the site and a colour from

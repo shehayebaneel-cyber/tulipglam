@@ -3,6 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { api, usd, waHref, type Address } from "../lib/api";
 import { Button } from "../components/Button";
 import { useStore } from "../lib/store";
+import { Field } from "../components/Field";
 import { ProductGlyph } from "../components/ProductGlyph";
 import { TruckIcon, ChevronDown, WhatsAppIcon, CheckIcon, CloseIcon } from "../components/ui";
 
@@ -116,26 +117,51 @@ export function Checkout() {
           <fieldset>
             <legend className="text-[13px] font-semibold uppercase tracking-[0.14em] text-muted">Contact</legend>
             <div className="mt-3 grid gap-3 sm:grid-cols-2">
-              <input required placeholder="Full name" value={form.fullName} onChange={set("fullName")} className="field sm:col-span-2" />
-              <input required placeholder="Phone number" value={form.phone} onChange={set("phone")} inputMode="tel" className="field" />
-              <input placeholder="WhatsApp (if different)" value={form.whatsapp} onChange={set("whatsapp")} inputMode="tel" className="field" />
-              <input placeholder="Email (optional)" value={form.email} onChange={set("email")} type="email" className="field sm:col-span-2" />
+              <div className="sm:col-span-2">
+                <Field label="Full name">
+                  <input required value={form.fullName} onChange={set("fullName")} autoComplete="name" className="field focus-ring w-full" />
+                </Field>
+              </div>
+              <Field label="Phone number" hint="We confirm every order on this number">
+                <input required value={form.phone} onChange={set("phone")} inputMode="tel" autoComplete="tel" className="field focus-ring w-full" />
+              </Field>
+              <Field label="WhatsApp" hint="Only if it differs from the number above">
+                <input value={form.whatsapp} onChange={set("whatsapp")} inputMode="tel" autoComplete="tel" className="field focus-ring w-full" />
+              </Field>
+              <div className="sm:col-span-2">
+                <Field label="Email" hint="Optional — for an emailed confirmation">
+                  <input value={form.email} onChange={set("email")} type="email" autoComplete="email" className="field focus-ring w-full" />
+                </Field>
+              </div>
             </div>
           </fieldset>
 
           <fieldset>
             <legend className="text-[13px] font-semibold uppercase tracking-[0.14em] text-muted">Delivery</legend>
             <div className="mt-3 grid gap-3 sm:grid-cols-2">
-              <div className="relative sm:col-span-1">
-                <select required value={form.areaId} onChange={set("areaId")} className="field w-full appearance-none pr-9">
-                  <option value="" disabled>Select area…</option>
-                  {areas.map((a) => <option key={a.id} value={a.id}>{a.name} · {a.feeCents === 0 ? "Free" : usd(a.feeCents)}</option>)}
-                </select>
-                <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
+              <div>
+                <label htmlFor="tg-area" className="mb-1 block text-[12px] font-semibold text-ink">Delivery area</label>
+                <div className="relative">
+                  <select id="tg-area" required value={form.areaId} onChange={set("areaId")} className="field focus-ring w-full appearance-none pr-9">
+                    <option value="" disabled>Select area…</option>
+                    {areas.map((a) => <option key={a.id} value={a.id}>{a.name} · {a.feeCents === 0 ? "Free" : usd(a.feeCents)}</option>)}
+                  </select>
+                  <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
+                </div>
               </div>
-              <input placeholder="City / town" value={form.city} onChange={set("city")} className="field" />
-              <textarea required placeholder="Full address — building, street, floor, landmark" value={form.address} onChange={set("address")} rows={3} className="field resize-none sm:col-span-2" />
-              <textarea placeholder="Order notes (optional)" value={form.notes} onChange={set("notes")} rows={2} className="field resize-none sm:col-span-2" />
+              <Field label="City or town">
+                <input value={form.city} onChange={set("city")} autoComplete="address-level2" className="field focus-ring w-full" />
+              </Field>
+              <div className="sm:col-span-2">
+                <Field label="Full address" hint="Building, street, floor and a landmark — this is what the driver reads">
+                  <textarea required value={form.address} onChange={set("address")} rows={3} autoComplete="street-address" className="field focus-ring w-full resize-none" />
+                </Field>
+              </div>
+              <div className="sm:col-span-2">
+                <Field label="Order notes" hint="Optional — anything we should know">
+                  <textarea value={form.notes} onChange={set("notes")} rows={2} className="field focus-ring w-full resize-none" />
+                </Field>
+              </div>
             </div>
           </fieldset>
 
@@ -156,7 +182,7 @@ export function Checkout() {
               {cart.map((l, i) => (
                 <li key={i} className="flex gap-3">
                   <span className="relative grid h-14 w-12 shrink-0 place-items-center overflow-hidden rounded-lg" style={{ background: l.tint }}>
-                    {l.image ? <img src={l.image} alt="" className="h-full w-full object-cover" /> : <ProductGlyph kind={l.glyph} className="h-full w-full p-2 text-plum/45" />}
+                    {l.image ? <img src={l.image} alt="" loading="lazy" decoding="async" className="h-full w-full object-cover" /> : <ProductGlyph kind={l.glyph} className="h-full w-full p-2 text-plum/45" />}
                     <span className="absolute -right-1.5 -top-1.5 grid h-5 min-w-5 place-items-center rounded-full bg-ink px-1 text-[10px] font-bold text-paper">{l.qty}</span>
                   </span>
                   <div className="min-w-0 flex-1">
@@ -177,7 +203,7 @@ export function Checkout() {
                 </div>
               ) : (
                 <div className="flex gap-2">
-                  <input value={couponInput} onChange={(e) => setCouponInput(e.target.value)} placeholder="Coupon code" className="field flex-1 py-2.5 uppercase" />
+                  <input value={couponInput} onChange={(e) => setCouponInput(e.target.value)} placeholder="Coupon code" aria-label="Coupon code" className="field focus-ring flex-1 py-2.5 uppercase" />
                   <button type="button" onClick={applyCoupon} disabled={!couponInput.trim()} className="btn btn-ghost px-4 py-2.5 text-[13px] disabled:opacity-40">Apply</button>
                 </div>
               )}
@@ -193,7 +219,7 @@ export function Checkout() {
                 </div>
               ) : (
                 <div className="flex gap-2">
-                  <input value={giftInput} onChange={(e) => setGiftInput(e.target.value)} placeholder="Gift card code" className="field flex-1 py-2.5 uppercase" />
+                  <input value={giftInput} onChange={(e) => setGiftInput(e.target.value)} placeholder="Gift card code" aria-label="Gift card code" className="field focus-ring flex-1 py-2.5 uppercase" />
                   <button type="button" onClick={applyGift} disabled={!giftInput.trim()} className="btn btn-ghost px-4 py-2.5 text-[13px] disabled:opacity-40">Apply</button>
                 </div>
               )}

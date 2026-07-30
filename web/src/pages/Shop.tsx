@@ -5,6 +5,7 @@ import { api, usd, type Card, type Facets, type SiteData } from "../lib/api";
 import { useStore } from "../lib/store";
 import { useFetch } from "../lib/hooks";
 import { ProductCard } from "../components/ProductCard";
+import { ErrorState } from "../components/ErrorState";
 import { FilterIcon, CloseIcon, ChevronDown, Spinner, ChevronRight, SearchIcon } from "../components/ui";
 
 type Mode = "all" | "category" | "new" | "bestsellers" | "sale" | "search";
@@ -87,7 +88,7 @@ export function Shop({ mode }: { mode: Mode }) {
     facets: "1",
   }), [catParam, brands.join(","), sort, q, mode, attrs.join(","), concerns.join(","), priceMin, priceMax, includeUnavailable, page]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const { data, loading } = useFetch(() => api.products(query), [JSON.stringify(query)]);
+  const { data, loading, error, reload } = useFetch(() => api.products(query), [JSON.stringify(query)]);
   const products = data?.products ?? [];
   const pages = data?.pages ?? 1;
   const facets = data?.facets;
@@ -208,6 +209,10 @@ export function Shop({ mode }: { mode: Mode }) {
         <div className="min-w-0 flex-1">
           {loading ? (
             <div className="grid place-items-center py-24 text-plum"><Spinner /></div>
+          ) : error ? (
+            /* Without this, a failed request rendered "Nothing here yet" — telling a shopper
+               the catalogue is empty when nothing was ever loaded. */
+            <ErrorState title="We couldn’t load these products" detail={error} onRetry={reload} />
           ) : products.length === 0 ? (
             <div className="grid place-items-center rounded-2xl border border-dashed border-line-strong py-20 text-center">
               <div>

@@ -122,6 +122,24 @@ body {
   display: none;
 }
 
+/* Skip link. Off-screen rather than display:none — a hidden element can't take focus, so it
+   would never appear. On focus it drops into the top-left, above the sticky header. */
+.skip-link {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  z-index: 100;
+  border-radius: 0 0 0.75rem 0;
+  background: var(--color-plum);
+  color: #fff;
+  padding: 0.75rem 1.25rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+.skip-link:focus {
+  left: 0;
+}
+
 /* The site header is sticky and its height differs between mobile and desktop (the nav row)
    and with the announcement bar, so Header.tsx measures it and publishes --header-h. Anything
    that has to clear it uses these rather than a hardcoded guess that drifts. */

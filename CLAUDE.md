@@ -338,6 +338,68 @@ ProductVariant on `(productId, sortOrder)`; Order on status and createdAt). Decl
 `schema.prisma` and applied via `db push`; `server/scripts/2026-07-30-admin-indexes.sql` is
 the lock-free `CONCURRENTLY` equivalent for larger tables and is a no-op now.
 
+## Full-site audit (2026-07-30) — read AUDIT.md for the itemised list
+
+Eight phases, all committed. The rules that came out of it and must not be undone:
+
+### Nothing on the storefront may state a fact it cannot check
+This is the through-line. Fixed instances, each of which was live:
+- The promo band advertised deleted brands at a discount that did not exist → `promo.ts`.
+- The announcement bar hardcoded "Free delivery over $60" while the real figure lives in
+  `freeDeliveryThresholdCents` → derived, and `checkFreeDeliveryClaim()` refuses a save where
+  the two disagree.
+- The policy pages promised "2–5 working days" (no courier integration exists) and
+  "sourced from official brand channels" (the catalogue comes from three *retail* suppliers,
+  not the brands) → settings-driven, and the sentence disappears when unset.
+- "Good for" and "Attributes" offered 14 filter options, **all** of which returned zero
+  products → both groups are now server facets over what the catalogue actually holds.
+- Home/Shop/Brands ignored `useFetch`'s error, so a 500 rendered "Nothing here yet" →
+  `ErrorState` with a working retry.
+
+When something can't be verified, build the admin surface that exposes it as missing and
+leave it empty. Never write the value.
+
+### Checkout claims promotions, it does not read-then-write them
+Gift-card balance and coupon `usedCount` are claimed with a **conditional UPDATE** inside the
+same transaction as the order (`balanceCents >= want`, `usedCount < maxUses`). The old
+read-then-write gave away 1000c from a 500c card under two concurrent orders — reproduced.
+A losing claim doesn't fail the order; it goes through at the real price.
+
+### The `<head>` is rendered on the server
+`server/src/seo.ts`. **WhatsApp's link preview crawler does not run JavaScript**, and pasting a
+product link into a chat is how products get shared here — client-side meta tags would have
+been useless for the one channel that matters. Also: the catch-all route used to answer 200 for
+every unknown path, so mistyped URLs were indexable.
+- `availability` is `LimitedAvailability`, never `InStock`.
+- **Never add `sku` to JSON-LD** — `Product.sku` is the supplier's reorder code. `test-seo.mjs`
+  asserts it reaches no public surface.
+- Requires `siteUrl` in Settings; behind Render's proxy the request host is internal.
+
+### `/api/site` publishes an allowlist, not the settings table
+It returned `settings` verbatim. Nothing sensitive was in there only because SMTP had never
+been configured — saving an SMTP password would have published it. `PUBLIC_SETTINGS` fails
+closed: a new setting is private until deliberately named.
+
+### Audience (`/men`, `/women`) is a field, not a department
+A men's fragrance, shaving cream and shampoo sit in three different departments.
+`Product.audience` + `audienceLocked`, where only *changing* the value in admin locks it —
+locking on every save would pin a typo-fix to "unisex" forever. `Brand.audience` is an
+owner-set default the classifier treats as a stated fact. **The pages are live but empty**: the
+classifier is dry-run only and nothing is classified yet, so they say so and the nav links stay
+hidden.
+
+### Admin is code-split out of the storefront bundle
+556 KB → 433 KB. Twelve admin screens were downloaded by every shopper on a phone. Keep
+storefront pages eagerly imported — they are the critical path.
+
+### Tests (all dry-run by default; `--write` creates only its own rows and deletes them)
+```
+node scripts/test-checkout-money.mjs --write   # 17: delivery boundary, coupons, gift cards, races
+node scripts/test-password-reset.mjs --write   # 13: token lifecycle, no account enumeration
+node scripts/test-seo.mjs                      # 32: head, SKU privacy, 404s, robots, sitemap
+```
+`test-seo.mjs` needs `web/dist` — in dev Vite serves index.html and no injection runs.
+
 ## Phase 3 ideas (not started)
 Automated WhatsApp Business API notifications, richer promo/hero management UI (multiple banners),
 per-product New-Arrivals date overrides, product bundles, loyalty/points.

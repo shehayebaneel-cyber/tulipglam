@@ -4,7 +4,7 @@ import { api, waHref, WA_UNSET_HELP, setToken } from "../lib/api";
 import { useStore } from "../lib/store";
 import { Button, ButtonAnchor } from "../components/Button";
 import { TulipMark } from "../components/ui";
-import { Field, PasswordField } from "./Login";
+import { Field, PasswordField } from "../components/Field";
 
 const MIN_PASSWORD = 6;
 

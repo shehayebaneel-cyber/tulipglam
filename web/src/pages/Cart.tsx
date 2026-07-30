@@ -40,7 +40,7 @@ export function Cart() {
               return (
                 <li key={k} className="flex gap-4 p-4">
                   <Link to={`/product/${l.slug}`} className="grid h-24 w-20 shrink-0 place-items-center overflow-hidden rounded-xl" style={{ background: l.tint }}>
-                    {l.image ? <img src={l.image} alt="" className="h-full w-full object-cover" /> : <ProductGlyph kind={l.glyph} className="h-full w-full p-3 text-plum/45" />}
+                    {l.image ? <img src={l.image} alt="" loading="lazy" decoding="async" className="h-full w-full object-cover" /> : <ProductGlyph kind={l.glyph} className="h-full w-full p-3 text-plum/45" />}
                   </Link>
                   <div className="flex min-w-0 flex-1 flex-col">
                     <div className="flex justify-between gap-2">
