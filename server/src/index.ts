@@ -11,9 +11,20 @@ import { sendMail, mailConfigured, orderConfirmationEmail, statusUpdateEmail, pa
 import { DEV_ADMIN_KEY, validateSettings, setupChecks } from "./setup.js";
 import { resolvePromo } from "./promo.js";
 import { metaForPath, renderHead, injectHead, robotsTxt, sitemapXml } from "./seo.js";
+import { COMING_SOON, comingSoonGate, assertComingSoonConfig } from "./comingSoon.js";
 
 const db = new PrismaClient();
 const app = express();
+
+// The coming-soon gate goes first, ahead of CORS and body parsing, so a gated request is
+// answered before anything else in the app runs — no 12 MB body parse, and nothing that could
+// reach Prisma. On Render's free tier the first request after a spin-down already pays ~30s of
+// cold start; the gate must not add to it.
+//
+// Mounted only when it is on, so an ungated request does not even pay for a passthrough.
+assertComingSoonConfig();
+if (COMING_SOON) app.use(comingSoonGate());
+
 app.use(cors());
 app.use(express.json({ limit: "12mb" })); // room for base64 image uploads
 
@@ -1620,10 +1631,26 @@ async function seoContext(req: express.Request) {
 
 app.get("/robots.txt", asyncH(async (req, res) => {
   const { origin } = await seoContext(req);
+  // While gated: crawl the homepage, nothing else. Every other URL serves the identical
+  // placeholder, and inviting a crawler to index thousands of copies of one page is how a
+  // site arrives at launch already carrying a duplicate-content problem.
+  if (COMING_SOON) {
+    return res.type("text/plain").set("Cache-Control", "public, max-age=0, must-revalidate").send(
+      ["User-agent: *", "Allow: /$", "Disallow: /", "", `Sitemap: ${origin}/sitemap.xml`, ""].join("\n"),
+    );
+  }
   res.type("text/plain").send(robotsTxt(origin));
 }));
 
 app.get("/sitemap.xml", asyncH(async (req, res) => {
+  // Same reason: one URL while gated, not the catalogue's 8,488. This is the single most
+  // damaging thing a coming-soon page can get wrong, because the harm outlives the gate.
+  if (COMING_SOON) {
+    const { origin } = await seoContext(req);
+    return res.type("application/xml").set("Cache-Control", "public, max-age=0, must-revalidate").send(
+      `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n  <url>\n    <loc>${origin}/</loc>\n    <priority>1.0</priority>\n  </url>\n</urlset>\n`,
+    );
+  }
   const xml = await sitemapXml(await seoContext(req));
   // Ten minutes. The catalogue changes on an import, not per request, and regenerating ~9,500
   // rows on every crawler hit is pure waste.

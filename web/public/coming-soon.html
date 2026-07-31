@@ -1,0 +1,428 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>TulipGlam — Opening Soon · Premium Beauty, Lebanon</title>
+<meta name="description" content="TulipGlam is opening soon. Premium makeup, skincare, hair and fragrance, delivered across Lebanon. Cash on delivery.">
+<meta name="robots" content="index, follow">
+<meta name="theme-color" content="#FCFCFB">
+<link rel="canonical" href="https://tulipglam.com/">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="TulipGlam">
+<meta property="og:title" content="TulipGlam — Opening Soon">
+<meta property="og:description" content="Premium makeup, skincare, hair and fragrance, delivered across Lebanon. Cash on delivery.">
+<meta property="og:url" content="https://tulipglam.com/">
+<meta name="twitter:card" content="summary">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600&family=Bodoni+Moda:ital,opsz,wght@0,6..96,400;0,6..96,500;1,6..96,400&display=swap" rel="stylesheet">
+
+<style>
+  /* ─────────────────────────────────────────────
+     TulipGlam — coming soon
+     Palette drawn from a broken tulip: plum petal,
+     rose flame, leaf green, porcelain ground.
+     ───────────────────────────────────────────── */
+  :root{
+    --ink:       #1C1520;
+    --porcelain: #FCFCFB;
+    --plum:      #4A1D3F;
+    --flame:     #B4436C;
+    --stem:      #6B7A5E;
+    --haze:      #EBE3E8;
+
+    --display: "Bodoni Moda", "Didot", "Times New Roman", serif;
+    --body:    "Archivo", "Helvetica Neue", Arial, sans-serif;
+  }
+
+  *,*::before,*::after{ box-sizing:border-box; }
+
+  html,body{ margin:0; padding:0; }
+
+  body{
+    background: var(--porcelain);
+    color: var(--ink);
+    font-family: var(--body);
+    font-size: 16px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    min-height: 100svh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* print-margin frame */
+  .frame{
+    position: fixed;
+    inset: 18px;
+    border: 1px solid var(--haze);
+    pointer-events: none;
+    z-index: 2;
+  }
+
+  .grain{
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 3;
+    opacity: .05;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+
+  .stage{
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 64px 34px;
+    position: relative;
+    z-index: 1;
+  }
+
+  .grid{
+    width: 100%;
+    max-width: 940px;
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 30px;
+    justify-items: center;
+    text-align: center;
+  }
+
+  /* ── botanical drawing ── */
+  .botanical{ width: 96px; height: auto; overflow: visible; }
+  .botanical path{
+    fill: none;
+    stroke: var(--plum);
+    stroke-width: 1.5;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    stroke-dasharray: 1;
+    stroke-dashoffset: 1;
+    animation: draw 1.5s cubic-bezier(.65,.02,.35,1) forwards;
+  }
+  .botanical .leaf{ stroke: var(--stem); }
+  .botanical .p1{ animation-delay:.15s; }
+  .botanical .p2{ animation-delay:.32s; }
+  .botanical .p3{ animation-delay:.49s; }
+  .botanical .stalk{ animation-delay:.66s; }
+  .botanical .l1{ animation-delay:.86s; }
+  .botanical .l2{ animation-delay:.98s; }
+  @keyframes draw{ to{ stroke-dashoffset:0; } }
+
+  /* ── type ── */
+  .eyebrow{
+    margin: 0;
+    font-size: 10.5px;
+    font-weight: 500;
+    letter-spacing: .26em;
+    text-transform: uppercase;
+    color: var(--flame);
+  }
+
+  .wordmark{
+    margin: 0;
+    font-family: var(--display);
+    font-weight: 400;
+    font-size: clamp(3rem, 12vw, 5.6rem);
+    line-height: .94;
+    letter-spacing: -.015em;
+    color: var(--plum);
+  }
+
+  .status{
+    margin: 0;
+    font-family: var(--display);
+    font-style: italic;
+    font-weight: 400;
+    font-size: clamp(1.35rem, 4.6vw, 1.9rem);
+    line-height: 1.3;
+    color: var(--ink);
+  }
+
+  .blurb{
+    margin: 0;
+    max-width: 42ch;
+    font-size: 15px;
+    line-height: 1.72;
+    color: #5A4E58;
+  }
+
+  .rule{
+    width: 46px;
+    height: 1px;
+    background: var(--haze);
+    border: 0;
+    margin: 2px 0;
+  }
+
+  /* ── capture ── */
+  .capture{ width:100%; max-width: 380px; }
+
+  .capture-label{
+    display: block;
+    margin: 0 0 12px;
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: .2em;
+    text-transform: uppercase;
+    color: var(--ink);
+  }
+
+  .field-row{ display:flex; flex-direction:column; gap:9px; }
+
+  .field{
+    width: 100%;
+    padding: 13px 15px;
+    font-family: var(--body);
+    font-size: 15px;
+    color: var(--ink);
+    background: transparent;
+    border: 1px solid var(--haze);
+    border-radius: 2px;
+    transition: border-color .18s ease;
+  }
+  .field::placeholder{ color:#A99CA5; }
+  .field:hover{ border-color:#DBCDD6; }
+  .field:focus{ outline:2px solid var(--flame); outline-offset:2px; border-color:transparent; }
+
+  .btn{
+    width: 100%;
+    padding: 13px 20px;
+    font-family: var(--body);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: .18em;
+    text-transform: uppercase;
+    color: var(--porcelain);
+    background: var(--plum);
+    border: 1px solid var(--plum);
+    border-radius: 2px;
+    cursor: pointer;
+    transition: background .18s ease, color .18s ease;
+  }
+  .btn:hover{ background: var(--flame); border-color: var(--flame); }
+  .btn:focus-visible{ outline:2px solid var(--flame); outline-offset:2px; }
+  .btn[disabled]{ opacity:.55; cursor:default; }
+
+  .note{
+    margin: 10px 0 0;
+    font-size: 12.5px;
+    line-height: 1.5;
+    min-height: 1.2em;
+  }
+  .note.error{ color: var(--flame); }
+  .note.done{ color: var(--stem); }
+
+  .whatsapp{
+    display: inline-block;
+    margin-top: 4px;
+    font-size: 13px;
+    color: var(--plum);
+    text-decoration: none;
+    border-bottom: 1px solid var(--haze);
+    padding-bottom: 2px;
+    transition: border-color .18s ease, color .18s ease;
+  }
+  .whatsapp:hover{ color: var(--flame); border-bottom-color: var(--flame); }
+  .whatsapp:focus-visible{ outline:2px solid var(--flame); outline-offset:3px; }
+
+  /* ── footer ── */
+  .foot{
+    position: relative;
+    z-index: 1;
+    padding: 0 34px 40px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+    font-size: 10.5px;
+    letter-spacing: .16em;
+    text-transform: uppercase;
+    color: #9C8F98;
+  }
+  .social{ display:flex; gap:22px; }
+  .social a{
+    color: var(--ink);
+    text-decoration: none;
+    transition: color .18s ease;
+  }
+  .social a:hover{ color: var(--flame); }
+  .social a:focus-visible{ outline:2px solid var(--flame); outline-offset:3px; }
+
+  /* ── entrance ── */
+  .rise{ opacity:0; transform:translateY(14px); animation: rise .85s cubic-bezier(.22,1,.36,1) forwards; }
+  .d1{animation-delay:.55s}.d2{animation-delay:.68s}.d3{animation-delay:.81s}
+  .d4{animation-delay:.94s}.d5{animation-delay:1.07s}.d6{animation-delay:1.2s}
+  @keyframes rise{ to{ opacity:1; transform:none; } }
+
+  /* ── desktop: asymmetric two-column ── */
+  @media (min-width: 760px){
+    .frame{ inset: 26px; }
+    .grid{
+      grid-template-columns: minmax(140px, 260px) 1fr;
+      gap: 0 72px;
+      justify-items: start;
+      text-align: left;
+      align-items: center;
+    }
+    .botanical{ width: 100%; max-width: 210px; grid-row: 1 / span 7; }
+    .rule{ margin: 6px 0; }
+    .capture{ max-width: 400px; }
+    .field-row{ flex-direction: row; }
+    .field{ flex: 1; }
+    .btn{ width: auto; white-space: nowrap; }
+    .foot{
+      flex-direction: row;
+      justify-content: space-between;
+      padding: 0 60px 46px;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce){
+    .botanical path{ stroke-dashoffset:0; animation:none; }
+    .rise{ opacity:1; transform:none; animation:none; }
+    *{ transition-duration: .01ms !important; }
+  }
+</style>
+</head>
+<body>
+
+<div class="frame"></div>
+<div class="grain"></div>
+
+<main class="stage">
+  <div class="grid">
+
+    <svg class="botanical" viewBox="0 0 200 320" aria-hidden="true">
+      <path class="p1" pathLength="1" d="M100,150 C74,148 58,122 58,92 C58,68 68,50 80,42 C88,66 92,108 92,150"/>
+      <path class="p3" pathLength="1" d="M100,150 C126,148 142,122 142,92 C142,68 132,50 120,42 C112,66 108,108 108,150"/>
+      <path class="p2" pathLength="1" d="M100,150 C88,150 84,120 86,88 C88,60 94,44 100,38 C106,44 112,60 114,88 C116,120 112,150 100,150"/>
+      <path class="stalk" pathLength="1" d="M100,150 C100,192 99,244 100,302"/>
+      <path class="leaf l1" pathLength="1" d="M99,196 C74,196 54,220 48,258 C74,256 94,232 99,206"/>
+      <path class="leaf l2" pathLength="1" d="M101,226 C124,226 142,248 146,280 C124,278 106,258 101,236"/>
+    </svg>
+
+    <p class="eyebrow rise d1">Premium beauty · Lebanon</p>
+
+    <h1 class="wordmark rise d2">TulipGlam</h1>
+
+    <p class="status rise d3">Opening soon.</p>
+
+    <p class="blurb rise d3">Makeup, skincare, hair and fragrance — chosen carefully, delivered to your door anywhere in Lebanon. Cash on delivery.</p>
+
+    <hr class="rule rise d4">
+
+    <div class="capture rise d5">
+      <span class="capture-label" id="captureLabel">Be first to shop</span>
+      <div class="field-row">
+        <input class="field" type="email" id="email" inputmode="email" autocomplete="email"
+               placeholder="Email address" aria-labelledby="captureLabel" aria-describedby="note">
+        <button class="btn" id="submit" type="button">Notify me</button>
+      </div>
+      <p class="note" id="note" role="status" aria-live="polite"></p>
+      <a class="whatsapp" id="waLink" href="#">Prefer WhatsApp? Message us →</a>
+      <noscript><p class="note">Message us on WhatsApp to hear when we open.</p></noscript>
+    </div>
+
+  </div>
+</main>
+
+<footer class="foot">
+  <div class="social">
+    <a id="ig" href="#" rel="noopener">Instagram</a>
+    <a id="tt" href="#" rel="noopener">TikTok</a>
+  </div>
+  <div>© <span id="yr"></span> TulipGlam</div>
+</footer>
+
+<script>
+/* ═══════════════════════════════════════════════
+   EDIT THESE FOUR LINES. Nothing else needs changing.
+   ═══════════════════════════════════════════════ */
+const CONFIG = {
+  // Your WhatsApp business number, country code first, digits only.
+  whatsapp: "9613000000",
+
+  instagram: "https://www.instagram.com/tulipglam",
+  tiktok:    "https://www.tiktok.com/@tulipglam",
+
+  // Optional. A URL that accepts POST {"email": "..."}.
+  // Leave as "" and the form will send the signup to your WhatsApp instead.
+  signupEndpoint: ""
+};
+/* ═══════════════════════════════════════════════ */
+
+const el = {
+  email:  document.getElementById('email'),
+  submit: document.getElementById('submit'),
+  note:   document.getElementById('note'),
+  wa:     document.getElementById('waLink'),
+  ig:     document.getElementById('ig'),
+  tt:     document.getElementById('tt')
+};
+
+document.getElementById('yr').textContent = new Date().getFullYear();
+el.ig.href = CONFIG.instagram;
+el.tt.href = CONFIG.tiktok;
+el.wa.href = waUrl("Hi TulipGlam — let me know when you open.");
+
+function waUrl(text){
+  return "https://wa.me/" + CONFIG.whatsapp + "?text=" + encodeURIComponent(text);
+}
+
+function say(message, kind){
+  el.note.textContent = message;
+  el.note.className = "note" + (kind ? " " + kind : "");
+}
+
+function valid(value){
+  return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(value.trim());
+}
+
+function done(){
+  el.email.disabled = true;
+  el.submit.disabled = true;
+  el.submit.textContent = "Added";
+  say("You're on the list. We'll let you know the day we open.", "done");
+}
+
+async function signUp(){
+  const value = el.email.value.trim();
+
+  if (!value)        return say("Enter your email address to join the list.", "error");
+  if (!valid(value)) return say("That email doesn't look right. Check it and try again.", "error");
+
+  say("");
+  el.submit.disabled = true;
+  el.submit.textContent = "Sending";
+
+  if (!CONFIG.signupEndpoint){
+    window.open(waUrl("Hi TulipGlam — add me to the launch list: " + value), "_blank", "noopener");
+    return done();
+  }
+
+  try {
+    const res = await fetch(CONFIG.signupEndpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: value, source: "coming-soon" })
+    });
+    if (!res.ok) throw new Error(res.status);
+    done();
+  } catch (err) {
+    el.submit.disabled = false;
+    el.submit.textContent = "Notify me";
+    say("That didn't go through. Try again, or message us on WhatsApp.", "error");
+  }
+}
+
+el.submit.addEventListener('click', signUp);
+el.email.addEventListener('keydown', e => { if (e.key === 'Enter') signUp(); });
+el.email.addEventListener('input', () => { if (el.note.textContent) say(""); });
+</script>
+
+</body>
+</html>

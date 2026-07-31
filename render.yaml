@@ -27,3 +27,14 @@ services:
         sync: false # admin dashboard password (in server/.env locally)
       - key: JWT_SECRET
         sync: false # customer login token secret
+      # ---- coming-soon gate (see LAUNCH.md) ----
+      # "true" puts the whole site behind web/public/coming-soon.html. Any other value is off.
+      # This is the single switch that launches the store; nothing else changes.
+      - key: COMING_SOON
+        value: "false"
+      # Lets one browser through the gate via /?preview=<key>. Required only while the gate is
+      # on — the server refuses to start with it missing or under 24 characters, because a
+      # guessable key is a public bypass. Generate:
+      #   node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
+      - key: PREVIEW_KEY
+        sync: false
