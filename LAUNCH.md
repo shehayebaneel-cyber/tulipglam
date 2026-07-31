@@ -38,15 +38,20 @@ the server will refuse to start.
 3. **Confirm the placeholder is serving.**
 
    ```bash
-   curl -sI -H 'Accept: text/html' https://tulipglam.com/
+   curl -s  -H 'Accept: text/html' https://tulipglam.com/ | grep -c 'Opening soon'   # 1
+   curl -sI -H 'Accept: text/html' https://tulipglam.com/ | grep -iE 'HTTP|cache-control|vary'
    ```
 
-   Expect `HTTP/1.1 200 OK`, and:
+   The first must print `1`. The second must show a **200**, and these three header values,
+   which do not change:
 
    ```
    Cache-Control: public, max-age=0, must-revalidate
    Vary: Cookie, Accept, Sec-Fetch-Dest
    ```
+
+   Ignore `Content-Length` — it moves whenever the page's CONFIG is edited and means nothing
+   here.
 
    **200 is correct — not a redirect and not 503.** Google should index this page so people
    searching "TulipGlam" find it. If you see `301`, `302` or `Location:`, stop.
@@ -123,12 +128,21 @@ Taking the gate off. Run this when the store is ready to sell.
    ```
 
    `1` means the real shop. `0` means you are still getting the placeholder — the deploy has
-   not finished, so wait and repeat.
+   not finished, so wait and repeat. The reverse also works if you prefer a positive result:
 
-   The quick eyeball version is `curl -sI -H 'Accept: text/html' https://tulipglam.com/` and
-   reading `Content-Length`: exactly **13543** is the coming-soon page. Note the real homepage
-   is *smaller* — around 3 KB — because the shop is rendered in the browser. Do not use "bigger
-   number = real site" as your test.
+   ```bash
+   curl -s -H 'Accept: text/html' https://tulipglam.com/ | grep -c 'Opening soon'   # 0
+   ```
+
+   (`grep -c` exits non-zero when it prints `0`, so your shell may flag it as failed. Read the
+   number, not the exit status — `0` here is the answer you want.)
+
+   > **Do not judge this by response size.** `Content-Length` changes every time the
+   > coming-soon page's CONFIG is edited — adding an Instagram handle changes it — so any
+   > number written down here would be wrong within a month. The real homepage is also
+   > *smaller* than the placeholder, because the shop is rendered in the browser, so "bigger
+   > number = real site" is backwards as well as brittle. Use the `grep` above; it stays true
+   > no matter what either page grows into.
 
 4. **Check the edge cache is not holding the placeholder.**
 
@@ -207,7 +221,7 @@ and save.
 |---|---|
 | The switch | `COMING_SOON` — `true` gates the site, anything else does not |
 | The way in | `https://tulipglam.com/?preview=<PREVIEW_KEY>` · lasts 7 days · `?preview=exit` to leave |
-| The page | `web/public/coming-soon.html` — 13,543 bytes, self-contained |
+| The page | `web/public/coming-soon.html` — one self-contained file, no same-origin assets |
 | Never gated | `/api/health`, `/api/admin/*`, `/api/auth/*`, `/robots.txt`, `/sitemap.xml`, `/favicon.*`, `/.well-known/*` |
 | Verify it all | `cd server && node scripts/test-coming-soon.mjs` — starts its own servers, writes nothing |
 
