@@ -1,0 +1,7 @@
+# The coming-soon page has a byte-for-byte contract: a test asserts it is served exactly as
+# committed, and LAUNCH.md tells you to verify `Content-Length: 13543` at launch. This machine
+# has core.autocrlf=true, so without this line the next checkout would rewrite every LF to CRLF
+# — same page, different bytes, different length, and a runbook that no longer matches reality.
+#
+# `-text` means git never converts line endings for this file on any platform.
+web/public/coming-soon.html -text
