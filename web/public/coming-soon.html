@@ -344,14 +344,14 @@
    ═══════════════════════════════════════════════ */
 const CONFIG = {
   // Your WhatsApp business number, country code first, digits only.
-  whatsapp: "9613000000",
+  whatsapp: "96181643633",
 
-  instagram: "https://www.instagram.com/tulipglam",
-  tiktok:    "https://www.tiktok.com/@tulipglam",
+  instagram: "",
+  tiktok:    "",
 
   // Optional. A URL that accepts POST {"email": "..."}.
   // Leave as "" and the form will send the signup to your WhatsApp instead.
-  signupEndpoint: ""
+  signupEndpoint: "/api/launch-signup"
 };
 /* ═══════════════════════════════════════════════ */
 
@@ -365,8 +365,14 @@ const el = {
 };
 
 document.getElementById('yr').textContent = new Date().getFullYear();
-el.ig.href = CONFIG.instagram;
-el.tt.href = CONFIG.tiktok;
+// A social link with no URL would render as href="" and reload the page when tapped, so an
+// unset handle hides its link rather than showing a dead one. If none are left, the row goes
+// too — there is nothing for it to hold.
+for (const [node, url] of [[el.ig, CONFIG.instagram], [el.tt, CONFIG.tiktok]]) {
+  if (url) node.href = url; else node.remove();
+}
+const socialRow = document.querySelector('.social');
+if (socialRow && !socialRow.querySelector('a')) socialRow.remove();
 el.wa.href = waUrl("Hi TulipGlam — let me know when you open.");
 
 function waUrl(text){
