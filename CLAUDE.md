@@ -24,7 +24,12 @@ before proceeding.
 
 ## Commands
 - Dev: `cd server && npm run dev` + `cd web && npm run dev`
-- Typecheck: `npx tsc --noEmit` in web/ and server/
+- Typecheck: **`npm run typecheck`** in web/ and server/.
+  **In web/, `npx tsc --noEmit` silently checks NOTHING** and exits 0 on a deliberate type
+  error — `web/tsconfig.json` is `"files": []` with project references, so there is no root
+  program to check. It has to be `tsc -b`. (`npm run build` always did the right thing, so
+  builds were never unchecked; only the standalone command was a no-op.) Verified by appending
+  `const x: number = "nope"` and watching it pass.
 - Lint: `npm run lint` in web/ and server/ (ESLint 9 flat config, gated at `--max-warnings 0`)
 - DB: `npx prisma db push`
 

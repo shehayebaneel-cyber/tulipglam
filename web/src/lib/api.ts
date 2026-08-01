@@ -55,9 +55,17 @@ export type SiteData = {
   settings: Record<string, string>;
   /** Two-level tree. `name` is the single source of truth for every label in the UI. */
   categories: (Category & { _count: { products: number }; children: (Category & { _count: { products: number } })[] })[];
-  brands: Brand[];
-  /** Curated in admin, or by catalogue depth — never insertion order. */
+  /**
+   * Curated in admin, or by catalogue depth — never insertion order.
+   *
+   * The FULL brand list is deliberately NOT on this payload. It used to be: all 405 of them,
+   * 73 KB of an 83 KB response, on the first load of every page including a homepage that
+   * shows two. Only the Shop sidebar ever needed the whole list, and it now fetches
+   * `/api/brands` when a customer actually reaches a page that filters by brand.
+   */
   featuredBrands: Brand[];
+  /** Total brands in the catalogue. The list itself is fetched by the Shop page on demand. */
+  brandCount: number;
   areas: Area[]; statuses: StatusMeta[];
   flags: SiteFlags;
   trust: TrustItem[];

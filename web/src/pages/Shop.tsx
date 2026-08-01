@@ -1,7 +1,7 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Button } from "../components/Button";
 import { useParams, useSearchParams, Link } from "react-router-dom";
-import { api, usd, type Card, type Facets, type SiteData } from "../lib/api";
+import { api, usd, type Brand, type Card, type Facets, type SiteData } from "../lib/api";
 import { useStore } from "../lib/store";
 import { useFetch } from "../lib/hooks";
 import { ProductCard } from "../components/ProductCard";
@@ -47,6 +47,34 @@ type FilterState = {
   setP: (key: string, val: string) => void;
   toggleMulti: (key: string, arr: string[], val: string) => void;
 };
+
+/**
+ * The full brand list, fetched only when a page that filters by brand needs it.
+ *
+ * It used to arrive on /api/site — all 405 of them, 73 KB, on the first load of EVERY page
+ * including a homepage that shows two. Now it is fetched here, once per session, by the one
+ * page that has ever needed it.
+ *
+ * Cached at module scope rather than in state: several components on this page want it, a
+ * customer may come back to Shop repeatedly, and the list changes only when the catalogue is
+ * re-imported.
+ */
+let brandCache: Brand[] | null = null;
+let brandPromise: Promise<Brand[]> | null = null;
+
+function useAllBrands(): Brand[] {
+  const [brands, setBrands] = useState<Brand[]>(brandCache ?? []);
+  useEffect(() => {
+    if (brandCache) return;
+    let live = true;
+    brandPromise ??= api.brands().then((r) => { brandCache = r.brands; return r.brands; }).catch(() => []);
+    // A failure here is not worth surfacing: the chips fall back to showing the slug, which is
+    // ugly but correct, and the facet list comes from the server's own facets anyway.
+    brandPromise.then((b) => { if (live) setBrands(b); });
+    return () => { live = false; };
+  }, []);
+  return brands;
+}
 
 export function Shop({ mode }: { mode: Mode }) {
   const { slug } = useParams();
@@ -132,12 +160,14 @@ export function Shop({ mode }: { mode: Mode }) {
     setP(key, [...set].join(","));
   };
 
+  const allBrands = useAllBrands();
+
   // One chip per applied filter, each removable on its own. Before this the only way back
   // was "Clear", which threw away every choice to undo one of them.
   const chips: { key: string; label: string; clear: () => void }[] = [];
   if (mode !== "category" && catParam) chips.push({ key: `c-${catParam}`, label: catBySlug.get(catParam)?.name ?? catParam, clear: () => setP("category", "") });
   for (const b of brands) {
-    const name = site?.brands.find((x) => x.slug === b)?.name ?? b;
+    const name = allBrands.find((x) => x.slug === b)?.name ?? b;
     chips.push({ key: `b-${b}`, label: name, clear: () => toggleMulti("brand", brands, b) });
   }
   for (const c of concerns) chips.push({ key: `k-${c}`, label: label(c), clear: () => toggleMulti("concerns", concerns, c) });
@@ -401,15 +431,16 @@ function CategoryFilter({ fs }: { fs: FilterState }) {
  * before searching never scrolls out of reach.
  */
 function BrandFilter({ fs }: { fs: FilterState }) {
-  const { site, facets, brands, toggleMulti } = fs;
+  const { facets, brands, toggleMulti } = fs;
+  const allBrands = useAllBrands();
   const [term, setTerm] = useState("");
   const [showAll, setShowAll] = useState(false);
   const LIMIT = 8;
 
   // Fall back to the site list before facets land, so the group doesn't pop in.
   const all = useMemo(
-    () => facets?.brands ?? (site?.brands ?? []).map((b) => ({ slug: b.slug, name: b.name, count: b._count?.products ?? 0 })),
-    [facets, site],
+    () => facets?.brands ?? allBrands.map((b) => ({ slug: b.slug, name: b.name, count: b._count?.products ?? 0 })),
+    [facets, allBrands],
   );
   const t = term.trim().toLowerCase();
   const matches = t ? all.filter((b) => b.name.toLowerCase().includes(t)) : all;

@@ -158,6 +158,21 @@ export function Home() {
               <div className="overflow-hidden rounded-[18px] shadow-pop">
                 <img
                   src={hero.image}
+                  /**
+                   * The hero is the homepage's Largest Contentful Paint element — the image
+                   * that decides when the store LOOKS loaded. The full file is 1536px and
+                   * 229 KB, going to phones that show it 390 CSS pixels across.
+                   *
+                   * The sized variants come from server/scripts/resize-hero.mjs. `srcset` is
+                   * built from the base filename rather than configured, so a hero swapped in
+                   * Settings still works — it just gets no variants until the script is run
+                   * for it, which is the safe way round.
+                   */
+                  srcSet={/\.webp$/.test(hero.image)
+                    ? [780, 1200].map((w) => `${hero.image.replace(/\.webp$/, `-${w}.webp`)} ${w}w`).join(", ") + `, ${hero.image} 1536w`
+                    : undefined}
+                  // On phones the image is the full content width; from lg it shares the row.
+                  sizes="(max-width: 1023px) 100vw, 50vw"
                   alt=""
                   loading="eager"
                   // The homepage's Largest Contentful Paint element. Without an explicit

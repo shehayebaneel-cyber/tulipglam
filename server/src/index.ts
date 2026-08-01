@@ -356,10 +356,19 @@ app.get("/api/site", asyncH(async (_req, res) => {
   res.json({
     settings: publicSettings(settings),
     categories,
-    // Sorted on a normalized, locale-aware key. Previously ordered by sortOrder with no name
-    // tiebreak, and 403 brands share sortOrder=50 — so Postgres returned heap order and
-    // "Dr Pawpaw" landed between "Lakme" and "Lazartigue".
-    brands: brands.sort((a, b) => COLLATOR.compare(sortKey(a.name), sortKey(b.name))),
+    /**
+     * NOTE: the full brand list is NOT here.
+     *
+     * It was — all 405 of them, 73 KB of the 83 KB this endpoint returned, on the FIRST LOAD
+     * OF EVERY PAGE including the homepage, which shows two brands. Only the Shop sidebar
+     * ever needed the whole list, and it fetches /api/brands itself when a customer gets
+     * there. Everything else uses `featuredBrands` below.
+     *
+     * This was flagged in CLAUDE.md as survivable. On a Lebanese mobile connection it is 73 KB
+     * of a customer's data allowance spent before they see a product.
+     */
+    /** How many there are, so the Shop sidebar can say so before it fetches the list. */
+    brandCount: brands.length,
     featuredBrands: featuredBrands(brands, num(settings.featuredBrandMinProducts, 8)),
     areas,
     statuses: ORDER_STATUSES,
