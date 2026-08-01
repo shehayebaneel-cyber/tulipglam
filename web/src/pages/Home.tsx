@@ -6,30 +6,13 @@ import { useFetch } from "../lib/hooks";
 import { ProductCard } from "../components/ProductCard";
 import { ErrorState } from "../components/ErrorState";
 import { ButtonLink } from "../components/Button";
-import { CategoryCard } from "../components/CategoryCard";
+import { CategoryList } from "../components/CategoryList";
 import { TulipMark, Stars, ArrowRight, ChevronRight, Spinner } from "../components/ui";
 import type { Card } from "../lib/api";
 
 // Hero image — swap this path to change the photo (files live in web/public/hero/):
 //   hero-tulipglam.webp (blush) · hero-tulipglam-lilac.webp (purple)
 const HERO_IMG = "/hero/hero-tulipglam-lilac.webp";
-
-// Category card photos by slug (files in web/public/category/). Slugs without an
-// entry fall back to the line-art glyph.
-/**
- * Category card photography, by slug.
- *
- * Deliberately empty. The six artwork files in web/public/category/ have the category name
- * AND tagline burned into the image, plus beige/gold/baby-blue/pink backgrounds that are not
- * in the palette. With the label now rendered as DOM text, using them would show every title
- * twice — and baked-in text is unsearchable, unselectable, invisible to screen readers and
- * blurry on retina regardless.
- *
- * Until clean, text-free photography exists, every card uses the glyph placeholder, which is
- * uniform and looks deliberate. Add entries here as real images arrive — the card component
- * needs no change. Tracked in AUDIT.md under BLOCKED.
- */
-const CATEGORY_IMG: Record<string, string> = {};
 
 function SectionHead({ eyebrow, title, to }: { eyebrow: string; title: string; to?: string }) {
   return (
@@ -214,25 +197,18 @@ export function Home() {
         </section>
       )}
 
-      {/* ---------------- SHOP BY CATEGORY ---------------- */}
+      {/* ---------------- SHOP BY CATEGORY ----------------
+          A list, not a card grid — see CategoryList for the whole argument. Sorted by catalogue
+          depth here rather than in the component: with no artwork to draw the eye, position is
+          the only emphasis a list has, so this is a merchandising decision and it belongs on
+          the page that makes it. `sortOrder` still drives the nav, which is a different job. */}
       <section className="wrap mt-14">
         <SectionHead eyebrow="Shop by category" title="Where do you want to glow?" />
-        {/* One card component for every category — see CategoryCard for why the labels are
-            DOM text rather than baked into the artwork. */}
-        <div className="grid grid-cols-2 gap-3.5 sm:grid-cols-3 sm:gap-5">
-          {categories.map((c) => (
-            <CategoryCard
-              key={c.slug}
-              slug={c.slug}
-              name={c.name}
-              blurb={c.blurb}
-              glyph={c.glyph}
-              tint={c.tint}
-              image={CATEGORY_IMG[c.slug]}
-              count={c._count?.products}
-            />
-          ))}
-        </div>
+        <CategoryList
+          categories={[...categories]
+            .sort((a, b) => (b._count?.products ?? 0) - (a._count?.products ?? 0))
+            .map((c) => ({ slug: c.slug, name: c.name, tint: c.tint, count: c._count?.products }))}
+        />
       </section>
 
       {loading && <div className="wrap mt-14 grid place-items-center py-10 text-plum"><Spinner /></div>}

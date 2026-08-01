@@ -243,6 +243,14 @@ in components/ui.tsx). Product photos stubbed with line silhouettes (`ProductGly
 - Admin at `/admin` (key gate): Dashboard, Orders (list+detail+status workflow+WA), Products (list+full editor:
   variants/images/flags), Categories, Brands, Reviews (moderation), Import (Excel), Settings (store + delivery areas).
 - Photos still stubbed with `ProductGlyph` silhouettes until real images uploaded.
+- **Home "Shop by category" is a LIST, not a card grid** (`components/CategoryList.tsx`, Aug 2026).
+  The grid rendered 11 tiles against only 6 glyph kinds, so 8 of 11 were visually identical —
+  `bottle` covered Nails, Hair, Deodorant *and* Kids & Baby. At 390px that was ~1,300px of
+  near-identical placeholder art before any product. The list is ~590px, sorted by catalogue
+  depth (with no artwork, position is the only emphasis), with each department's own `tint` as
+  the dot. **Do not re-add cards using `web/public/category/*`** — those six files have the name
+  and tagline burned into the image over off-palette grounds, which is why `CATEGORY_IMG` was
+  always empty. Real text-free department photography would beat the list; nothing else does.
 
 ## Phase 2 (✅ built & verified July 2026)
 - **Customer accounts** — register/login (bcryptjs + JWT, 60d token in localStorage, `src/auth.ts`).
