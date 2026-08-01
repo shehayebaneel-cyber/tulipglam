@@ -78,11 +78,23 @@ function TrackResult({ number }: { number: string }) {
                 <div className="flex justify-between pt-1 font-semibold text-ink"><dt>Total (COD)</dt><dd className="serif text-base tabular">{usd(order.totalCents)}</dd></div>
               </dl>
             </div>
+            {/* The full address is only sent to the signed-in owner of the order. Anyone else
+                holding the number gets the district — enough to recognise the order, useless to
+                somebody guessing numbers. See the note on GET /api/orders/:number. */}
             <div className="rounded-2xl border border-line bg-surface p-5 text-[13px] text-ink/80">
               <h2 className="text-[13px] font-semibold uppercase tracking-[0.14em] text-muted">Delivery to</h2>
-              <p className="mt-2 font-medium text-ink">{order.fullName}</p>
-              <p>{order.phone}</p>
-              <p className="mt-1">{[order.address, order.city, order.area].filter(Boolean).join(", ")}</p>
+              {order.redacted ? (
+                <>
+                  <p className="mt-2 font-medium text-ink">{[order.city, order.area].filter(Boolean).join(", ") || "Lebanon"}</p>
+                  <p className="mt-1 text-muted">Sign in to see the full delivery details for this order.</p>
+                </>
+              ) : (
+                <>
+                  <p className="mt-2 font-medium text-ink">{order.fullName}</p>
+                  <p>{order.phone}</p>
+                  <p className="mt-1">{[order.address, order.city, order.area].filter(Boolean).join(", ")}</p>
+                </>
+              )}
             </div>
           </aside>
         </div>

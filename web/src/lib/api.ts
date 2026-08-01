@@ -81,11 +81,22 @@ export type Facets = {
 
 export type OrderItem = { id: number; name: string; brandName: string; variantLabel: string; glyph: Glyph; tint: string; imageUrl: string; priceCents: number; qty: number };
 export type OrderEvent = { id: number; status: string; note: string; createdAt: string };
+/**
+ * An order.
+ *
+ * The personal fields are OPTIONAL because `GET /api/orders/:number` only sends them to the
+ * signed-in owner. Anyone else holding the number gets the tracking view — status, timeline,
+ * items, money and district — with `redacted: true`. Order numbers are six hex characters, so
+ * the unredacted version was a harvestable identity for anyone willing to run a loop.
+ */
 export type Order = {
-  id: number; number: string; status: string; fullName: string; phone: string; whatsapp: string; email: string;
-  area: string; city: string; address: string; notes: string;
+  id: number; number: string; status: string;
+  fullName?: string; phone?: string; whatsapp?: string; email?: string; address?: string; notes?: string;
+  area: string; city: string;
   subtotalCents: number; deliveryCents: number; totalCents: number; paymentMethod: string;
   items: OrderItem[]; events: OrderEvent[]; createdAt: string;
+  /** True when the personal fields were withheld. Absent on the owner's own view. */
+  redacted?: boolean;
 };
 
 // ---- customer auth token (stored in localStorage) ----

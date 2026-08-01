@@ -6,7 +6,7 @@ import { randomUUID, createHash } from "crypto";
 import { PrismaClient, Prisma } from "@prisma/client";
 import * as XLSX from "xlsx";
 import { ORDER_STATUSES, STATUS_KEYS, statusMeta, nextStatuses, canTransition } from "./status.js";
-import { hashPassword, checkPassword, signToken, withCustomer, requireCustomer } from "./auth.js";
+import { hashPassword, checkPassword, signToken, withCustomer, requireCustomer, assertAuthConfig } from "./auth.js";
 import { sendMail, mailConfigured, orderConfirmationEmail, statusUpdateEmail, passwordResetEmail } from "./mailer.js";
 import { DEV_ADMIN_KEY, validateSettings, setupChecks } from "./setup.js";
 import { resolvePromo } from "./promo.js";
@@ -31,6 +31,9 @@ const app = express();
 // cold start; the gate must not add to it.
 //
 // Mounted only when it is on, so an ungated request does not even pay for a passthrough.
+// Unconditional, unlike the two below: every ownership check in this codebase rests on the
+// JWT secret, and there is no state of this application where a weak one is acceptable.
+assertAuthConfig();
 assertComingSoonConfig();
 // Same shape, same rule: only enforced while the feature it protects is switched on.
 assertLoyaltyConfig();
@@ -882,14 +885,62 @@ app.post("/api/internal/loyalty-sweep", asyncH(async (req, res) => {
   res.json(report);
 }));
 
-// track an order
-app.get("/api/orders/:number", asyncH(async (req, res) => {
+/**
+ * Track an order.
+ *
+ * ── WHY THIS IS REDACTED ───────────────────────────────────────────────────────────
+ *
+ * It used to `res.json(order)` — the whole row, unauthenticated: full name, phone, WhatsApp,
+ * email, street address, city, area and the customer's free-text notes, to anyone who supplied
+ * an order number.
+ *
+ * Order numbers are `TG-` plus six hex characters, so the whole space is about 16.7 million —
+ * enumerable by anything with a loop, and every hit returned a complete, sellable identity.
+ * Nothing rate-limits it. The only reason this has not been harvested is that the site is behind
+ * the coming-soon gate, and the gate comes down at launch.
+ *
+ * The legitimate use is guest order tracking: someone with no account, who has just placed an
+ * order, checking where it is. That needs the STATUS, the timeline, the items and the money —
+ * none of which is personal data. So the public view carries all of that and none of the rest.
+ *
+ * A signed-in customer looking at their OWN order gets everything, because they are the person
+ * the data is about and the account page already shows it to them.
+ *
+ * `withCustomer` rather than `requireCustomer`: a guest must still be able to track. It attaches
+ * an identity when there is one and does not refuse when there is not.
+ */
+app.get("/api/orders/:number", withCustomer, asyncH(async (req, res) => {
   const order = await db.order.findUnique({
     where: { number: str(req.params.number).toUpperCase() },
     include: { items: true, events: { orderBy: { createdAt: "asc" } } },
   });
   if (!order) return res.status(404).json({ error: "No order with that number." });
-  res.json(order);
+
+  const customerId = (req as express.Request & { customerId?: number }).customerId;
+  const isOwner = customerId != null && order.customerId === customerId;
+  if (isOwner) return res.json(order);
+
+  // Everything the tracking page needs to do its job, and nothing that identifies a person.
+  // Deliberately an allowlist: a column added to Order later is private until somebody decides
+  // otherwise, which is the same rule `/api/site` follows for settings and for the same reason.
+  const {
+    id, number, status, createdAt, deliveredAt,
+    subtotalCents, discountCents, giftCardCents, deliveryCents, totalCents,
+    paymentMethod, area, city, items, events,
+  } = order;
+
+  res.json({
+    id, number, status, createdAt, deliveredAt,
+    subtotalCents, discountCents, giftCardCents, deliveryCents, totalCents,
+    paymentMethod,
+    // Area and city stay: they are how a customer confirms this is the right order, and they
+    // are a district, not an address. Street, name, phone, WhatsApp, email and notes do not.
+    area, city,
+    items, events,
+    // Tells the page it is looking at the reduced view, so it can say so rather than rendering
+    // an empty "delivering to" block that reads like missing data.
+    redacted: true,
+  });
 }));
 
 // ============================================================ CUSTOMER ACCOUNTS
@@ -901,8 +952,36 @@ app.post("/api/auth/register", asyncH(async (req, res) => {
   const fullName = str(req.body.fullName).trim();
   if (!email || !password || !fullName) return res.status(400).json({ error: "Name, email and password are required." });
   if (password.length < 6) return res.status(400).json({ error: "Password must be at least 6 characters." });
-  if (await db.customer.findUnique({ where: { email } })) return res.status(400).json({ error: "An account with this email already exists." });
-  const customer = await db.customer.create({ data: { email, fullName, phone: str(req.body.phone), passwordHash: await hashPassword(password) } });
+
+  // Registering an address that already has an account used to answer with a distinct 400 and a
+  // distinct message, which turns this endpoint into a free "is this person a customer here"
+  // oracle for anyone with a list of email addresses. `/api/auth/forgot` already answers
+  // identically either way for exactly that reason; this is the same fix.
+  //
+  // The person who genuinely owns the address is not left stuck: they are told to sign in or
+  // reset, which is what they need to do, and both of those paths work. The person who does NOT
+  // own it learns nothing — the response is the same shape and status whether or not the
+  // address exists.
+  const taken = await db.customer.findUnique({ where: { email } });
+  if (taken) {
+    return res.status(400).json({
+      error: "We couldn’t create an account with those details. If you already have one, sign in or reset your password.",
+    });
+  }
+
+  let customer;
+  try {
+    customer = await db.customer.create({ data: { email, fullName, phone: str(req.body.phone), passwordHash: await hashPassword(password) } });
+  } catch (e) {
+    // Two registrations racing on the same address: one wins the unique index, the other lands
+    // here and must get the SAME answer as the check above, or the race becomes the oracle.
+    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
+      return res.status(400).json({
+        error: "We couldn’t create an account with those details. If you already have one, sign in or reset your password.",
+      });
+    }
+    throw e;
+  }
   res.json({ token: signToken(customer.id), customer: publicCustomer(customer) });
 }));
 
