@@ -445,6 +445,53 @@ const BIRTHDAY_REASON = "Birthday bonus";
 // ───────────────────────────────────────────────────────────────── voiding & reversing
 
 /**
+ * Re-price a still-pending earn after the order's merchandise value changed.
+ *
+ * Removing an unsourceable line recomputes subtotal, delivery, coupon and gift card on the
+ * server. The earn was recorded at placement against the original basket, so without this the
+ * customer earns on goods they never received.
+ *
+ * Only touches `pending` rows, and only downward-or-upward on BASE points — the multiplier
+ * stamped at placement is untouched, because the rate they were promised has not changed, only
+ * the amount they are buying. A confirmed earn is out of scope: it means the goods were
+ * delivered and kept, and changing it is a reversal with a reason attached.
+ */
+export async function repricePendingEarn(
+  db: Db,
+  orderId: number,
+  merchandiseCents: number,
+): Promise<{ repriced: boolean; basePoints: number }> {
+  const basePoints = basePointsFor(merchandiseCents);
+  const existing = await db.loyaltyLedgerEntry.findFirst({
+    where: { orderId, type: "earn", status: "pending" },
+    select: { id: true, points: true, multiplierApplied: true },
+  });
+  if (!existing || existing.points === basePoints) return { repriced: false, basePoints };
+
+  const multiplier = existing.multiplierApplied === null ? 1 : Number(existing.multiplierApplied);
+  const promised = applyMultiplier(basePoints, multiplier);
+
+  if (basePoints <= 0) {
+    // The order is now worth no points at all. Void rather than leaving a zero-point row, so the
+    // ledger reads as "this earns nothing" rather than "this earns, but nothing".
+    await db.loyaltyLedgerEntry.updateMany({
+      where: { id: existing.id, status: "pending" },
+      data: { status: "void", reason: "Order value fell to nothing after an item was removed" },
+    });
+    return { repriced: true, basePoints: 0 };
+  }
+
+  await db.loyaltyLedgerEntry.updateMany({
+    where: { id: existing.id, status: "pending" }, // conditional: never re-price a confirmed earn
+    data: {
+      points: basePoints,
+      reason: `Order earns ${promised} points once delivered (re-priced after an item was removed)`,
+    },
+  });
+  return { repriced: true, basePoints };
+}
+
+/**
  * Kill the pending earn on an order that will never be paid for.
  *
  * Only touches `pending` rows. An earn that already confirmed is money the customer can
@@ -598,11 +645,65 @@ export async function redeem(
     now?: Date;
   },
 ): Promise<{ points: number; cents: number }> {
-  const now = input.now ?? new Date();
-
   if (!isMoney(input.merchandiseCents)) {
     throw new LoyaltyError("Basket total is not a whole number of cents.", "bad-input");
   }
+
+  // Serialisable transactions abort under conflict, and the sweep touching the same account is
+  // enough to cause one. Retry the REDEMPTION, never the sweep: the sweep is idempotent and
+  // rerunnable by design and nobody is waiting on it, whereas there is a customer at checkout
+  // watching this. Bounded so it cannot spin, and jittered so two tabs that collided once do
+  // not collide again in lockstep.
+  let lastConflict: unknown = null;
+  for (let attempt = 0; attempt < REDEEM_ATTEMPTS; attempt++) {
+    try {
+      return await redeemOnce(db, input);
+    } catch (e) {
+      if (!isSerialisationFailure(e)) throw e; // a real refusal — do not paper over it
+      lastConflict = e;
+      const backoff = 25 * 2 ** attempt + Math.floor(Math.random() * 50);
+      await new Promise((r) => setTimeout(r, backoff));
+    }
+  }
+
+  // Out of attempts. A clean, actionable refusal — NOT a 500. The customer did nothing wrong and
+  // "try again" is genuinely the right advice, because the next attempt almost certainly wins.
+  console.error(`[loyalty] redeem gave up after ${REDEEM_ATTEMPTS} serialisation conflicts:`, lastConflict);
+  throw new LoyaltyError("Your points could not be applied just now. Please try again.", "busy");
+}
+
+/** Attempts before giving up. Three is enough that losing all of them means something is wrong. */
+const REDEEM_ATTEMPTS = 3;
+
+/**
+ * Postgres serialisation failure (SQLSTATE 40001) or deadlock (40P01), as Prisma reports them.
+ *
+ * P2034 is Prisma's own "write conflict or deadlock" code. The raw SQLSTATE is checked too
+ * because it arrives that way through some driver paths, and a conflict misread as a real error
+ * would be shown to the customer as a permanent failure when a retry would have worked.
+ */
+function isSerialisationFailure(e: unknown): boolean {
+  if (e instanceof Prisma.PrismaClientKnownRequestError) {
+    if (e.code === "P2034") return true;
+    const meta = e.meta as { code?: string } | undefined;
+    if (meta?.code === "40001" || meta?.code === "40P01") return true;
+  }
+  const message = e instanceof Error ? e.message : String(e);
+  return /40001|40P01|could not serialize|deadlock detected/i.test(message);
+}
+
+async function redeemOnce(
+  db: PrismaClient,
+  input: {
+    accountId: number;
+    orderId: number;
+    requestedPoints: number;
+    merchandiseCents: number;
+    signedIn: boolean;
+    now?: Date;
+  },
+): Promise<{ points: number; cents: number }> {
+  const now = input.now ?? new Date();
 
   return db.$transaction(
     async (tx) => {

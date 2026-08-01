@@ -11,7 +11,15 @@ import { sendMail, mailConfigured, orderConfirmationEmail, statusUpdateEmail, pa
 import { DEV_ADMIN_KEY, validateSettings, setupChecks } from "./setup.js";
 import { resolvePromo } from "./promo.js";
 import { metaForPath, renderHead, injectHead, robotsTxt, sitemapXml } from "./seo.js";
-import { COMING_SOON, comingSoonGate, assertComingSoonConfig } from "./comingSoon.js";
+import { COMING_SOON, comingSoonGate, assertComingSoonConfig, sameSecret, sendGateNotFound } from "./comingSoon.js";
+import {
+  safely, onOrderPlaced, onOrderStatusChanged,
+  assertLoyaltyConfig, LOYALTY_SWEEP_SECRET,
+} from "./loyalty/hooks.js";
+import { LOYALTY_ENABLED } from "./loyalty/config.js";
+import { repricePendingEarn } from "./loyalty/ledger.js";
+import { merchandiseCentsOf } from "./loyalty/rules.js";
+import { runSweep } from "./loyalty/sweep.js";
 
 const db = new PrismaClient();
 const app = express();
@@ -23,6 +31,8 @@ const app = express();
 //
 // Mounted only when it is on, so an ungated request does not even pay for a passthrough.
 assertComingSoonConfig();
+// Same shape, same rule: only enforced while the feature it protects is switched on.
+assertLoyaltyConfig();
 if (COMING_SOON) app.use(comingSoonGate());
 
 app.use(cors());
@@ -734,10 +744,53 @@ app.post("/api/orders", withCustomer, asyncH(async (req, res) => {
 
   const { order, discount, giftUsed, total } = result;
 
+  // Loyalty runs AFTER the transaction has committed, and its failure is swallowed by `safely`.
+  // Both halves of that matter: inside the transaction a ledger error would roll the order back,
+  // and unwrapped it would turn a points problem into a lost sale. A missing entry is recovered
+  // by the sweep or by hand; an abandoned checkout is not recoverable at all.
+  await safely(`earn for order ${order.number}`, () => onOrderPlaced(db, order));
+
   // fire-and-forget confirmation email (no-op unless SMTP configured)
   if (order.email) sendMail(settings, order.email, `Order ${order.number} received`, orderConfirmationEmail(settings.storeName ?? "TulipGlam", fullName, order.number, "$" + (total / 100).toFixed(2)));
 
   res.json({ number: order.number, totalCents: total, subtotalCents: subtotal, discountCents: discount, giftCardCents: giftUsed, deliveryCents: delivery, whatsappNumber: settings.whatsappNumber ?? "" });
+}));
+
+// ============================================================ INTERNAL (shared secret)
+
+/**
+ * Make the stored ledger rows agree with what the rules already say.
+ *
+ *     curl -X POST https://tulipglam.com/api/internal/loyalty-sweep \
+ *          -H "x-loyalty-sweep-key: $LOYALTY_SWEEP_SECRET"
+ *
+ * Nothing customer-facing depends on this having run — balances, tiers and expiry are all
+ * derived at read time. It writes them down so admin queries, exports and a dispute a year from
+ * now read rows rather than derivations. Point any uptime pinger at it; missing a day costs
+ * nothing.
+ *
+ * ── WHY EVERY FAILURE IS A BARE 404 ────────────────────────────────────────────────
+ *
+ * Wrong key, missing key, feature switched off: all identical, and byte-identical to the reply
+ * the coming-soon gate gives a path that does not exist (`sendGateNotFound`, one implementation,
+ * shared). A 401 would confirm the endpoint is real and worth attacking. There is no message, no
+ * timing difference worth measuring — the comparison hashes both sides first — and nothing to
+ * distinguish a near-miss from a wild guess.
+ *
+ * `x-loyalty-sweep-key` is a header, not a query parameter, so the secret does not end up in
+ * access logs, `Referer` headers or a browser history.
+ */
+app.post("/api/internal/loyalty-sweep", asyncH(async (req, res) => {
+  const offered = str(req.headers["x-loyalty-sweep-key"]);
+  // The secret is guaranteed non-empty when the flag is on (`assertLoyaltyConfig` refuses to
+  // boot otherwise), so this cannot degrade into comparing "" with "".
+  if (!LOYALTY_ENABLED || !LOYALTY_SWEEP_SECRET || !sameSecret(offered, LOYALTY_SWEEP_SECRET)) {
+    return sendGateNotFound(res);
+  }
+
+  const report = await runSweep(db);
+  res.setHeader("Cache-Control", "no-store");
+  res.json(report);
 }));
 
 // track an order
@@ -1281,6 +1334,11 @@ admin.put("/orders/:id/status", asyncH(async (req, res) => {
       events: { create: { status, note } },
     },
   });
+  // Stamps deliveredAt on delivery, voids the pending earn and refunds points on a terminal
+  // status. Swallowed on failure — an admin must never be blocked from moving an order because
+  // the ledger is unhappy.
+  await safely(`status hook for order ${order.number}`, () => onOrderStatusChanged(db, { orderId: order.id, to: status }));
+
   if (order.email) {
     const settings = await getSettings();
     sendMail(settings, order.email, `Order ${order.number}: ${statusMeta(status).label}`, statusUpdateEmail(settings.storeName ?? "TulipGlam", order.fullName, order.number, statusMeta(status).label, note));
@@ -1335,6 +1393,7 @@ admin.post("/orders/:id/resolve", asyncH(async (req, res) => {
   if (action === "cancel") {
     await db.order.update({ where: { id }, data: { status: "cancelled", ...clear,
       events: { create: { status: "cancelled", note: note || "Customer cancelled after an item could not be sourced." } } } });
+    await safely(`cancel hook for order ${id}`, () => onOrderStatusChanged(db, { orderId: id, to: "cancelled" }));
     return res.json({ ok: true });
   }
 
@@ -1374,6 +1433,10 @@ admin.post("/orders/:id/resolve", asyncH(async (req, res) => {
         },
       }),
     ]);
+    // The basket shrank, so the pending earn is now for goods the customer is not getting.
+    // Re-priced from the same figure the money was recomputed from, not from a second sum.
+    await safely(`reprice earn for order ${id}`, () =>
+      repricePendingEarn(db, id, merchandiseCentsOf({ subtotalCents: subtotal, discountCents: discount, pointsDiscountCents: order.pointsDiscountCents })));
     return res.json({ ok: true });
   }
 

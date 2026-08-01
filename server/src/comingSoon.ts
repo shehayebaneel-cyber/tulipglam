@@ -65,6 +65,11 @@ const ALLOW_PREFIX = [
   // preview cookie, because /assets/* is gated — these two cover API access.
   "/api/admin/",
   "/api/auth/",
+  // Machine-to-machine endpoints with their own shared-secret auth. They must work while gated:
+  // the loyalty sweep is the thing that keeps the ledger's stored rows in step, and it is
+  // pointless if it only runs after launch. Each handler under here authenticates itself and
+  // answers `sendGateNotFound` on a bad secret, so being allowlisted reveals nothing.
+  "/api/internal/",
 ];
 
 // ---------------------------------------------------------------- page
@@ -119,11 +124,37 @@ export function assetsReferencedBy(html: string): string[] {
  * check leaks the length. Hashing both sides first makes them always 32 bytes, so the
  * comparison is genuinely constant-time for any input.
  */
-function sameSecret(a: string, b: string): boolean {
+export function sameSecret(a: string, b: string): boolean {
   const ha = createHash("sha256").update(a, "utf8").digest();
   const hb = createHash("sha256").update(b, "utf8").digest();
   return timingSafeEqual(ha, hb);
 }
+
+/**
+ * The gate's own reply to a non-document request it will not serve: bare 404, nothing cacheable.
+ *
+ * Exported so an allowlisted endpoint can be BYTE-IDENTICAL to it when its secret is wrong or
+ * missing. An endpoint that answers 401 to a bad key, or answers anything at all differently
+ * from a path that does not exist, advertises that it exists and is worth attacking. There is
+ * one implementation of this response so the two cannot drift apart.
+ */
+export function sendGateNotFound(res: Parameters<RequestHandler>[1]): void {
+  res.status(404);
+  res.setHeader("Cache-Control", "no-store");
+  res.setHeader("Vary", VARY);
+  res.end();
+}
+
+/**
+ * Headers whose value changes the body. Getting this wrong means a shared cache hands the wrong
+ * variant to the wrong person:
+ *
+ *   Cookie          — or one previewer's real page gets handed to every customer.
+ *   Accept          — or the bare 404 meant for a script request gets served to a browser
+ *                     asking for HTML, which shows a broken site while the gate is on.
+ *   Sec-Fetch-Dest  — same reason as Accept; it is the header actually consulted first.
+ */
+const VARY = "Cookie, Accept, Sec-Fetch-Dest";
 
 /** The cookie carries a hash of the key, never the key itself. */
 const derive = (key: string) => createHash("sha256").update(key, "utf8").digest("hex");
@@ -229,17 +260,6 @@ export function comingSoonGate(): RequestHandler {
 
   const allowed = (p: string) => allowExact.has(p) || ALLOW_PREFIX.some((prefix) => p.startsWith(prefix));
 
-  /**
-   * Everything this gate branches on. A shared cache that ignores any one of these can serve
-   * the wrong variant to the wrong person:
-   *
-   *   Cookie          — or one previewer's real page gets handed to every customer.
-   *   Accept          — or the bare 404 meant for a script request gets served to a browser
-   *                     asking for HTML, which shows a broken site while the gate is on.
-   *   Sec-Fetch-Dest  — same reason as Accept; it is the header actually consulted first.
-   */
-  const VARY = "Cookie, Accept, Sec-Fetch-Dest";
-
   /** The placeholder, in place, at whatever URL was asked for. */
   const servePage = (res: Parameters<RequestHandler>[1]) => {
     res.status(200);
@@ -290,13 +310,12 @@ export function comingSoonGate(): RequestHandler {
     // ---- gated ----------------------------------------------------------------
     if (isDocumentRequest(req)) return servePage(res);
 
-    // Not a document. A bare 404 that nothing will cache — see the header comment for why
-    // this must not be the HTML. `Vary` is belt-and-braces on top of `no-store`: an
-    // intermediary that ignores the first directive should still not hand this to a browser
-    // that asked for a page.
-    res.status(404);
-    res.setHeader("Cache-Control", "no-store");
-    res.setHeader("Vary", VARY);
-    return res.end();
+    // Not a document. A bare 404 that nothing will cache — see the header comment for why this
+    // must not be the HTML. `Vary` is belt-and-braces on top of `no-store`: an intermediary that
+    // ignores the first directive should still not hand this to a browser that asked for a page.
+    //
+    // Shared with the allowlisted internal endpoints, so a wrong shared secret is
+    // indistinguishable from a path that simply does not exist.
+    return sendGateNotFound(res);
   };
 }
