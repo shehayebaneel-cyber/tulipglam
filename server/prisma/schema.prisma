@@ -57,15 +57,15 @@ model Brand {
 
 // ------------------------------------------------------------------ catalogue
 model Product {
-  id          Int      @id @default(autoincrement())
-  slug        String   @unique
-  name        String
-  sku         String   @default("") // supplier reference, for re-ordering (not shown to customers)
+  id     Int    @id @default(autoincrement())
+  slug   String @unique
+  name   String
+  sku    String @default("") // supplier reference, for re-ordering (not shown to customers)
   // Which supplier import owns this row: "dali" | "beesline" | "feel22" | "" (manual).
   // Each importer deletes and rebuilds only its own source. Brand is NOT a safe scope —
   // Feel22 is a retailer that carries Beesline as a vendor, so both imports would
   // otherwise claim the same brand's products and delete each other's work.
-  source      String   @default("")
+  source String @default("")
 
   // Who the product is for: "unisex" | "men" | "women".
   //
@@ -76,23 +76,25 @@ model Product {
   // Defaults to unisex so nothing is mis-claimed before the classifier has been reviewed.
   // Importers must never overwrite a value set by hand (see audienceLocked).
   audience       String  @default("unisex")
-  /** Set when a human chose the audience. Importers and the classifier must leave these alone. */
+  /**
+   * Set when a human chose the audience. Importers and the classifier must leave these alone.
+   */
   audienceLocked Boolean @default(false)
-  status      String   @default("active") // active|hidden|unavailable|discontinued
-  priceCents  Int // display/base price in USD cents
-  saleCents   Int? // if set (< priceCents) product is on sale
-  shortDesc   String   @default("")
-  description String   @default("")
-  howToUse    String   @default("")
-  ingredients String   @default("")
+  status         String  @default("active") // active|hidden|unavailable|discontinued
+  priceCents     Int // display/base price in USD cents
+  saleCents      Int? // if set (< priceCents) product is on sale
+  shortDesc      String  @default("")
+  description    String  @default("")
+  howToUse       String  @default("")
+  ingredients    String  @default("")
 
   // merchandising
-  glyph       String  @default("bottle") // fallback silhouette when no photo
-  tint        String  @default("#f5e9f0") // image-bed background
+  glyph        String  @default("bottle") // fallback silhouette when no photo
+  tint         String  @default("#f5e9f0") // image-bed background
   isBestSeller Boolean @default(false)
-  isNewMode   String  @default("auto") // auto|always|never (New badge, like mundo)
-  concerns    String  @default("") // comma tags: hydration,acne,brightening...
-  attributes  String  @default("") // comma tags: vegan,clean,cruelty-free,mini,refillable
+  isNewMode    String  @default("auto") // auto|always|never (New badge, like mundo)
+  concerns     String  @default("") // comma tags: hydration,acne,brightening...
+  attributes   String  @default("") // comma tags: vegan,clean,cruelty-free,mini,refillable
 
   categoryId Int
   category   Category @relation(fields: [categoryId], references: [id])
@@ -101,9 +103,9 @@ model Product {
 
   videoUrl String @default("") // optional product video (self-hosted mp4)
 
-  images   ProductImage[]
-  variants ProductVariant[]
-  reviews  Review[]
+  images     ProductImage[]
+  variants   ProductVariant[]
+  reviews    Review[]
   orderItems OrderItem[]
 
   createdAt DateTime @default(now())
@@ -153,45 +155,45 @@ model ProductVariant {
 }
 
 model Review {
-  id         Int      @id @default(autoincrement())
-  productId  Int
-  product    Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
-  author     String
-  rating     Int      @default(5)
-  title      String   @default("")
-  text       String
-  approved   Boolean  @default(true)
-  createdAt  DateTime @default(now())
+  id        Int      @id @default(autoincrement())
+  productId Int
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  author    String
+  rating    Int      @default(5)
+  title     String   @default("")
+  text      String
+  approved  Boolean  @default(true)
+  createdAt DateTime @default(now())
 }
 
 // ------------------------------------------------------------------ customers
 model Customer {
-  id           Int       @id @default(autoincrement())
-  email        String    @unique
+  id           Int             @id @default(autoincrement())
+  email        String          @unique
   passwordHash String
   fullName     String
-  phone        String    @default("")
-  createdAt    DateTime  @default(now())
+  phone        String          @default("")
+  createdAt    DateTime        @default(now())
   addresses    Address[]
   orders       Order[]
   resets       PasswordReset[]
+  loyalty      LoyaltyAccount?
 }
 
 /**
  * A single-use password-reset ticket.
- *
  * Only the SHA-256 of the token is stored: a leaked database must not hand out working reset
  * links. `usedAt` is set instead of deleting the row, so a second click on the same link can
  * be told it has already been used rather than looking indistinguishable from an expired one.
  */
 model PasswordReset {
-  id         Int      @id @default(autoincrement())
+  id         Int       @id @default(autoincrement())
   customerId Int
-  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
-  tokenHash  String   @unique
+  customer   Customer  @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  tokenHash  String    @unique
   expiresAt  DateTime
   usedAt     DateTime?
-  createdAt  DateTime @default(now())
+  createdAt  DateTime  @default(now())
 
   @@index([customerId])
   @@index([expiresAt])
@@ -212,30 +214,30 @@ model Address {
 
 // ------------------------------------------------------------------ orders
 model Order {
-  id          Int      @id @default(autoincrement())
-  number      String   @unique // TG-XXXXXX, shown to customer
-  status      String   @default("received")
+  id            Int       @id @default(autoincrement())
+  number        String    @unique // TG-XXXXXX, shown to customer
+  status        String    @default("received")
   // customer
-  customerId  Int?
-  customer    Customer? @relation(fields: [customerId], references: [id])
-  fullName    String
-  phone       String
-  whatsapp    String   @default("")
-  email       String   @default("")
+  customerId    Int?
+  customer      Customer? @relation(fields: [customerId], references: [id])
+  fullName      String
+  phone         String
+  whatsapp      String    @default("")
+  email         String    @default("")
   // delivery
-  area        String   @default("") // Lebanon governorate/area
-  city        String   @default("")
-  address     String   @default("")
-  notes       String   @default("")
+  area          String    @default("") // Lebanon governorate/area
+  city          String    @default("")
+  address       String    @default("")
+  notes         String    @default("")
   // money (USD cents)
   subtotalCents Int
-  discountCents Int    @default(0)
-  giftCardCents Int    @default(0)
-  couponCode    String @default("")
-  giftCardCode  String @default("")
-  deliveryCents Int    @default(0)
+  discountCents Int       @default(0)
+  giftCardCents Int       @default(0)
+  couponCode    String    @default("")
+  giftCardCode  String    @default("")
+  deliveryCents Int       @default(0)
   totalCents    Int
-  paymentMethod String @default("cod")
+  paymentMethod String    @default("cod")
 
   // `awaiting_customer` is the pivotal state in a source-to-order business: we could not
   // source something and are waiting on the shopper. These record which line is blocked,
@@ -245,27 +247,49 @@ model Order {
   awaitingNote   String    @default("")
   awaitingSince  DateTime?
 
-  items       OrderItem[]
-  events      OrderEvent[]
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  /// When this order first reached `delivered`. Set once, at the status change.
+  ///
+  /// Loyalty needs "delivered more than 7 days ago" on every balance read, and without this
+  /// column the only source is MIN(OrderEvent.createdAt) over a table with no indexes at all —
+  /// a scan per read. Worse, `canTransition` allows from === to and the status endpoint writes
+  /// an event unconditionally, so an admin re-saving "Delivered" adds a SECOND delivered event;
+  /// taking the wrong row silently pushes the maturity window back.
+  ///
+  /// Written only when moving INTO `delivered` and never overwritten, so it survives re-saves.
+  deliveredAt DateTime?
+
+  /// The part of the discount that came from redeemed loyalty points, in cents.
+  ///
+  /// Deliberately NOT folded into `discountCents`, which belongs to coupons. A reversal has to
+  /// know which portion of a discount was points in order to give the right number back, and a
+  /// shared field makes that unanswerable the first time a coupon and a redemption touch the
+  /// same order. That combination is disallowed — so if both are ever non-zero, that is a bug
+  /// worth being able to see rather than one silently averaged away.
+  pointsDiscountCents Int @default(0)
+
+  items          OrderItem[]
+  events         OrderEvent[]
+  loyaltyEntries LoyaltyLedgerEntry[]
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
 
   @@index([status])
   @@index([createdAt])
+  @@index([deliveredAt])
 }
 
 // ------------------------------------------------------------------ promotions
 model Coupon {
-  id           Int      @id @default(autoincrement())
-  code         String   @unique
-  type         String   @default("percent") // percent|fixed
-  value        Int      @default(0) // percent (0-100) or fixed USD cents
-  minOrderCents Int     @default(0)
-  maxUses      Int?     // null = unlimited
-  usedCount    Int      @default(0)
-  expiresAt    DateTime?
-  active       Boolean  @default(true)
-  createdAt    DateTime @default(now())
+  id            Int       @id @default(autoincrement())
+  code          String    @unique
+  type          String    @default("percent") // percent|fixed
+  value         Int       @default(0) // percent (0-100) or fixed USD cents
+  minOrderCents Int       @default(0)
+  maxUses       Int? // null = unlimited
+  usedCount     Int       @default(0)
+  expiresAt     DateTime?
+  active        Boolean   @default(true)
+  createdAt     DateTime  @default(now())
 }
 
 model GiftCard {
@@ -281,20 +305,20 @@ model GiftCard {
 }
 
 model OrderItem {
-  id          Int     @id @default(autoincrement())
-  orderId     Int
-  order       Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  productId   Int?
-  product     Product? @relation(fields: [productId], references: [id])
+  id           Int      @id @default(autoincrement())
+  orderId      Int
+  order        Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId    Int?
+  product      Product? @relation(fields: [productId], references: [id])
   // snapshot so the order is stable even if the product later changes
-  name        String
-  brandName   String  @default("")
-  variantLabel String @default("")
-  glyph       String  @default("bottle")
-  tint        String  @default("#f5e9f0")
-  imageUrl    String  @default("")
-  priceCents  Int
-  qty         Int     @default(1)
+  name         String
+  brandName    String   @default("")
+  variantLabel String   @default("")
+  glyph        String   @default("bottle")
+  tint         String   @default("#f5e9f0")
+  imageUrl     String   @default("")
+  priceCents   Int
+  qty          Int      @default(1)
 }
 
 model OrderEvent {
@@ -319,4 +343,118 @@ model DeliveryArea {
   feeCents  Int     @default(300)
   active    Boolean @default(true)
   sortOrder Int     @default(0)
+}
+
+// ════════════════════════════════════════════════════════════════════════════════════
+//  LOYALTY — "TulipGlam Rewards"
+//
+//  Two tables, both additive. Nothing existing changes shape.
+//
+//  The ledger is APPEND-ONLY. A balance is the sum of its entries and is never written
+//  directly; `LoyaltyAccount.balanceCached` is a cache that may lag, never the truth. This is
+//  what makes a customer dispute answerable a year later and any bug reconstructable.
+//
+//  Statuses and types are Strings, not Prisma enums, matching the rest of this schema — order
+//  and product statuses are Strings too, validated in application code (see src/status.ts).
+//  Introducing enums for one model would split the convention in half.
+// ════════════════════════════════════════════════════════════════════════════════════
+
+model LoyaltyAccount {
+  id Int @id @default(autoincrement())
+
+  /// The canonical key: a Lebanese number in E.164, e.g. "+96181643633".
+  ///
+  /// Phone rather than email because this is cash on delivery in Lebanon — the phone is the one
+  /// field every order already carries, it is how delivery is coordinated, and a meaningful
+  /// share of checkout emails are fake. Only ever written through normaliseLebanesePhone()
+  /// (src/loyalty/phone.ts); writing a raw string here is what splits one human into two
+  /// accounts.
+  phoneE164 String @unique
+
+  /// Set when the account is linked to a login. Nullable because a COD customer can earn points
+  /// without ever creating one. Unique so two accounts cannot claim the same login.
+  customerId Int?      @unique
+  customer   Customer? @relation(fields: [customerId], references: [id])
+
+  /// Notifications only. Never an identity key — see phoneE164.
+  email String @default("")
+
+  /// Reserved. v1 requires a signed-in customer to redeem instead of a one-time code, because
+  /// there is no SMS provider and SMTP is unconfigured, so no code could actually be delivered.
+  /// Kept so adding SMS later does not need a migration.
+  phoneVerifiedAt DateTime?
+
+  /// MONTH ONLY, 1-12. Deliberately not a full date of birth — the birthday bonus needs to know
+  /// when, not how old, and storing less is the whole point.
+  birthMonth Int?
+
+  /// "petal" | "bloom" | "bouquet". Derived from trailing-12-month confirmed spend and cached
+  /// here; the ledger remains the source of truth.
+  tier         String   @default("petal")
+  /// A tier is held 12 months from this moment. Demotion happens only at that anniversary.
+  tierEarnedAt DateTime @default(now())
+
+  /// Sum of confirmed, unexpired entries. A cache. Recomputed opportunistically on read.
+  balanceCached Int @default(0)
+
+  entries   LoyaltyLedgerEntry[]
+  createdAt DateTime             @default(now())
+  updatedAt DateTime             @updatedAt
+
+  @@index([tier])
+}
+
+model LoyaltyLedgerEntry {
+  id        Int            @id @default(autoincrement())
+  accountId Int
+  account   LoyaltyAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  orderId Int?
+  order   Order? @relation(fields: [orderId], references: [id])
+
+  /// Idempotency guard: at most one `earn` entry per order, enforced by Postgres.
+  ///
+  /// Set to the order id on `earn` entries and left NULL on every other type. Postgres treats
+  /// NULLs as distinct in a unique index, so the constraint binds only where it should — a
+  /// replayed status change or a double-submit hits a unique violation instead of granting
+  /// twice, while reversals and manual adjustments on the same order stay unrestricted.
+  ///
+  /// This duplicates `orderId` because Prisma cannot express a partial index
+  /// (`... WHERE type = 'earn'`) in the schema, and an index created by hand in SQL would be
+  /// dropped by the next `prisma db push`. The redundancy is the price of a guard that survives.
+  earnOrderId Int? @unique
+
+  /// earn | redeem | reversal | redemptionReversal | expiry | manualAdjustment
+  type   String
+  /// pending | confirmed | void
+  ///
+  /// A CACHE, not the truth. Spendability is computed at read time from the order's delivery
+  /// date, because Render's free tier sleeps and no scheduled job can be relied on to have run.
+  /// This column is materialised opportunistically so the data converges without a scheduler.
+  status String @default("pending")
+
+  /// SIGNED. Earning is positive, redemption and expiry negative. A balance may legitimately go
+  /// negative after a reversal and must NOT be clamped: clamping would let someone redeem,
+  /// return the goods, and keep the discount.
+  points Int
+
+  /// The tier multiplier in force when this entry was created, recorded so history stays
+  /// explainable. Points earned at Petal are never retroactively re-multiplied.
+  multiplierApplied Decimal @default(1.0) @db.Decimal(4, 2)
+
+  /// Human-readable why. Mandatory for manual adjustments.
+  reason    String @default("")
+  /// Who made a manual adjustment. Admin auth is a single shared key with no per-admin identity,
+  /// so today this can only record that someone holding that key did it.
+  createdBy String @default("")
+
+  confirmedAt DateTime?
+  /// Confirmed points expire 12 months after the last account activity; any earn or redeem
+  /// resets the clock. An `expiry` entry is always written — points never vanish silently.
+  expiresAt   DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@index([accountId, status])
+  @@index([accountId, expiresAt])
+  @@index([orderId])
 }

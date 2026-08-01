@@ -13,6 +13,14 @@ export const ORDER_STATUSES = [
   { key: "completed", label: "Completed", hint: "Order complete. Thank you!", tone: "good" },
   { key: "on_hold", label: "On Hold", hint: "Temporarily paused — we'll be in touch.", tone: "warn" },
   { key: "cancelled", label: "Cancelled", hint: "This order was cancelled.", tone: "bad", terminal: true },
+  // Distinct from `cancelled` on purpose. Refused means the courier turned up and the customer
+  // declined at the door — the one COD failure the shopper caused. `cancelled` covers every
+  // other way an order ends early, and `unavailable` means we could not source it.
+  //
+  // Worth separating regardless of loyalty: it is the only way to see how often people refuse
+  // deliveries. Loyalty then uses it for the three-strikes flag, which would be meaningless if
+  // a refusal looked identical to the shop cancelling its own order.
+  { key: "refused", label: "Refused at Door", hint: "Delivery was attempted and declined.", tone: "bad", terminal: true },
   { key: "unavailable", label: "Unavailable", hint: "Items could not be sourced. We've contacted you.", tone: "bad", terminal: true },
 ] as const;
 
@@ -32,11 +40,17 @@ const TRANSITIONS: Record<string, readonly string[]> = {
   sourcing: ["packed", "awaiting_customer", "on_hold", "cancelled", "unavailable"],
   packed: ["dispatched", "on_hold", "cancelled"],
   dispatched: ["out_for_delivery", "on_hold", "cancelled"],
-  out_for_delivery: ["delivered", "on_hold", "cancelled"],
+  // `refused` is only reachable from a delivery attempt. You cannot refuse a parcel that was
+  // never brought to your door, and allowing it from anywhere else would let it be used as a
+  // synonym for `cancelled`, which is exactly the distinction it exists to preserve.
+  out_for_delivery: ["delivered", "refused", "on_hold", "cancelled"],
   delivered: ["completed"],
   completed: [],
   on_hold: ["confirming", "awaiting_customer", "confirmed", "sourcing", "cancelled", "unavailable"],
   cancelled: [],
+  // Terminal, like the other two bad endings. A re-attempt is a new order rather than a
+  // resurrection — the same rule that stops an order climbing out of `cancelled`.
+  refused: [],
   unavailable: [],
 };
 
