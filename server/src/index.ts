@@ -10,6 +10,7 @@ import { hashPassword, checkPassword, signToken, withCustomer, requireCustomer, 
 import { rateLimit, LIMITS } from "./rateLimit.js";
 import { recordSignup, launchListStats, launchListCsv } from "./launchList.js";
 import { manifest, dispatchLine, courierMessage } from "./dispatch.js";
+import { queueMail, flushOutbox, outboxStatus } from "./outbox.js";
 import { sendMail, mailConfigured, orderConfirmationEmail, statusUpdateEmail, passwordResetEmail } from "./mailer.js";
 import { DEV_ADMIN_KEY, validateSettings, setupChecks } from "./setup.js";
 import { resolvePromo } from "./promo.js";
@@ -880,7 +881,19 @@ app.post("/api/orders", withCustomer, asyncH(async (req, res) => {
   await safely(`earn for order ${order.number}`, () => onOrderPlaced(db, order));
 
   // fire-and-forget confirmation email (no-op unless SMTP configured)
-  if (order.email) sendMail(settings, order.email, `Order ${order.number} received`, orderConfirmationEmail(settings.storeName ?? "TulipGlam", fullName, order.number, "$" + (total / 100).toFixed(2)));
+  // Queued, not sent-and-forgotten. With SMTP unconfigured this used to log and drop, so
+  // every confirmation the store ever meant to send was simply gone. Now it waits — and
+  // expires after three days, because a confirmation arriving after the parcel is noise.
+  // Wrapped: a mail failure must never affect an order that has already been placed.
+  if (order.email) {
+    void queueMail(db, settings, {
+      to: order.email,
+      subject: `Order ${order.number} received`,
+      html: orderConfirmationEmail(settings.storeName ?? "TulipGlam", fullName, order.number, "$" + (total / 100).toFixed(2)),
+      kind: "order-confirmation",
+      dedupeKey: `order-confirmation:${order.id}`,
+    }).catch(() => { /* the outbox row is the record; nothing here may break checkout */ });
+  }
 
   res.json({ number: order.number, totalCents: total, subtotalCents: subtotal, discountCents: discount, giftCardCents: giftUsed, pointsDiscountCents: pointsDiscount, pointsSpent, deliveryCents: delivery, freeDeliveryReason, whatsappNumber: settings.whatsappNumber ?? "" });
 }));
@@ -1716,7 +1729,14 @@ admin.put("/orders/:id/status", asyncH(async (req, res) => {
 
   if (order.email) {
     const settings = await getSettings();
-    sendMail(settings, order.email, `Order ${order.number}: ${statusMeta(status).label}`, statusUpdateEmail(settings.storeName ?? "TulipGlam", order.fullName, order.number, statusMeta(status).label, note));
+    void queueMail(db, settings, {
+      to: order.email,
+      subject: `Order ${order.number}: ${statusMeta(status).label}`,
+      html: statusUpdateEmail(settings.storeName ?? "TulipGlam", order.fullName, order.number, statusMeta(status).label, note),
+      kind: "status-update",
+      // One per (order, status): a re-saved status must not mail the customer twice.
+      dedupeKey: `status:${order.id}:${status}`,
+    }).catch(() => {});
   }
   res.json({ ok: true, status: order.status });
 }));
@@ -1962,6 +1982,21 @@ admin.put("/gift-cards/:id", asyncH(async (req, res) => {
   res.json({ ok: true });
 }));
 admin.delete("/gift-cards/:id", asyncH(async (req, res) => { await db.giftCard.delete({ where: { id: num(req.params.id) } }); res.json({ ok: true }); }));
+
+// ---- email outbox ----
+//
+// SMTP is unconfigured. Everything the store intends to send is recorded rather than dropped,
+// so the day credentials are pasted in there is a backlog to flush rather than a silent gap.
+
+admin.get("/outbox", asyncH(async (_req, res) => {
+  res.setHeader("Cache-Control", "no-store");
+  res.json(await outboxStatus(db, await getSettings()));
+}));
+
+/** Send what is waiting. No-op, and says so, while SMTP is unconfigured. */
+admin.post("/outbox/flush", asyncH(async (_req, res) => {
+  res.json(await flushOutbox(db, await getSettings()));
+}));
 
 // ---- dispatch ----
 //

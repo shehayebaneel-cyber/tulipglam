@@ -166,6 +166,47 @@ model Review {
   createdAt DateTime @default(now())
 }
 
+/// An email the store intended to send.
+///
+/// SMTP is unconfigured, and the mailer's previous behaviour was to log "not-configured" and
+/// drop the message. That is graceful but lossy: every order confirmation, every status update
+/// and every welcome since launch is simply gone. This table is where they wait instead.
+///
+/// ── NOT EVERY MESSAGE SHOULD BE SENT LATE ──────────────────────────────────────────
+///
+/// An order confirmation arriving three weeks after the parcel is worse than never arriving —
+/// it reads as a system that has just woken up and is not to be trusted with your address. A
+/// password reset arriving after its token expired is actively confusing. So each row carries
+/// its own `expiresAt`, and the flush skips anything past it. The launch announcement is the
+/// one kind with no expiry: it is explicitly a "send when ready" message.
+model OutboxEmail {
+  id Int @id @default(autoincrement())
+
+  to      String
+  subject String
+  /// The rendered message. Stored whole so a send months later does not depend on the template
+  /// still existing, or on the order it described still looking the same.
+  html    String
+
+  /// order-confirmation | status-update | welcome | points-confirmed | password-reset | launch
+  kind String
+
+  /// After this, the message is stale and will never be sent. Null means it never goes stale.
+  expiresAt DateTime?
+
+  sentAt    DateTime?
+  attempts  Int      @default(0)
+  lastError String   @default("")
+
+  /// Stops the same message being queued twice by a retried request or a replayed hook.
+  dedupeKey String? @unique
+
+  createdAt DateTime @default(now())
+
+  @@index([sentAt, expiresAt])
+  @@index([kind])
+}
+
 /// Somebody who left their email on the coming-soon page.
 ///
 /// Not a Customer: they have no account, no password and no orders — they are an audience, and
