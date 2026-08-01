@@ -13,13 +13,13 @@ import { resolvePromo } from "./promo.js";
 import { metaForPath, renderHead, injectHead, robotsTxt, sitemapXml } from "./seo.js";
 import { COMING_SOON, comingSoonGate, assertComingSoonConfig, sameSecret, sendGateNotFound } from "./comingSoon.js";
 import {
-  safely, onOrderPlaced, onOrderStatusChanged,
+  safely, onOrderPlaced, onOrderStatusChanged, tierDeliveryCents,
   assertLoyaltyConfig, LOYALTY_SWEEP_SECRET,
 } from "./loyalty/hooks.js";
 import { LOYALTY_ENABLED } from "./loyalty/config.js";
 import { repricePendingEarn, readAccount } from "./loyalty/ledger.js";
 import { merchandiseCentsOf } from "./loyalty/rules.js";
-import { buildView, emptyView, HISTORY_LIMIT } from "./loyalty/present.js";
+import { buildView, emptyView, HISTORY_FETCH } from "./loyalty/present.js";
 import { runSweep } from "./loyalty/sweep.js";
 
 const db = new PrismaClient();
@@ -670,6 +670,22 @@ app.post("/api/orders", withCustomer, asyncH(async (req, res) => {
   let delivery = areaRow?.feeCents ?? num(settings.defaultDeliveryCents, 300);
   if (subtotal >= threshold) delivery = 0;
 
+  // The tier delivery perk. Two independent reasons delivery might be cheap — the global
+  // threshold above, and the customer's tier — so they compose as the LOWER of the two, never
+  // as a sum. `freeDeliveryReason` is what the checkout line says; a perk the customer cannot
+  // see they received is invisible marketing.
+  //
+  // Wrapped in `safely`: if the tier lookup throws, times out or the database is slow, delivery
+  // falls back to the global rule and checkout completes. A loyalty bug must never break
+  // pricing, and it must certainly never lose a sale. Same rule as the earn hook.
+  let freeDeliveryReason = subtotal >= threshold && delivery === 0 ? "threshold" : "";
+  const perk = await safely("tier delivery perk", () =>
+    tierDeliveryCents(db, { phone, whatsapp: str(b.whatsapp || b.phone), merchandiseCents: subtotal }));
+  if (perk && perk.cents < delivery) {
+    delivery = perk.cents;
+    freeDeliveryReason = `tier:${perk.tier}`;
+  }
+
   // A coupon's remaining uses and a gift card's balance are shared, finite resources, so both
   // are *claimed* rather than read-then-written, and the order is written in the same
   // transaction as the claim.
@@ -759,7 +775,7 @@ app.post("/api/orders", withCustomer, asyncH(async (req, res) => {
   // fire-and-forget confirmation email (no-op unless SMTP configured)
   if (order.email) sendMail(settings, order.email, `Order ${order.number} received`, orderConfirmationEmail(settings.storeName ?? "TulipGlam", fullName, order.number, "$" + (total / 100).toFixed(2)));
 
-  res.json({ number: order.number, totalCents: total, subtotalCents: subtotal, discountCents: discount, giftCardCents: giftUsed, deliveryCents: delivery, whatsappNumber: settings.whatsappNumber ?? "" });
+  res.json({ number: order.number, totalCents: total, subtotalCents: subtotal, discountCents: discount, giftCardCents: giftUsed, deliveryCents: delivery, freeDeliveryReason, whatsappNumber: settings.whatsappNumber ?? "" });
 }));
 
 // ============================================================ LOYALTY (customer-facing)
@@ -791,6 +807,13 @@ app.post("/api/orders", withCustomer, asyncH(async (req, res) => {
 app.get("/api/loyalty/me", requireCustomer, asyncH(async (req, res) => {
   if (!LOYALTY_ENABLED) return res.status(404).json({ error: "Not found." });
 
+  // Set before ANY response leaves this handler. It used to be set only on the populated path,
+  // 26 lines below an early return, so the empty view answered with no freshness directive and a
+  // weak ETag while the populated one answered no-store. That difference is itself a signal:
+  // "has an account" became observable from the response headers, which is exactly what the
+  // byte-identical empty body was there to prevent.
+  res.setHeader("Cache-Control", "no-store");
+
   const customerId = (req as express.Request & { customerId?: number }).customerId!;
   const account = await db.loyaltyAccount.findUnique({ where: { customerId } });
 
@@ -817,18 +840,24 @@ app.get("/api/loyalty/me", requireCustomer, asyncH(async (req, res) => {
   const now = new Date();
   const { state } = await readAccount(db, account.id, now);
 
-  const entries = await db.loyaltyLedgerEntry.findMany({
-    where: { accountId: account.id },
-    orderBy: { createdAt: "desc" },
-    // Bounded at the query, not after: an account with years of history must not pull every row
-    // into memory to show forty of them.
-    take: HISTORY_LIMIT + 1,
-    select: {
-      id: true, type: true, status: true, points: true, orderId: true,
-      createdAt: true, confirmedAt: true, multiplierApplied: true,
-      reason: true, dedupeKey: true,
-    },
-  });
+  const [entries, totalEntries] = await Promise.all([
+    db.loyaltyLedgerEntry.findMany({
+      where: { accountId: account.id },
+      orderBy: { createdAt: "desc" },
+      // Bounded at the query, not after: an account with years of history must not pull every
+      // row into memory to show forty. Over-fetched because the display order is not the
+      // indexable order — see HISTORY_FETCH.
+      take: HISTORY_FETCH,
+      select: {
+        id: true, type: true, status: true, points: true, orderId: true,
+        createdAt: true, confirmedAt: true, multiplierApplied: true,
+        reason: true, dedupeKey: true,
+      },
+    }),
+    // Exact, so "showing your most recent activity" is true when it is shown and absent when it
+    // is not. Counting the window instead made a voided row hide the rest of the history.
+    db.loyaltyLedgerEntry.count({ where: { accountId: account.id, status: { not: "void" } } }),
+  ]);
 
   const orderIds = [...new Set(entries.map((e) => e.orderId).filter((v): v is number => v !== null))];
   const orderRows = orderIds.length
@@ -844,6 +873,7 @@ app.get("/api/loyalty/me", requireCustomer, asyncH(async (req, res) => {
     entries: entries.map((e) => ({ ...e, multiplierApplied: e.multiplierApplied === null ? 1 : Number(e.multiplierApplied) })) as never,
     orders,
     orderNumbers,
+    totalEntries,
     now,
   }));
 }));

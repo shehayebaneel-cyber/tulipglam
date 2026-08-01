@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { api, usd, waHref, type Address } from "../lib/api";
+import { api, usd, waHref, type Address, type Rewards } from "../lib/api";
 import { Button } from "../components/Button";
 import { useStore } from "../lib/store";
 import { Field } from "../components/Field";
@@ -13,6 +13,18 @@ export function Checkout() {
   const areas = site?.areas ?? [];
   const threshold = Number(site?.settings.freeDeliveryThresholdCents ?? 6000);
   const defaultFee = Number(site?.settings.defaultDeliveryCents ?? 300);
+
+  // The customer's OWN rewards payload, only when signed in and the programme is on. This is
+  // not a lookup that can be pointed at anybody else — it takes no argument at all.
+  const [rewards, setRewards] = useState<Rewards | null>(null);
+  useEffect(() => {
+    if (!customer || !site?.flags.loyalty) { setRewards(null); return; }
+    let live = true;
+    // A failure here must not affect checkout: the delivery line falls back to the store-wide
+    // rule, which is what a guest sees, and the server prices the order either way.
+    api.rewards().then((r) => { if (live) setRewards(r); }).catch(() => { /* pricing is the server's job */ });
+    return () => { live = false; };
+  }, [customer, site?.flags.loyalty]);
 
   const [form, setForm] = useState({ fullName: "", phone: "", whatsapp: "", email: "", areaId: "", city: "", address: "", notes: "" });
   const [addresses, setAddresses] = useState<Address[]>([]);
@@ -47,7 +59,15 @@ export function Checkout() {
   };
 
   const area = areas.find((a) => String(a.id) === form.areaId);
-  const freeShip = cartSubtotal >= threshold;
+  // Two independent reasons delivery can be free: the store-wide threshold, and the customer's
+  // loyalty tier. They never stack — the server takes the lower fee of the two and this mirrors
+  // that. `tierFreeShip` is only ever known for a SIGNED-IN customer reading their own rewards
+  // payload; a guest who happens to qualify by phone gets it applied at the server without
+  // seeing it here first, which is a pleasant surprise rather than a broken promise.
+  const tierFreeOver = rewards?.tier.freeDeliveryOverCents ?? null;
+  const tierFreeShip = tierFreeOver !== null && cartSubtotal >= tierFreeOver;
+  const thresholdFreeShip = cartSubtotal >= threshold;
+  const freeShip = thresholdFreeShip || tierFreeShip;
   const delivery = freeShip ? 0 : area?.feeCents ?? defaultFee;
   const discount = coupon?.discountCents ?? 0;
   const beforeGift = cartSubtotal - discount + delivery;
@@ -229,7 +249,19 @@ export function Checkout() {
             <dl className="mt-4 space-y-2 border-t border-line pt-4 text-[14px]">
               <div className="flex justify-between"><dt className="text-muted">Subtotal</dt><dd className="tabular">{usd(cartSubtotal)}</dd></div>
               {discount > 0 && <div className="flex justify-between text-plum"><dt>Discount</dt><dd className="tabular">−{usd(discount)}</dd></div>}
-              <div className="flex justify-between"><dt className="text-muted">Delivery{!area && !freeShip ? " (est.)" : ""}</dt><dd className="tabular">{freeShip ? <span className="text-ok">Free</span> : usd(delivery)}</dd></div>
+              <div className="flex justify-between">
+                <dt className="text-muted">
+                  Delivery{!area && !freeShip ? " (est.)" : ""}
+                  {/* Say WHY when the tier did it. A perk the customer cannot see they received
+                      is invisible, and an invisible perk is not a reason to reach the next tier.
+                      Only when the tier is the reason — if the store-wide threshold already made
+                      it free, the tier changed nothing and claiming credit would be a lie. */}
+                  {tierFreeShip && !thresholdFreeShip && rewards && (
+                    <span className="ml-1.5 text-[12px] font-semibold text-plum">{rewards.tier.label} perk</span>
+                  )}
+                </dt>
+                <dd className="tabular">{freeShip ? <span className="text-ok">Free</span> : usd(delivery)}</dd>
+              </div>
               {giftUsed > 0 && <div className="flex justify-between text-plum"><dt>Gift card</dt><dd className="tabular">−{usd(giftUsed)}</dd></div>}
             </dl>
             <div className="mt-3 flex items-baseline justify-between border-t border-line pt-3">

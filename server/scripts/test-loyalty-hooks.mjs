@@ -315,6 +315,52 @@ try {
       ck("  ...and its points are untouched", untouched.points === after.points, String(untouched.points));
     }
 
+    section("The tier free-delivery perk is real, not just printed on the page:");
+    {
+      const ledger = await import("../src/loyalty/ledger.ts");
+      const { tierDeliveryCents } = await import("../src/loyalty/hooks.ts");
+
+      const phone = nextPhone();
+      const acct = await ledger.getOrCreateAccount(db, phone);
+      made.accounts.push(acct.id);
+
+      // Petal grants nothing, whatever the basket.
+      ck("Petal gets no perk", (await tierDeliveryCents(db, { phone, merchandiseCents: 500_00 })) === null);
+
+      await db.loyaltyAccount.update({ where: { id: acct.id }, data: { tier: "bloom", tierEarnedAt: new Date("2026-01-15T10:00:00Z") } });
+      ck("Bloom under $40 gets no perk", (await tierDeliveryCents(db, { phone, merchandiseCents: 39_99 })) === null);
+      const over = await tierDeliveryCents(db, { phone, merchandiseCents: 40_00 });
+      ck("Bloom at $40 gets free delivery", over !== null && over.cents === 0, JSON.stringify(over));
+      ck("  ...attributed to the tier, so checkout can say why", over.tier === "bloom");
+
+      await db.loyaltyAccount.update({ where: { id: acct.id }, data: { tier: "bouquet", tierEarnedAt: new Date("2026-01-15T10:00:00Z") } });
+      const any = await tierDeliveryCents(db, { phone, merchandiseCents: 1_00 });
+      ck("Bouquet gets free delivery on any order", any !== null && any.cents === 0, JSON.stringify(any));
+
+      // The perks the REWARDS PAGE advertises must be the ones checkout honours. This is the
+      // pairing that was missing: the page printed "Free delivery over $40.00" and nothing in
+      // the order pipeline had ever heard of freeDeliveryOverCents.
+      const present = await import("../src/loyalty/present.ts");
+      for (const key of ["petal", "bloom", "bouquet"]) {
+        const advertised = present.tierView(key).perks.some((p) => /free delivery/i.test(p));
+        await db.loyaltyAccount.update({ where: { id: acct.id }, data: { tier: key, tierEarnedAt: new Date("2026-01-15T10:00:00Z") } });
+        const honoured = (await tierDeliveryCents(db, { phone, merchandiseCents: 1000_00 })) !== null;
+        ck(`  ${key}: what the page promises is what checkout does`, advertised === honoured,
+          `page says ${advertised}, checkout does ${honoured}`);
+      }
+
+      // A phone with no account, and an unusable phone, must not throw — they are the common case.
+      ck("an unknown phone simply gets nothing", (await tierDeliveryCents(db, { phone: nextPhone(), merchandiseCents: 100_00 })) === null);
+      ck("an unusable phone gets nothing rather than throwing",
+        (await tierDeliveryCents(db, { phone: "12", merchandiseCents: 100_00 })) === null);
+      ck("no blank phone opens an account", (await tierDeliveryCents(db, { phone: "", merchandiseCents: 100_00 })) === null);
+
+      // Checkout must never gain an account as a side effect of pricing.
+      const before = await db.loyaltyAccount.count();
+      await tierDeliveryCents(db, { phone: "+96171999999", merchandiseCents: 100_00 });
+      ck("  ...and pricing never creates one", (await db.loyaltyAccount.count()) === before);
+    }
+
     section("The sweep and a redemption can run at the same time:");
     {
       const ledger = await import("../src/loyalty/ledger.ts");

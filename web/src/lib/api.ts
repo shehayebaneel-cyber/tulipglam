@@ -127,23 +127,27 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
  */
 export type RewardsFact = { key: string; title: string; body: string };
 export type RewardsHistoryEntry = {
-  id: number; title: string; detail: string;
+  /** A per-response index. NOT the ledger row id — that is one global sequence across all accounts. */
+  key: string; title: string; detail: string;
   points: number; pointsLabel: string;
   at: string; atLabel: string;
   tone: "credit" | "debit" | "waiting";
 };
-export type RewardsTier = { key: string; label: string; multiplier: number; multiplierLabel: string; perks: string[] };
+export type RewardsTier = { key: string; label: string; multiplier: number; multiplierLabel: string; perks: string[]; freeDeliveryOverCents: number | null };
 export type Rewards = {
   enabled: boolean;
   /** When false the page says NOTHING about spending points. No disabled panel, no "soon". */
   redemptionEnabled: boolean;
   linked: boolean;
   available: number; availableLabel: string;
+  /** Server-owned copy, flag-aware: it must not imply spending while redemption is off. */
+  availableHeading: string; availableNote: string;
   pending: number; pendingLabel: string; pendingNote: string;
   tier: RewardsTier;
   next: { key: string; label: string; toGoCents: number; toGoLabel: string; percent: number; multiplierLabel: string } | null;
   spendLabel: string;
-  expiresAtLabel: string;
+  /** A full sentence, or "". Never just a date — the clock resets on CONFIRMED activity only. */
+  expiryNote: string;
   history: RewardsHistoryEntry[];
   historyTruncated: boolean;
   facts: RewardsFact[];

@@ -23,22 +23,31 @@ import { Spinner, StarIcon, TruckIcon, CheckIcon, GiftIcon } from "../components
  * a change to how the courier is told what to collect — which is a process, not a deploy.
  */
 export function Rewards() {
-  const { customer, authReady } = useStore();
+  const { customer, authReady, site } = useStore();
   const navigate = useNavigate();
   const [data, setData] = useState<RewardsData | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // A counter rather than a second copy of the fetch. The retry handler used to re-implement
+  // the effect body without its cancellation guard, so tapping "Try again" and navigating away
+  // set state on an unmounted component — and a retry that succeeded never cleared the error.
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => { if (authReady && !customer) navigate("/login", { state: { from: "/rewards" } }); }, [authReady, customer, navigate]);
+
+  // The programme can be switched off while somebody is holding a bookmark or a shared link.
+  // The Account card is already hidden, but the route is registered unconditionally, so without
+  // this the page renders a rewards-shaped error for a programme that does not exist.
+  useEffect(() => { if (site && !site.flags.loyalty) navigate("/account", { replace: true }); }, [site, navigate]);
 
   useEffect(() => {
     if (!customer) return;
     let live = true;
     setError(null);
     api.rewards()
-      .then((r) => { if (live) setData(r); })
+      .then((r) => { if (live) { setData(r); setError(null); } })
       .catch((e: Error) => { if (live) setError(e.message); });
     return () => { live = false; };
-  }, [customer]);
+  }, [customer, attempt]);
 
   if (!authReady || !customer) return <div className="grid min-h-[60vh] place-items-center text-plum"><Spinner /></div>;
   if (error) return (
@@ -46,7 +55,7 @@ export function Rewards() {
       <ErrorState
         title="We couldn’t load your rewards"
         detail={error}
-        onRetry={() => { setError(null); api.rewards().then(setData).catch((e: Error) => setError(e.message)); }}
+        onRetry={() => setAttempt((n) => n + 1)}
       />
     </div>
   );
@@ -84,15 +93,14 @@ export function Rewards() {
 function Balances({ data }: { data: RewardsData }) {
   return (
     <section className="mt-6">
+      {/* Heading, note and expiry sentence are all server-owned strings. While redemption is
+          off none of them may imply points can be exchanged for anything, and a rule enforced
+          in JSX is a rule enforced by whoever edits this file next. */}
       <div className="rounded-2xl border border-line bg-plum-soft/50 p-5 sm:p-6">
-        <p className="text-[12px] font-semibold uppercase tracking-[0.12em] text-plum">Available to spend</p>
+        <p className="text-[12px] font-semibold uppercase tracking-[0.12em] text-plum">{data.availableHeading}</p>
         <p className="serif mt-1 text-4xl font-medium leading-none text-ink sm:text-5xl">{data.availableLabel}</p>
-        <p className="mt-1.5 text-[13px] text-muted">
-          {data.available > 0 ? "points, yours now" : "points — your first order starts the count"}
-        </p>
-        {data.expiresAtLabel && (
-          <p className="mt-3 text-[12px] text-muted">Expires {data.expiresAtLabel} unless you order or spend before then.</p>
-        )}
+        <p className="mt-1.5 text-[13px] text-muted">{data.availableNote}</p>
+        {data.expiryNote && <p className="mt-3 text-[12px] text-muted">{data.expiryNote}</p>}
       </div>
 
       {data.pending > 0 && (
@@ -139,8 +147,18 @@ function TierPanel({ data }: { data: RewardsData }) {
             <p className="text-[12px] text-muted">{data.next.multiplierLabel} points</p>
           </div>
           {/* A plain div, not a progress-bar component — the site has no such primitive and this
-              does not need one. `percent` arrives already clamped from the server. */}
-          <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-soft" role="presentation">
+              does not need one. `percent` arrives already clamped and floored from the server.
+              role="progressbar" rather than "presentation": the proportion is real information,
+              and marking it decorative left a screen-reader user with the sentence above and
+              nothing else. */}
+          <div
+            className="mt-2 h-1.5 overflow-hidden rounded-full bg-soft"
+            role="progressbar"
+            aria-valuenow={data.next.percent}
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-label={`Progress to ${data.next.label}`}
+          >
             <div className="h-full rounded-full bg-plum transition-[width]" style={{ width: `${data.next.percent}%` }} />
           </div>
           <p className="mt-2 text-[12px] text-muted">Tiers are based on what you spend over 12 months, and last a full year once earned.</p>
@@ -182,7 +200,7 @@ function History({ data }: { data: RewardsData }) {
         <GiftIcon className="mx-auto h-8 w-8 text-plum/60" />
         <p className="serif mt-3 text-xl text-ink">Nothing here yet</p>
         <p className="mx-auto mt-1 max-w-sm text-[13px] leading-relaxed text-muted">
-          Your points will show up here the moment you place an order — one for every dollar you spend, held for a week after delivery.
+          Your points will show up here the moment you place an order — one for every dollar of items, confirmed a week after the parcel arrives.
         </p>
         <ButtonLink to="/shop" variant="primary" className="mt-5">Start shopping</ButtonLink>
       </section>
@@ -194,7 +212,7 @@ function History({ data }: { data: RewardsData }) {
       <h2 className="serif text-lg text-ink">Your points</h2>
       <ul className="mt-3 divide-y divide-line overflow-hidden rounded-2xl border border-line bg-surface">
         {data.history.map((h) => (
-          <li key={h.id} className="flex items-center justify-between gap-4 px-4 py-3.5">
+          <li key={h.key} className="flex items-center justify-between gap-4 px-4 py-3.5">
             <div className="min-w-0">
               <p className="truncate text-[14px] font-medium text-ink">{h.title}</p>
               <p className="mt-0.5 text-[12px] text-muted">

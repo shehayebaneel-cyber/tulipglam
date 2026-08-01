@@ -74,17 +74,44 @@ section("There is no endpoint that can be pointed at somebody else's account:");
   ck("  ...and never looks an account up by phone", !/findUnique\(\s*\{\s*where:\s*\{\s*phoneE164/.test(handler));
 }
 
-section("The page cannot mention redeeming while the flag is off:");
+section("Nothing offers to spend points while redemption is off:");
 {
-  // Requirement: no greyed-out panel, no "coming soon". Absent, not disabled. Asserted against
-  // the source so that ADDING a disabled panel later fails here rather than shipping quietly.
+  // ── HOW THIS IS WRITTEN, AND WHY IT CHANGED ─────────────────────────────────────
+  //
+  // The previous version listed six words I guessed — "Redeem", "redeemable", "Spend your
+  // points", "coming soon", "disabled" — and passed, while the page's largest label read
+  // "Available to spend". It tested the shape of my assumption, not the requirement.
+  //
+  // So: scan EVERY string the server sends, and match on the CONCEPT (points being exchanged
+  // for something) rather than on particular spellings. And then assert the inverse — with the
+  // flag on, these same patterns MUST fire. A check that cannot be made to fail is not a check,
+  // and this one is now proven to have teeth in both directions.
+  const OFFERS_TO_SPEND = [
+    /available to spend/i,
+    /\bredeem/i,
+    /spend[^.]{0,24}\bpoints?\b/i,
+    /\bpoints?\b[^.]{0,24}\b(to spend|you can spend|towards|off your)/i,
+    /cash in/i,
+    /\bdiscount\b[^.]{0,20}\bpoints?\b/i,
+  ];
+  const stringsIn = (v, out = []) => {
+    if (typeof v === "string") out.push(v);
+    else if (Array.isArray(v)) v.forEach((x) => stringsIn(x, out));
+    else if (v && typeof v === "object") Object.values(v).forEach((x) => stringsIn(x, out));
+    return out;
+  };
+  globalThis.__spendPatterns = OFFERS_TO_SPEND;
+  globalThis.__stringsIn = stringsIn;
+
+  // The component must not hardcode the flag-sensitive copy at all — it renders what the
+  // server decided, so the rule lives in one place and cannot be edited away in JSX.
   const page = readFileSync(new URL("../../web/src/pages/Rewards.tsx", import.meta.url), "utf8");
   const rendered = page.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
-  for (const word of ["Redeem", "redeemable", "Spend your points", "coming soon", "Coming soon", "disabled"]) {
-    ck(`  the rewards page contains no "${word}"`, !rendered.includes(word));
-  }
-  ck("  ...and no redemptionEnabled branch, because there is nothing to branch to yet",
-    !rendered.includes("redemptionEnabled"));
+  ck("  the balance heading comes from the server", rendered.includes("data.availableHeading"));
+  ck("  the note under it comes from the server", rendered.includes("data.availableNote"));
+  ck("  the expiry sentence comes from the server", rendered.includes("data.expiryNote"));
+  const hardcoded = OFFERS_TO_SPEND.filter((re) => re.test(rendered));
+  ck("  and the component hardcodes none of that vocabulary itself", hardcoded.length === 0, String(hardcoded));
 }
 
 section("The page does no arithmetic:");
@@ -210,6 +237,16 @@ try {
         v.next === null || (Number.isInteger(v.next.percent) && v.next.percent >= 0 && v.next.percent <= 100),
         JSON.stringify(v.next));
       ck("  redemption is reported off", v.redemptionEnabled === false);
+
+      // Every string in the payload, against the concept rather than a guessed spelling.
+      const offending = globalThis.__stringsIn(v)
+        .filter((s) => globalThis.__spendPatterns.some((re) => re.test(s)));
+      ck("  and NOTHING in the payload offers to spend points", offending.length === 0, JSON.stringify(offending));
+      ck("  the heading describes what the number is, not what it will do",
+        v.availableHeading === "Points earned", v.availableHeading);
+      ck("  the expiry sentence states the real rule — confirmed activity only",
+        v.expiryNote === "" || (/Confirmed orders extend this/.test(v.expiryNote) && !/spend/i.test(v.expiryNote)),
+        v.expiryNote);
       ck("  the three facts are present", v.facts.length === 3, JSON.stringify(v.facts.map((f) => f.key)));
       ck("  ...the COD hold", v.facts.some((f) => f.title.includes("7 days after delivery")));
       ck("  ...the placement rate", v.facts.some((f) => f.title.includes("rate you see when you order")));
@@ -220,6 +257,8 @@ try {
       ck("  orders are named by their number", v.history.some((h) => h.title.includes(delivered.number)));
       ck("  a pending entry says when it confirms", v.history.some((h) => h.tone === "waiting" && h.detail.length > 0),
         JSON.stringify(v.history.filter((h) => h.tone === "waiting")));
+      ck("  a matured earn is not ALSO shown as pending", !v.history.some((h) => h.tone === "waiting" && h.detail === "confirming shortly"), JSON.stringify(v.history.filter((h)=>h.tone==="waiting")));
+      ck("  history keys are not ledger primary keys", v.history.every((h) => /^[0-9]+$/.test(h.key) && Number(h.key) < 100), JSON.stringify(v.history.map((h)=>h.key)));
       ck("  every entry has a signed label", v.history.every((h) => /^[+−]\d+ points$/.test(h.pointsLabel)),
         JSON.stringify(v.history.map((h) => h.pointsLabel)));
       ck("  every entry has a formatted date", v.history.every((h) => h.atLabel && !h.atLabel.includes("T")));
@@ -266,6 +305,29 @@ try {
 
       const alicesOwn = await (await rewardsAs(alice.token)).json();
       ck("  while Alice's own view is different", JSON.stringify(alicesOwn) !== JSON.stringify(v));
+    }
+
+    section("...and the same check FIRES when redemption is switched on:");
+    {
+      // A check that cannot fail is not a check. The presenter is pure, so the cheapest honest
+      // way to prove these patterns have teeth is to build the same view with the flag on and
+      // watch them catch it. If this section ever goes quiet, the section above is vacuous.
+      const onServer = boot(4343, { LOYALTY_ENABLED: "true", LOYALTY_REDEMPTION_ENABLED: "true" });
+      try {
+        const base = "http://127.0.0.1:4343";
+        ck("a server with redemption ON boots", await waitFor(base), onServer.log().slice(-300));
+        const r = await fetch(`${base}/api/loyalty/me`, { headers: { authorization: `Bearer ${alice.token}` } });
+        const v = await r.json();
+        ck("  redemption is reported on", v.redemptionEnabled === true);
+        const hits = globalThis.__stringsIn(v)
+          .filter((s) => globalThis.__spendPatterns.some((re) => re.test(s)));
+        ck("  the payload NOW offers to spend points", hits.length > 0, JSON.stringify(hits));
+        ck("  the heading changes to say so", v.availableHeading === "Available to spend", v.availableHeading);
+        ck("  and the expiry sentence mentions redemptions too",
+          v.expiryNote === "" || /redemptions extend this/i.test(v.expiryNote), v.expiryNote);
+      } finally {
+        onServer.proc.kill();
+      }
     }
 
     section("A token for a deleted customer cannot resurrect an account:");

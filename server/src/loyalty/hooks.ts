@@ -21,9 +21,11 @@ import {
   LOYALTY_ENABLED,
   DELIVERED_STATUSES,
   VOIDING_STATUSES,
+  type TierKey,
 } from "./config.js";
-import { getOrCreateAccount, recordEarn, voidEarnForOrder, reverseRedemption } from "./ledger.js";
-import { merchandiseCentsOf } from "./rules.js";
+import { getOrCreateAccount, readAccount, recordEarn, voidEarnForOrder, reverseRedemption } from "./ledger.js";
+import { merchandiseCentsOf, tierRule } from "./rules.js";
+import { normaliseLebanesePhone } from "./phone.js";
 
 type Db = PrismaClient | Prisma.TransactionClient;
 
@@ -88,6 +90,57 @@ export async function onOrderPlaced(
 
   const account = await getOrCreateAccount(db, raw, { email: order.email });
   await recordEarn(db, { accountId: account.id, orderId: order.id, merchandiseCents });
+}
+
+// ───────────────────────────────────────────────────────────────── delivery perk
+
+/**
+ * The delivery fee a customer's TIER earns them, or null if their tier grants nothing.
+ *
+ * ── WHY THIS EXISTS ────────────────────────────────────────────────────────────────
+ *
+ * The rewards page listed "Free delivery over $40.00" against Bloom and "Free delivery on every
+ * order" against Bouquet, and nothing in checkout had ever heard of it. `freeDeliveryOverCents`
+ * was read by the config that defined it and the presenter that printed it, and by nothing else.
+ * The page was stating a fact the store could not honour, which is the one thing this codebase
+ * has repeatedly resolved not to do.
+ *
+ * ── HOW IT COMPOSES ────────────────────────────────────────────────────────────────
+ *
+ * It does not stack with the global free-delivery threshold and it never discounts twice. The
+ * caller takes the LOWER of the two fees — the global rule and the tier rule are two independent
+ * reasons delivery might be cheap, and a customer gets the better one, not the sum.
+ *
+ * ── AND THE TIER COMES FROM ONE PLACE ──────────────────────────────────────────────
+ *
+ * `readAccount` → `computeState`. Not a second calculation, not the stored `tier` column, which
+ * is a cache that may be behind. The whole reason the ledger was rebuilt around one
+ * implementation of the arithmetic is so that a new consumer like this one cannot disagree with
+ * the rewards page about what tier somebody holds.
+ */
+export async function tierDeliveryCents(
+  db: Db,
+  input: { phone: string; whatsapp?: string; merchandiseCents: number },
+): Promise<{ cents: number; tier: TierKey } | null> {
+  if (!LOYALTY_ENABLED) return null;
+
+  const raw = [input.phone, input.whatsapp].find((p) => p && p.trim());
+  if (!raw) return null;
+
+  const phone = normaliseLebanesePhone(raw);
+  if (!phone.ok) return null;
+
+  // Lookup only — never creates. Checkout must not have the side effect of opening a loyalty
+  // account; `onOrderPlaced` does that afterwards, outside the pricing path.
+  const account = await db.loyaltyAccount.findUnique({ where: { phoneE164: phone.e164 }, select: { id: true } });
+  if (!account) return null;
+
+  const { state } = await readAccount(db, account.id);
+  const rule = tierRule(state.tier);
+  if (rule.freeDeliveryOverCents === null) return null;      // this tier grants nothing
+  if (input.merchandiseCents < rule.freeDeliveryOverCents) return null; // not over the bar
+
+  return { cents: 0, tier: state.tier };
 }
 
 // ───────────────────────────────────────────────────────────────── status changes
