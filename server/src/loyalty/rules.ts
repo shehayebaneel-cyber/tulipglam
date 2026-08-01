@@ -191,6 +191,20 @@ export type LedgerFacts = {
   orderId: number | null;
   createdAt: Date;
   confirmedAt: Date | null;
+  /**
+   * The tier multiplier this earn was PROMISED, stamped when the order was placed.
+   *
+   * Not recomputed at maturity. The COD hold is our mechanism — seven days between delivery and
+   * the points becoming spendable — and it must not cost the customer anything. A customer who
+   * ordered at Bloom was shown Bloom's rate; if their tier anniversary happens to fall in that
+   * gap, the demotion is our clock firing, not a change in what they were promised.
+   *
+   * The same principle runs the other way: an order placed at Petal that matures after a
+   * promotion pays Petal's rate. The rate you see when you order is the rate you get, in both
+   * directions. It also means an order can never buy the tier that pays it, since the tier is
+   * read before the order exists.
+   */
+  multiplierApplied: number;
 };
 
 /** One row `materialise()` must update to make the database say what has already been reported. */
@@ -199,8 +213,8 @@ export type ConfirmPlan = {
   basePoints: number;
   /** After the tier multiplier — the figure the read path has ALREADY counted as spendable. */
   finalPoints: number;
+  /** Read off the entry, stamped at placement. Never recomputed here — see `LedgerFacts`. */
   multiplier: number;
-  tier: TierKey;
   /**
    * The maturity date, NOT the moment materialise happens to run.
    *
@@ -333,17 +347,20 @@ export function computeState(
     if (maturity !== null && now >= maturity) {
       toConfirm.push({ entry: e, maturity });
     } else {
-      pending += e.points;
+      // Multiplied, so the pending figure a customer is shown is the figure that eventually
+      // confirms. Showing base points here and a larger number a week later reads as a bug to
+      // whoever is looking at it.
+      pending += applyMultiplier(e.points, e.multiplierApplied);
     }
   }
 
   // ── replay the confirmations, oldest first ───────────────────────────────────────
   //
-  // The order matters: a customer crossing into Bloom partway through a batch gets 1.25x on the
-  // orders that mature after the crossing and 1.0x on the ones before it. Each entry is valued
-  // at ITS OWN maturity date, using only spend confirmed before that date — so this entry's own
-  // merchandise can never push it into the tier that multiplies it, and a late sweep pays the
-  // tier the customer actually held rather than the tier they hold today.
+  // The multiplier is NOT decided here — it was stamped on the entry when the order was placed
+  // and is simply honoured. What this replay is still for is the TIER CLOCK: crossing a
+  // threshold has to be dated to the maturity that crossed it, not to whenever someone happens
+  // to read the account, because `tierEarnedAt` starts a twelve-month hold and a wrong date
+  // there moves a demotion by up to a year.
   toConfirm.sort((a, b) => a.maturity.getTime() - b.maturity.getTime() || a.entry.id - b.entry.id);
 
   /** (date, merchandise) pairs for spend already confirmed — grows as the replay proceeds. */
@@ -363,8 +380,10 @@ export function computeState(
   let heldNow = { tier: held.tier, earnedAt: held.earnedAt };
 
   for (const { entry, maturity } of toConfirm) {
-    const tierThen = effectiveTier(tierForSpend(spendInWindowAt(maturity)), heldNow, maturity);
-    const multiplier = multiplierFor(tierThen.tier);
+    // Honoured, not recomputed. Deriving it from the tier at maturity is what made our own COD
+    // hold cost the customer points: an order placed at Bloom whose anniversary fell in the
+    // seven days between delivery and confirmation was paid at Petal.
+    const multiplier = entry.multiplierApplied;
     const finalPoints = applyMultiplier(entry.points, multiplier);
 
     confirm.push({
@@ -372,7 +391,6 @@ export function computeState(
       basePoints: entry.points,
       finalPoints,
       multiplier,
-      tier: tierThen.tier,
       confirmedAt: maturity,
     });
 
@@ -383,6 +401,8 @@ export function computeState(
     live.push({ id: entry.id, type: "earn", points: finalPoints, at: maturity, isActivity: true });
 
     if (entry.orderId !== null) confirmedSpend.push({ at: maturity, cents: countedMerchandise(entry.orderId) });
+    // The spend has landed, so a threshold crossed by THIS order is dated to this maturity.
+    const tierThen = effectiveTier(tierForSpend(spendInWindowAt(maturity)), heldNow, maturity);
     heldNow = { tier: tierThen.tier, earnedAt: tierThen.earnedAt };
   }
 

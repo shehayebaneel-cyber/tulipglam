@@ -151,7 +151,8 @@ const HELD_BOUQUET = { tier: "bouquet", earnedAt: T0 };
 
 const order = (id, deliveredAt, status = "delivered") => [id, { id, status, deliveredAt }];
 const earn = (id, points, orderId, when, over = {}) =>
-  ({ id, type: "earn", status: "pending", points, orderId, createdAt: when, confirmedAt: null, ...over });
+  ({ id, type: "earn", status: "pending", points, orderId, createdAt: when, confirmedAt: null,
+     multiplierApplied: 1, ...over });
 
 section("computeState — the lazy read, with no job ever having run:");
 {
@@ -184,37 +185,64 @@ section("The derived balance applies the multiplier — REGRESSION, this was liv
   // were owed until something happened to call a sweep that, by design, may never run.
   const orders = new Map([order(1, T0)]);
   const money = new Map([[1, 600_00]]);
-  const entries = [earn(1, 600, 1, T0)];
+  const stamped = (m) => [earn(1, 600, 1, T0, { multiplierApplied: m })];
 
-  const bouquet = rules.computeState(entries, orders, money, HELD_BOUQUET, at(10));
-  ck("a matured earn is spendable at the TIER rate, not the base rate", bouquet.balance === 900,
+  const bouquet = rules.computeState(stamped(1.5), orders, money, HELD_BOUQUET, at(10));
+  ck("a matured earn is spendable at the PROMISED rate, not the base rate", bouquet.balance === 900,
     `balance=${bouquet.balance}, expected 900 (600 x 1.5)`);
   ck("  ...and the plan says the same number", bouquet.plan.confirm[0].finalPoints === 900);
   ck("  ...so read and write cannot disagree", bouquet.balance === bouquet.plan.confirm[0].finalPoints);
-  ck("  ...with the multiplier recorded for the audit trail", bouquet.plan.confirm[0].multiplier === 1.5);
+  ck("  ...carrying the multiplier for the audit trail", bouquet.plan.confirm[0].multiplier === 1.5);
 
-  const bloom = rules.computeState(entries, orders, money, HELD_BLOOM, at(10));
-  ck("Bloom gets 1.25x", bloom.balance === 750, `balance=${bloom.balance}`);
-  const petal = rules.computeState(entries, orders, money, HELD_PETAL, at(10));
-  ck("Petal gets the base points", petal.balance === 600);
+  ck("Bloom's stamp gets 1.25x", rules.computeState(stamped(1.25), orders, money, HELD_BLOOM, at(10)).balance === 750);
+  ck("Petal's stamp gets the base points", rules.computeState(stamped(1), orders, money, HELD_PETAL, at(10)).balance === 600);
+
+  // What the customer is shown while waiting must be what eventually lands.
+  const waiting = rules.computeState(stamped(1.5), orders, money, HELD_BOUQUET, at(3));
+  ck("pending is shown at the promised rate too", waiting.pending === 900, `pending=${waiting.pending}`);
+  ck("  ...so the number does not jump when the hold elapses", waiting.pending === bouquet.balance);
 }
 
-section("An order cannot buy the tier that pays it — REGRESSION:");
+section("The rate you see when you order is the rate you get — BOTH directions:");
 {
-  // The first implementation counted matured-but-unconfirmed spend toward the multiplier basis,
-  // so a single $400 order pushed the customer past $250 and then paid ITSELF 1.25x.
+  // The multiplier is stamped at placement and honoured at maturity. It is never re-derived, so
+  // nothing that happens during our own seven-day COD hold can change what was promised.
+  const orders = new Map([order(1, T0)]);
+  const money = new Map([[1, 400_00]]);
+
+  // Downward: the tier anniversary falls between delivery and confirmation. The account is Petal
+  // by the time the entry matures, but the order was placed at Bloom.
+  const demoted = rules.computeState(
+    [earn(1, 400, 1, T0, { multiplierApplied: 1.25 })], orders, money, HELD_PETAL, at(10));
+  ck("an order placed at Bloom still pays 1.25x after a demotion", demoted.balance === 500,
+    `balance=${demoted.balance}, expected 500 — our own hold must not cost the customer points`);
+  ck("  ...even though the account now reads Petal", demoted.plan.confirm[0].multiplier === 1.25);
+
+  // Upward: promoted during the hold, but the order was placed at Petal.
+  const promoted = rules.computeState(
+    [earn(1, 400, 1, T0, { multiplierApplied: 1 })], orders, money, HELD_BOUQUET, at(10));
+  ck("an order placed at Petal pays 1.0x even after a promotion", promoted.balance === 400,
+    `balance=${promoted.balance}, expected 400`);
+  ck("  ...so an order can never buy the tier that pays it", promoted.plan.confirm[0].multiplier === 1);
+}
+
+section("Crossing a threshold is dated to the maturity that crossed it:");
+{
+  // The multiplier no longer depends on this, but `tierEarnedAt` starts a twelve-month hold, so
+  // dating the promotion to whenever someone happens to read the account would move a demotion
+  // by up to a year.
   const orders = new Map([order(1, T0), order(2, at(1))]);
   const money = new Map([[1, 400_00], [2, 100_00]]);
+  const entries = [earn(1, 400, 1, T0), earn(2, 100, 2, at(1))];
 
-  const alone = rules.computeState([earn(1, 400, 1, T0)], orders, money, HELD_PETAL, at(10));
-  ck("a $400 order pays itself 1.0x, not 1.25x", alone.balance === 400, `balance=${alone.balance}`);
-  ck("  ...though it does move the progress bar", alone.windowSpendCents === 400_00);
-  ck("  ...and the tier it earned is now in force", alone.tier === "bloom");
-
-  const both = rules.computeState([earn(1, 400, 1, T0), earn(2, 100, 2, at(1))], orders, money, HELD_PETAL, at(10));
-  ck("the NEXT order gets the tier the first one bought", both.balance === 400 + 125,
-    `balance=${both.balance}, expected 525 (400 at 1.0x, then 100 at 1.25x)`);
-  ck("  ...ordered by maturity, not by row id", both.plan.confirm[0].tier === "petal" && both.plan.confirm[1].tier === "bloom");
+  const s = rules.computeState(entries, orders, money, HELD_PETAL, at(200));
+  const firstMaturity = rules.maturesAt({ id: 1, status: "delivered", deliveredAt: T0 });
+  ck("the promotion is in force", s.tier === "bloom");
+  ck("  ...dated to the maturity that crossed $250, not to now",
+    s.tierEarnedAt.getTime() === firstMaturity.getTime(), String(s.tierEarnedAt));
+  ck("  ...so the hold anniversary is a year from THEN",
+    rules.addMonths(s.tierEarnedAt, 12).getTime() === rules.addMonths(firstMaturity, 12).getTime());
+  ck("  ...and both orders' spend counts toward the bar", s.windowSpendCents === 500_00);
 }
 
 section("Confirmation is stamped at MATURITY, not at sweep time — REGRESSION:");
@@ -224,7 +252,7 @@ section("Confirmation is stamped at MATURITY, not at sweep time — REGRESSION:"
   // dependency this design exists to avoid, arriving through the back door.
   const orders = new Map([order(1, T0)]);
   const money = new Map([[1, 300_00]]);
-  const entries = [earn(1, 300, 1, T0)];
+  const entries = [earn(1, 300, 1, T0, { multiplierApplied: 1.25 })];
   const maturity = rules.maturesAt({ id: 1, status: "delivered", deliveredAt: T0 });
 
   const early = rules.computeState(entries, orders, money, HELD_BLOOM, at(8));
@@ -639,25 +667,37 @@ try {
   {
     const phone = nextPhone();
     const acct = await makeAccount(phone);
-    // Two orders: the first takes them to Bloom, the second must be multiplied at Bloom.
+    // Three orders. The first takes them to Bloom. The second is placed BEFORE that has
+    // happened, so it is quoted Petal and paid Petal. The third is placed after, and gets Bloom.
+    // The dividing line is placement, not maturity and not confirmation.
     const first = await makeOrder({ subtotalCents: 300_00, phone, status: "delivered", deliveredAt: T0 });
     const second = await makeOrder({ subtotalCents: 100_00, phone, status: "delivered", deliveredAt: at(1) });
     await ledger.recordEarn(db, { accountId: acct.id, orderId: first.id, merchandiseCents: 300_00, now: T0 });
     await ledger.recordEarn(db, { accountId: acct.id, orderId: second.id, merchandiseCents: 100_00, now: at(1) });
 
-    await ledger.materialise(db, acct.id, at(10));
+    // Day 10: the first order has matured, so the account now reads Bloom even before any sweep.
+    const third = await makeOrder({ subtotalCents: 100_00, phone, status: "delivered", deliveredAt: at(10) });
+    await ledger.recordEarn(db, { accountId: acct.id, orderId: third.id, merchandiseCents: 100_00, now: at(10) });
+
+    await ledger.materialise(db, acct.id, at(20));
     const acctRow = await db.loyaltyAccount.findUnique({ where: { id: acct.id } });
     ck("crossing $250 promotes to Bloom", acctRow.tier === "bloom", acctRow.tier);
 
     const entries = await db.loyaltyLedgerEntry.findMany({ where: { accountId: acct.id, type: "earn" }, orderBy: { createdAt: "asc" } });
-    ck("the FIRST order confirmed at Petal — 300 points, 1.0x",
-      entries[0].points === 300 && entries[0].multiplierApplied.toString() === "1",
+    ck("the FIRST order was quoted Petal and paid Petal — 300 points, 1.0x",
+      entries[0].points === 300 && Number(entries[0].multiplierApplied) === 1,
       `${entries[0].points} @ ${entries[0].multiplierApplied}`);
-    ck("the SECOND confirmed at Bloom — 125 points, 1.25x",
-      entries[1].points === 125 && Number(entries[1].multiplierApplied) === 1.25,
+    ck("the SECOND was placed before the promotion, so it is paid Petal too — 100 points",
+      entries[1].points === 100 && Number(entries[1].multiplierApplied) === 1,
       `${entries[1].points} @ ${entries[1].multiplierApplied}`);
-    ck("  ...points confirmed at Petal are NOT retroactively re-multiplied", entries[0].points === 300);
-    await balanceMatchesLedger(acct.id, "after tier progression");
+    ck("the THIRD was placed after, and is paid Bloom — 125 points, 1.25x",
+      entries[2].points === 125 && Number(entries[2].multiplierApplied) === 1.25,
+      `${entries[2].points} @ ${entries[2].multiplierApplied}`);
+    ck("  ...and nothing is retroactively re-multiplied", entries[0].points === 300);
+    const total = await ledger.readAccount(db, acct.id, at(20));
+    ck("  ...totalling 525, not 625 (all-Bloom) and not 500 (all-Petal)", total.state.balance === 525,
+      String(total.state.balance));
+    await balanceMatchesLedger(acct.id, "after tier progression", at(20));
   }
 
   section("Balances are correct with materialise() NEVER called:");
@@ -693,6 +733,71 @@ try {
     const afterRows = await db.loyaltyLedgerEntry.findMany({ where: { accountId: acct.id } });
     ck("  ...it only makes the database agree", afterRows.every((r) => r.points === 62 && r.status === "confirmed"),
       afterRows.map((r) => `${r.points}/${r.status}`).join(","));
+  }
+
+  section("recordEarn stamps the tier held at placement:");
+  {
+    const phone = nextPhone();
+    const acct = await makeAccount(phone);
+    await db.loyaltyAccount.update({ where: { id: acct.id }, data: { tier: "bouquet", tierEarnedAt: T0 } });
+    const o = await makeOrder({ subtotalCents: 400_00, phone, status: "received" });
+    const r = await ledger.recordEarn(db, { accountId: acct.id, orderId: o.id, merchandiseCents: 400_00, now: T0 });
+    ck("the multiplier is read at placement", r.multiplier === 1.5, String(r.multiplier));
+    const row = await db.loyaltyLedgerEntry.findFirst({ where: { orderId: o.id, type: "earn" } });
+    ck("  ...and written onto the row", Number(row.multiplierApplied) === 1.5, String(row.multiplierApplied));
+    ck("  ...with BASE points stored alongside it", row.points === 400);
+    ck("  ...and the promised total in the reason", row.reason.includes("600"), row.reason);
+
+    // Now demote the account, as the anniversary would. The promise must survive it.
+    await db.loyaltyAccount.update({ where: { id: acct.id }, data: { tier: "petal", tierEarnedAt: T0 } });
+    await db.order.update({ where: { id: o.id }, data: { status: "delivered", deliveredAt: T0 } });
+    const s = await ledger.readAccount(db, acct.id, at(10));
+    ck("a demotion between placement and maturity does NOT cut the payout", s.state.balance === 600,
+      `balance=${s.state.balance}, expected 600`);
+    await sweepChangesNothing(acct.id, "stamped multiplier", at(10));
+    const after = await db.loyaltyLedgerEntry.findFirst({ where: { orderId: o.id, type: "earn" } });
+    ck("  ...and the sweep honours the stamp rather than rewriting it",
+      after.points === 600 && Number(after.multiplierApplied) === 1.5,
+      `${after.points} @ ${after.multiplierApplied}`);
+  }
+
+  section("Crediting an order by hand claims its slot — the interim for pre-launch orders:");
+  {
+    const phone = nextPhone();
+    const acct = await makeAccount(phone);
+    const o = await makeOrder({ subtotalCents: 200_00, phone, status: "delivered", deliveredAt: T0 });
+
+    await ledger.manualAdjustment(db, {
+      accountId: acct.id, points: 200, orderId: o.id, now: T0,
+      reason: "credit for an order placed before the programme launched", enteredBy: "TEST",
+    });
+    const s = await ledger.readAccount(db, acct.id, at(30));
+    ck("the credit lands", s.state.balance === 200, String(s.state.balance));
+    ck("  ...without counting toward tier spend", s.state.windowSpendCents === 0, String(s.state.windowSpendCents));
+
+    const later = await ledger.recordEarn(db, { accountId: acct.id, orderId: o.id, merchandiseCents: 200_00, now: at(1) });
+    ck("a later recordEarn on the same order is swallowed", !later.created);
+    const s2 = await ledger.readAccount(db, acct.id, at(30));
+    ck("  ...so the order cannot be paid twice", s2.state.balance === 200, String(s2.state.balance));
+
+    let code = null;
+    try {
+      await ledger.manualAdjustment(db, {
+        accountId: acct.id, points: 200, orderId: o.id, now: T0,
+        reason: "a second credit for the very same order", enteredBy: "TEST",
+      });
+    } catch (e) { code = e.code; }
+    ck("  ...nor credited twice by hand", code === "order-already-credited", String(code));
+
+    // A deduction is not a payout, so it must not claim the slot and block a legitimate earn.
+    const other = await makeOrder({ subtotalCents: 100_00, phone, status: "delivered", deliveredAt: T0 });
+    await ledger.manualAdjustment(db, {
+      accountId: acct.id, points: -50, orderId: other.id, now: T0,
+      reason: "clawback for a goodwill error on this order", enteredBy: "TEST",
+    });
+    const earned = await ledger.recordEarn(db, { accountId: acct.id, orderId: other.id, merchandiseCents: 100_00, now: T0 });
+    ck("a negative adjustment does not block the order from earning normally", earned.created);
+    await balanceMatchesLedger(acct.id, "after hand-crediting", at(30));
   }
 
   section("Manual adjustment guards:");

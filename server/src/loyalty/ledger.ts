@@ -40,10 +40,12 @@ import {
   type TierKey,
 } from "./config.js";
 import {
+  applyMultiplier,
   basePointsFor,
   computeState,
   isMoney,
   merchandiseCentsOf,
+  multiplierFor,
   pointsToCents,
   quoteRedemption,
   type AccountState,
@@ -171,9 +173,17 @@ async function load(db: Db, accountId: number, now: Date): Promise<LoadedAccount
   const rows = await db.loyaltyLedgerEntry.findMany({
     where: { accountId },
     orderBy: { createdAt: "asc" },
-    select: { id: true, type: true, status: true, points: true, orderId: true, createdAt: true, confirmedAt: true },
+    select: {
+      id: true, type: true, status: true, points: true, orderId: true,
+      createdAt: true, confirmedAt: true, multiplierApplied: true,
+    },
   });
-  const entries = rows as unknown as LedgerFacts[];
+  // Decimal(4,2) out of Postgres, plain number into the rules — the arithmetic there is integer
+  // points and a small rational multiplier, and a Decimal would silently change how it rounds.
+  const entries = rows.map((r) => ({
+    ...r,
+    multiplierApplied: r.multiplierApplied === null ? 1 : Number(r.multiplierApplied),
+  })) as unknown as LedgerFacts[];
 
   const orderIds = [...new Set(entries.map((e) => e.orderId).filter((v): v is number => v !== null))];
   const orderRows = orderIds.length
@@ -251,8 +261,12 @@ export async function materialise(db: Db, accountId: number, now = new Date()): 
         status: "confirmed",
         confirmedAt: c.confirmedAt,
         points: c.finalPoints,
-        multiplierApplied: new Prisma.Decimal(c.multiplier),
-        // `expiresAt` is deliberately NOT written. Expiry is a property of the account's activity
+        // `multiplierApplied` is deliberately NOT written. It was stamped when the order was
+        // placed and is what this confirmation honoured; rewriting it here would imply the
+        // rate is decided at confirmation, which is exactly the behaviour that let our own
+        // seven-day hold demote a customer between delivery and payout.
+        //
+        // `expiresAt` is deliberately NOT written either. Expiry is a property of the account's activity
         // clock, not of an entry: a purchase in month eleven moves the whole balance's expiry, so
         // a per-entry date recorded at confirmation is wrong by month twelve and there is nothing
         // that reads it. A stale date on a customer-facing "your points expire on…" line is worse
@@ -310,18 +324,29 @@ export async function materialise(db: Db, accountId: number, now = new Date()): 
 /**
  * Record the points an order will earn, held pending until the COD hold elapses.
  *
- * Stores BASE points; the multiplier lands at confirmation. Idempotent by database constraint:
- * a second call for the same order hits the unique index on `earnOrderId` and is swallowed, so a
- * replayed status change or a double-submitted checkout cannot grant twice.
+ * Stores BASE points AND THE MULTIPLIER THE CUSTOMER WAS PROMISED, read from the tier they hold
+ * right now. Confirmation honours that stamp rather than re-deriving a rate seven days later:
+ * the hold is our mechanism, and a tier anniversary falling inside it must not quietly cost the
+ * customer points on an order they placed at a better rate. It runs the other way too — an order
+ * placed at Petal that matures after a promotion pays Petal's rate.
+ *
+ * Idempotent by database constraint: a second call for the same order hits the unique index on
+ * `earnOrderId` and is swallowed, so a replayed status change or a double-submitted checkout
+ * cannot grant twice.
  */
 export async function recordEarn(
   db: Db,
   input: { accountId: number; orderId: number; merchandiseCents: number; now?: Date },
-): Promise<{ created: boolean; basePoints: number }> {
-  if (!LOYALTY_ENABLED) return { created: false, basePoints: 0 };
+): Promise<{ created: boolean; basePoints: number; multiplier: number }> {
+  if (!LOYALTY_ENABLED) return { created: false, basePoints: 0, multiplier: 1 };
 
   const basePoints = basePointsFor(input.merchandiseCents);
-  if (basePoints <= 0) return { created: false, basePoints: 0 };
+  if (basePoints <= 0) return { created: false, basePoints: 0, multiplier: 1 };
+
+  const now = input.now ?? new Date();
+  const loaded = await load(db, input.accountId, now);
+  const multiplier = multiplierFor(loaded.state.tier);
+  const promised = applyMultiplier(basePoints, multiplier);
 
   try {
     await db.loyaltyLedgerEntry.create({
@@ -332,13 +357,15 @@ export async function recordEarn(
         type: "earn",
         status: "pending",
         points: basePoints,
-        reason: `Order earns ${basePoints} points once delivered`,
+        multiplierApplied: new Prisma.Decimal(multiplier),
+        reason: `Order earns ${promised} points once delivered`
+          + (multiplier === 1 ? "" : ` (${basePoints} at ${multiplier}x, ${loaded.state.tier})`),
         createdAt: input.now,
       },
     });
-    return { created: true, basePoints };
+    return { created: true, basePoints, multiplier };
   } catch (e) {
-    if (isUniqueViolation(e)) return { created: false, basePoints }; // already recorded
+    if (isUniqueViolation(e)) return { created: false, basePoints, multiplier }; // already recorded
     throw e;
   }
 }
@@ -629,10 +656,25 @@ export async function redeem(
  *
  * NOTE FOR WHOEVER READS THIS NEXT: the moment a second person has admin access, real per-admin
  * identity stops being optional.
+ *
+ * ── `orderId`: crediting an order by hand ──────────────────────────────────────────
+ *
+ * Optional, and it does two things beyond the audit trail. It records WHICH order the correction
+ * was for, and it CLAIMS that order's credit slot by taking `earnOrderId` — so a later
+ * `recordEarn` for the same order hits the unique index and is swallowed instead of paying a
+ * second time.
+ *
+ * That matters for orders placed by signed-in customers while the flag was off. Those have no
+ * ledger row and cannot be reached by guest back-fill, which only looks at orders with no
+ * customer attached. Crediting them by hand is the interim, and without the claim the interim
+ * would quietly double-pay the day a back-fill script ran.
+ *
+ * The adjustment still does NOT count toward tier spend: only `earn` entries do, so a correction
+ * moves the balance without silently buying a tier the customer did not spend their way into.
  */
 export async function manualAdjustment(
   db: Db,
-  input: { accountId: number; points: number; reason: string; enteredBy: string; now?: Date },
+  input: { accountId: number; points: number; reason: string; enteredBy: string; orderId?: number; now?: Date },
 ) {
   const reason = input.reason.trim();
   if (reason.length < RATES.minAdjustmentReasonLength) {
@@ -647,18 +689,32 @@ export async function manualAdjustment(
     throw new LoyaltyError("Adjustment must be a non-zero whole number of points.", "bad-points");
   }
 
-  const entry = await db.loyaltyLedgerEntry.create({
-    data: {
-      accountId: input.accountId,
-      type: "manualAdjustment",
-      status: "confirmed",
-      points: input.points,
-      confirmedAt: input.now ?? new Date(),
-      reason,
-      createdBy: enteredBy,
-    },
-  });
-  return { id: entry.id };
+  try {
+    const entry = await db.loyaltyLedgerEntry.create({
+      data: {
+        accountId: input.accountId,
+        type: "manualAdjustment",
+        status: "confirmed",
+        points: input.points,
+        confirmedAt: input.now ?? new Date(),
+        reason,
+        createdBy: enteredBy,
+        orderId: input.orderId ?? null,
+        // Only when crediting a specific order, and only for a credit — a deduction is not a
+        // payout and must not block the order from earning normally later.
+        earnOrderId: input.orderId && input.points > 0 ? input.orderId : null,
+      },
+    });
+    return { id: entry.id };
+  } catch (e) {
+    if (isUniqueViolation(e)) {
+      throw new LoyaltyError(
+        "This order has already been credited — adjust without an order reference, or reverse the existing entry first.",
+        "order-already-credited",
+      );
+    }
+    throw e;
+  }
 }
 
 // ───────────────────────────────────────────────────────────────── guest back-fill
