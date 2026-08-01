@@ -5,18 +5,59 @@
  * returns plain data, so the arithmetic that decides what a customer is owed can be tested
  * exhaustively without a fixture, a transaction or a server.
  *
- * `ledger.ts` is the only module that talks to the database; it fetches rows, hands them here,
- * and writes back what these functions decide. Keeping the two apart is what makes the money
- * math cheap to argue about.
+ * ── THE ONE IDEA THAT SHAPES EVERYTHING ────────────────────────────────────────────
  *
- * ── The one idea that shapes everything ────────────────────────────────────────────
- * Render's free tier sleeps, so no scheduled job can be relied on to have run. Nothing here
- * may therefore depend on a job having happened. Spendability, tier and expiry are all
- * DERIVED from the ledger and the orders behind it at read time; the stored `status` column is
- * a cache that converges opportunistically. A balance is correct on a server that has been
- * asleep for a month.
+ * Render's free tier sleeps, so no scheduled job can be relied on to have run. Nothing here may
+ * therefore depend on a job having happened. Spendability, the tier multiplier and expiry are all
+ * DERIVED at read time; the stored columns are a cache that converges opportunistically.
+ *
+ * ── WHY THIS FILE DECIDES AND `ledger.ts` ONLY WRITES ──────────────────────────────
+ *
+ * The first version of this design had the arithmetic in two places: `computeState` derived a
+ * balance for reading, and `materialise()` independently recomputed the same figures for writing.
+ * They drifted, exactly as two copies of one calculation always do, and the drift was invisible
+ * because each side was self-consistent:
+ *
+ *   - expiry was computed here and applied only there, so expired points stayed spendable
+ *     forever on a server where the sweep never ran — which is every server, by design;
+ *   - the tier multiplier was applied only there, so a Bouquet customer's matured order was
+ *     worth 600 points on the read path and 900 on the write path.
+ *
+ * Both were real, both were live, and neither was found by a test, because the tests exercised
+ * the two paths separately and each behaved consistently with itself.
+ *
+ * So `computeState` now returns a PLAN as well as a state: the exact rows `materialise()` must
+ * write to make the database agree with what has already been reported. `materialise()` executes
+ * that plan and computes nothing. There is one implementation of the arithmetic, the read path
+ * is that implementation, and "the balance is correct even if the sweep never runs" is true by
+ * construction rather than by two pieces of code happening to agree.
+ *
+ * If you are about to add a calculation to `ledger.ts`: it belongs here instead.
  */
 import { RATES, TIERS, type TierKey, type EntryStatus, type EntryType } from "./config.js";
+
+// ───────────────────────────────────────────────────────────────── money
+
+/**
+ * Money is a whole number of cents. Anything else is refused rather than coerced.
+ *
+ * `Number(req.body.x)` on a missing field yields NaN, and NaN poisons silently: every comparison
+ * against it is false, so a cap expressed as `requested > cap` stops rejecting anything. That was
+ * a live hole — a NaN basket let 100,000 points ($3,000) through a 50%-of-basket cap. Rejecting
+ * at the boundary is the second line of defence; this is the first.
+ */
+export function parseCents(value: unknown): number | null {
+  if (typeof value === "number") return Number.isSafeInteger(value) ? value : null;
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!/^-?\d+$/.test(trimmed)) return null; // no decimals, no exponents, no "1e3", no ""
+  const n = Number(trimmed);
+  return Number.isSafeInteger(n) ? n : null;
+}
+
+/** Cents that must be present and non-negative — a basket, a subtotal, a discount. */
+export const isMoney = (v: unknown): v is number =>
+  typeof v === "number" && Number.isSafeInteger(v) && v >= 0;
 
 // ───────────────────────────────────────────────────────────────── time
 
@@ -53,6 +94,9 @@ export function merchandiseCentsOf(order: {
   discountCents: number;
   pointsDiscountCents: number;
 }): number {
+  if (!isMoney(order.subtotalCents) || !isMoney(order.discountCents) || !isMoney(order.pointsDiscountCents)) {
+    return 0; // a malformed order earns nothing rather than earning NaN
+  }
   return Math.max(0, order.subtotalCents - order.discountCents - order.pointsDiscountCents);
 }
 
@@ -97,16 +141,16 @@ export const tierRank = (key: TierKey): number => TIERS.findIndex((t) => t.key =
 export function effectiveTier(
   qualifiedFor: TierKey,
   held: { tier: TierKey; earnedAt: Date },
-  now: Date,
+  at: Date,
 ): { tier: TierKey; earnedAt: Date; changed: boolean } {
   if (tierRank(qualifiedFor) > tierRank(held.tier)) {
-    return { tier: qualifiedFor, earnedAt: now, changed: true };
+    return { tier: qualifiedFor, earnedAt: at, changed: true };
   }
   const anniversary = addMonths(held.earnedAt, RATES.tierHoldMonths);
-  if (now >= anniversary && tierRank(qualifiedFor) < tierRank(held.tier)) {
+  if (at >= anniversary && tierRank(qualifiedFor) < tierRank(held.tier)) {
     // The hold has run out and they no longer qualify. Drop to what they do qualify for, and
     // restart the clock so the new tier is itself held for a full cycle.
-    return { tier: qualifiedFor, earnedAt: now, changed: true };
+    return { tier: qualifiedFor, earnedAt: at, changed: true };
   }
   return { tier: held.tier, earnedAt: held.earnedAt, changed: false };
 }
@@ -137,7 +181,7 @@ export function isMature(order: OrderFacts | null | undefined, now: Date): boole
   return at !== null && now >= at;
 }
 
-// ───────────────────────────────────────────────────────────────── balance
+// ───────────────────────────────────────────────────────────────── state
 
 export type LedgerFacts = {
   id: number;
@@ -149,112 +193,272 @@ export type LedgerFacts = {
   confirmedAt: Date | null;
 };
 
-export type AccountState = {
-  /** Spendable now: confirmed (or confirmable) and not expired. May be NEGATIVE. */
-  balance: number;
-  /** Earned but still inside the COD hold, or on an order not yet delivered. */
-  pending: number;
-  /** Entries that are pending in the database but have in fact matured. */
-  readyToConfirm: LedgerFacts[];
+/** One row `materialise()` must update to make the database say what has already been reported. */
+export type ConfirmPlan = {
+  entryId: number;
+  basePoints: number;
+  /** After the tier multiplier — the figure the read path has ALREADY counted as spendable. */
+  finalPoints: number;
+  multiplier: number;
+  tier: TierKey;
   /**
-   * Merchandise spend inside the tier window counting confirmed AND matured-but-unconfirmed
-   * earns — what the customer's tier progress bar should show, since a matured earn is already
-   * spendable and it would be odd for it not to count toward status.
-   */
-  windowSpendCents: number;
-  /**
-   * The same window, but counting ONLY entries already confirmed.
+   * The maturity date, NOT the moment materialise happens to run.
    *
-   * This is what decides the multiplier when confirming an entry, and the distinction is not
-   * cosmetic. Using the figure above would let an entry's own spend — and the spend of every
-   * other entry maturing in the same batch — count toward the tier that multiplies it, so a
-   * single large order would push the customer to Bloom and then pay itself 1.25x. Points
-   * confirmed at Petal must not be retroactively re-multiplied.
+   * Stamping `now` would mean the act of reading an account changed its expiry clock, so the
+   * same account gave different answers depending on whether a sweep had touched it — the
+   * scheduler dependency this design exists to avoid, reintroduced through the back door.
    */
-  confirmedSpendCents: number;
-  /** When the whole confirmed balance lapses, or null if there is nothing to lose. */
+  confirmedAt: Date;
+};
+
+/** A whole-balance lapse that has already been applied to the derived balance. */
+export type ExpiryPlan = {
+  /** Positive magnitude; the entry written is negative. */
+  points: number;
+  dueAt: Date;
+  reason: string;
+};
+
+export type MaterialisePlan = {
+  confirm: ConfirmPlan[];
+  expire: ExpiryPlan[];
+  tier: { tier: TierKey; earnedAt: Date; changed: boolean };
+};
+
+export type AccountState = {
+  /** Spendable now: confirmed, multiplied, and not expired. May be NEGATIVE. */
+  balance: number;
+  /** Earned but still inside the COD hold, or on an order not yet delivered. Base points. */
+  pending: number;
+  /** Merchandise spend inside the trailing tier window, NET of reversals. */
+  windowSpendCents: number;
+  /** The tier that spend qualifies for, before the twelve-month hold is applied. */
+  qualifiesFor: TierKey;
+  /** The tier actually in force, hold rule applied. This is the customer-facing answer. */
+  tier: TierKey;
+  tierEarnedAt: Date;
+  /** When the current balance lapses, or null if there is nothing to lose. */
   expiresAt: Date | null;
-  /** True when the expiry date has already passed and an expiry entry is owed. */
+  /** True when a lapse has already been applied to `balance` above. */
   hasLapsed: boolean;
   /** Most recent confirmed earn or redemption — the thing the expiry clock runs from. */
   lastActivityAt: Date | null;
+  /** Exactly what `materialise()` must write. It decides nothing itself. */
+  plan: MaterialisePlan;
+};
+
+type LiveEntry = {
+  id: number;
+  type: EntryType;
+  /** The points that count toward the balance — multiplied, for entries the plan will confirm. */
+  points: number;
+  /** When this entry takes effect. Drives both the expiry clock and lapse eligibility. */
+  at: Date;
+  /** Does this reset the expiry clock? Confirmed earns and redemptions only. */
+  isActivity: boolean;
 };
 
 /**
- * Everything about an account, derived from its ledger.
+ * Everything about an account, derived from its ledger — and the plan to write it down.
  *
  * `orders` supplies the delivery facts for entries that reference one. An entry whose order is
  * missing from the map is treated as not yet mature, which fails safe: worst case a customer
  * waits, rather than spending points on goods they refused.
+ *
+ * `held` is the tier currently stored on the account, which the hold rule needs; pass the
+ * schema defaults for a fresh account.
  */
 export function computeState(
   entries: readonly LedgerFacts[],
   orders: ReadonlyMap<number, OrderFacts>,
   merchandiseByOrder: ReadonlyMap<number, number>,
+  held: { tier: TierKey; earnedAt: Date },
   now: Date,
 ): AccountState {
-  const readyToConfirm: LedgerFacts[] = [];
-  let balance = 0;
-  let pending = 0;
-  let lastActivityAt: Date | null = null;
-
-  const noteActivity = (at: Date | null) => {
-    if (at && (!lastActivityAt || at > lastActivityAt)) lastActivityAt = at;
+  // ── merchandise per order, net of anything reversed ──────────────────────────────
+  //
+  // A returned order must stop counting toward tier progress. Clawing the points back while
+  // leaving the spend in place let a customer buy $600, return the lot, and keep Bouquet — free
+  // delivery and 1.5x — for a full twelve months.
+  const earnedPointsByOrder = new Map<number, number>();
+  const reversedPointsByOrder = new Map<number, number>();
+  for (const e of entries) {
+    if (e.orderId === null || e.status === "void") continue;
+    if (e.type === "earn") {
+      earnedPointsByOrder.set(e.orderId, (earnedPointsByOrder.get(e.orderId) ?? 0) + e.points);
+    } else if (e.type === "reversal") {
+      reversedPointsByOrder.set(e.orderId, (reversedPointsByOrder.get(e.orderId) ?? 0) + Math.abs(e.points));
+    }
+  }
+  const countedMerchandise = (orderId: number): number => {
+    const gross = merchandiseByOrder.get(orderId) ?? 0;
+    const earned = earnedPointsByOrder.get(orderId) ?? 0;
+    const reversed = reversedPointsByOrder.get(orderId) ?? 0;
+    if (earned <= 0 || reversed <= 0) return gross;
+    const kept = Math.max(0, 1 - reversed / earned); // proportional, so partial returns work
+    return Math.floor(gross * kept);
   };
+
+  // ── split the ledger ─────────────────────────────────────────────────────────────
+  const live: LiveEntry[] = [];
+  const toConfirm: { entry: LedgerFacts; maturity: Date }[] = [];
+  let pending = 0;
 
   for (const e of entries) {
     if (e.status === "void") continue;
 
     if (e.status === "confirmed") {
-      balance += e.points;
-      // The expiry clock runs from confirmed EARNS and REDEMPTIONS only. Expiry itself must not
-      // reset it, or points could never lapse; a reversal is not the customer doing anything.
-      if (e.type === "earn" || e.type === "redeem") noteActivity(e.confirmedAt ?? e.createdAt);
+      live.push({
+        id: e.id,
+        type: e.type,
+        points: e.points,
+        at: e.confirmedAt ?? e.createdAt,
+        // Expiry itself must not reset the clock, or points could never lapse; a reversal is not
+        // the customer doing anything.
+        isActivity: e.type === "earn" || e.type === "redeem",
+      });
       continue;
     }
 
     // Pending. Anything that is not an earn is immediate by nature — a redemption is spent the
-    // moment it is made, and a manual adjustment is a decision already taken — so only earns
-    // can legitimately sit pending, waiting on a delivery.
+    // moment it is made, and a manual adjustment is a decision already taken — so only earns can
+    // legitimately sit pending, waiting on a delivery.
     if (e.type !== "earn") {
-      balance += e.points;
-      if (e.type === "redeem") noteActivity(e.createdAt);
+      live.push({ id: e.id, type: e.type, points: e.points, at: e.createdAt, isActivity: e.type === "redeem" });
       continue;
     }
 
     const order = e.orderId === null ? null : orders.get(e.orderId);
-    if (isMature(order, now)) {
-      readyToConfirm.push(e);
-      // Counted as spendable immediately: the hold has objectively elapsed, and making the
-      // customer wait for a database write they cannot see would be the scheduler dependency
-      // this design exists to avoid.
-      balance += e.points;
-      noteActivity(maturesAt(order));
+    const maturity = maturesAt(order);
+    if (maturity !== null && now >= maturity) {
+      toConfirm.push({ entry: e, maturity });
     } else {
       pending += e.points;
     }
   }
 
-  // Tier spend over the trailing window, counted two ways — see the field docs above for why
-  // the difference matters.
-  const windowStart = addMonths(now, -RATES.tierWindowMonths);
-  let windowSpendCents = 0;
-  let confirmedSpendCents = 0;
+  // ── replay the confirmations, oldest first ───────────────────────────────────────
+  //
+  // The order matters: a customer crossing into Bloom partway through a batch gets 1.25x on the
+  // orders that mature after the crossing and 1.0x on the ones before it. Each entry is valued
+  // at ITS OWN maturity date, using only spend confirmed before that date — so this entry's own
+  // merchandise can never push it into the tier that multiplies it, and a late sweep pays the
+  // tier the customer actually held rather than the tier they hold today.
+  toConfirm.sort((a, b) => a.maturity.getTime() - b.maturity.getTime() || a.entry.id - b.entry.id);
+
+  /** (date, merchandise) pairs for spend already confirmed — grows as the replay proceeds. */
+  const confirmedSpend: { at: Date; cents: number }[] = [];
   for (const e of entries) {
-    if (e.type !== "earn" || e.status === "void" || e.orderId === null) continue;
-    const mature = isMature(orders.get(e.orderId), now);
-    if (e.status !== "confirmed" && !mature) continue;
-    const at = e.confirmedAt ?? maturesAt(orders.get(e.orderId)) ?? e.createdAt;
-    if (at < windowStart) continue;
-    const cents = merchandiseByOrder.get(e.orderId) ?? 0;
-    windowSpendCents += cents;
-    if (e.status === "confirmed") confirmedSpendCents += cents;
+    if (e.type !== "earn" || e.status !== "confirmed" || e.orderId === null) continue;
+    confirmedSpend.push({ at: e.confirmedAt ?? e.createdAt, cents: countedMerchandise(e.orderId) });
+  }
+  const spendInWindowAt = (at: Date): number => {
+    const start = addMonths(at, -RATES.tierWindowMonths);
+    let total = 0;
+    for (const s of confirmedSpend) if (s.at >= start && s.at <= at) total += s.cents;
+    return total;
+  };
+
+  const confirm: ConfirmPlan[] = [];
+  let heldNow = { tier: held.tier, earnedAt: held.earnedAt };
+
+  for (const { entry, maturity } of toConfirm) {
+    const tierThen = effectiveTier(tierForSpend(spendInWindowAt(maturity)), heldNow, maturity);
+    const multiplier = multiplierFor(tierThen.tier);
+    const finalPoints = applyMultiplier(entry.points, multiplier);
+
+    confirm.push({
+      entryId: entry.id,
+      basePoints: entry.points,
+      finalPoints,
+      multiplier,
+      tier: tierThen.tier,
+      confirmedAt: maturity,
+    });
+
+    // Counted as spendable immediately, at the MULTIPLIED figure. The hold has objectively
+    // elapsed; making the customer wait for a database write they cannot see would be the
+    // scheduler dependency this design exists to avoid. Counting base points here instead is how
+    // a Bouquet customer's 900 points read as 600 until something happened to call the sweep.
+    live.push({ id: entry.id, type: "earn", points: finalPoints, at: maturity, isActivity: true });
+
+    if (entry.orderId !== null) confirmedSpend.push({ at: maturity, cents: countedMerchandise(entry.orderId) });
+    heldNow = { tier: tierThen.tier, earnedAt: tierThen.earnedAt };
   }
 
-  const expiresAt = lastActivityAt ? addMonths(lastActivityAt, RATES.expiryMonths) : null;
-  const hasLapsed = expiresAt !== null && now >= expiresAt && balance > 0;
+  // ── expiry, applied to the balance rather than merely noticed ────────────────────
+  live.sort((a, b) => a.at.getTime() - b.at.getTime() || a.id - b.id);
+  const expire: ExpiryPlan[] = [];
+  const lapsed = new Set<number>();
 
-  return { balance, pending, readyToConfirm, windowSpendCents, confirmedSpendCents, expiresAt, hasLapsed, lastActivityAt };
+  const activityDates = live.filter((e) => e.isActivity).map((e) => e.at);
+  let cursor: Date | null = activityDates.length ? activityDates[0] : null;
+  let expiresAt: Date | null = null;
+
+  while (cursor !== null) {
+    const due: Date = addMonths(cursor, RATES.expiryMonths);
+    const next = activityDates.find((d) => d > cursor!) ?? null;
+    if (next !== null && next < due) {
+      cursor = next; // the customer came back in time; clock restarts
+      continue;
+    }
+    if (now < due) {
+      expiresAt = due; // not lapsed yet — this is the date to show them
+      break;
+    }
+    // Lapsed. Everything live and dated on or before the due date goes; anything granted after
+    // it survives, so a birthday bonus awarded last week is not destroyed retroactively by a
+    // clock that ran out before it existed.
+    let amount = 0;
+    for (const e of live) {
+      if (lapsed.has(e.id) || e.at > due) continue;
+      lapsed.add(e.id);
+      amount += e.points;
+    }
+    if (amount > 0) {
+      expire.push({
+        points: amount,
+        dueAt: due,
+        reason: `${RATES.expiryMonths} months with no confirmed earn or redemption`,
+      });
+    }
+    cursor = activityDates.find((d) => d > due) ?? null;
+    expiresAt = null;
+  }
+
+  // ── the balance, after everything above ──────────────────────────────────────────
+  let balance = 0;
+  for (const e of live) if (!lapsed.has(e.id)) balance += e.points;
+
+  const lastActivityAt = activityDates.length ? activityDates[activityDates.length - 1] : null;
+  if (expiresAt === null && lastActivityAt !== null && expire.length === 0) {
+    expiresAt = addMonths(lastActivityAt, RATES.expiryMonths);
+  }
+
+  const windowSpendCents = spendInWindowAt(now);
+  const qualifiesFor = tierForSpend(windowSpendCents);
+  const finalTier = effectiveTier(qualifiesFor, heldNow, now);
+
+  return {
+    balance,
+    pending,
+    windowSpendCents,
+    qualifiesFor,
+    tier: finalTier.tier,
+    tierEarnedAt: finalTier.earnedAt,
+    expiresAt,
+    hasLapsed: expire.length > 0,
+    lastActivityAt,
+    plan: {
+      confirm,
+      expire,
+      tier: {
+        tier: finalTier.tier,
+        earnedAt: finalTier.earnedAt,
+        changed: finalTier.tier !== held.tier || finalTier.earnedAt.getTime() !== held.earnedAt.getTime(),
+      },
+    },
+  };
 }
 
 // ───────────────────────────────────────────────────────────────── redeeming
@@ -273,6 +477,7 @@ export type RedemptionQuote =
 export type RedemptionRefusal =
   | "disabled"
   | "not-signed-in"
+  | "bad-input"
   | "negative-balance"
   | "blocked-refusals"
   | "below-minimum"
@@ -284,18 +489,37 @@ export type RedemptionRefusal =
  * What a customer may redeem against a basket, and why not if they may not.
  *
  * The server recomputes this from the ledger on every request — a redemption amount arriving
- * from a browser is never trusted, since the cap depends on a basket the client can change
- * after the quote was issued.
+ * from a browser is never trusted, since the cap depends on a basket the client can change after
+ * the quote was issued.
+ *
+ * `alreadyRedeemedCentsOnOrder` is what makes the cap a property of the ORDER rather than of the
+ * call. Without it the 50% cap was enforced per invocation, so two redemptions of $30 each landed
+ * on one $60 basket and covered 100% of it. The caller must read that figure inside the same
+ * serialisable transaction as the write, or this is check-then-act with extra steps.
  */
 export function quoteRedemption(input: {
   requestedPoints: number;
   balance: number;
   merchandiseCents: number;
+  alreadyRedeemedCentsOnOrder?: number;
   redemptionEnabled: boolean;
   signedIn: boolean;
   refusalCount: number;
 }): RedemptionQuote {
-  const capCents = Math.floor(input.merchandiseCents * RATES.redeemMaxShareOfMerchandise);
+  const alreadyCents = input.alreadyRedeemedCentsOnOrder ?? 0;
+
+  // Refuse non-finite money outright. Every comparison against NaN is false, so a cap expressed
+  // as `requested > cap` silently stops rejecting anything — the cap does not fail loudly, it
+  // just evaporates. `parseCents` at the route boundary is the first line of defence; this is
+  // the second, because one day a caller will skip it.
+  if (!isMoney(input.merchandiseCents) || !isMoney(alreadyCents) || !Number.isSafeInteger(input.balance)) {
+    return { ok: false, reason: "bad-input", detail: "Basket total is not a whole number of cents.", maxPoints: 0 };
+  }
+  if (!Number.isSafeInteger(input.requestedPoints) || input.requestedPoints < 0) {
+    return { ok: false, reason: "bad-input", detail: "Points must be a whole number.", maxPoints: 0 };
+  }
+
+  const capCents = Math.max(0, Math.floor(input.merchandiseCents * RATES.redeemMaxShareOfMerchandise) - alreadyCents);
   const capPoints = toBlocks((capCents / RATES.redeemBlockCents) * RATES.redeemBlockPoints);
   const maxPoints = Math.max(0, Math.min(toBlocks(input.balance), capPoints));
 
@@ -304,8 +528,8 @@ export function quoteRedemption(input: {
 
   if (!input.redemptionEnabled) return no("disabled", "Redeeming points is not switched on yet.");
   // Requiring a signed-in customer replaces the one-time code the brief asked for: there is no
-  // SMS provider and SMTP is unconfigured, so no code could actually be delivered. Nobody
-  // spends points without authenticating either way.
+  // SMS provider and SMTP is unconfigured, so no code could actually be delivered. Nobody spends
+  // points without authenticating either way.
   if (!input.signedIn) return no("not-signed-in", "Sign in to spend your points.");
   if (input.balance < 0) {
     // Reversals can legitimately push a balance below zero. Blocking here, rather than clamping

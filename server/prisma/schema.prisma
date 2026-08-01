@@ -424,6 +424,23 @@ model LoyaltyLedgerEntry {
   /// dropped by the next `prisma db push`. The redundancy is the price of a guard that survives.
   earnOrderId Int? @unique
 
+  /// The same guard, generalised, for every other write that must happen at most once.
+  ///
+  /// `earnOrderId` above covers earning. Everything else was a read-then-write — check whether a
+  /// row exists, then insert if not — which grants twice under a double-click, a client retry or
+  /// a replayed webhook, because both callers read before either wrote. Three of those were live:
+  /// the sign-up bonus, the birthday bonus and the redemption reversal.
+  ///
+  /// Keys are namespaced strings, NULL on entries that have no once-only meaning:
+  ///
+  ///   signup:<accountId>                  the welcome bonus, once per account ever
+  ///   birthday:<accountId>:<year>         once per calendar year
+  ///   redemption-reversal:<orderId>       giving back points spent on a cancelled order
+  ///   reversal:<orderId>:<portion>        clawing back a confirmed earn
+  ///
+  /// Postgres treats NULLs as distinct, so the constraint binds only on rows that set it.
+  dedupeKey String? @unique
+
   /// earn | redeem | reversal | redemptionReversal | expiry | manualAdjustment
   type   String
   /// pending | confirmed | void

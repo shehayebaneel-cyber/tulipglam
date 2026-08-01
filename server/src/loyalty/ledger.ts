@@ -5,17 +5,31 @@
  * the sum of the ledger" an invariant rather than an aspiration, and what makes a customer
  * dispute answerable a year later.
  *
- * The arithmetic lives in `rules.ts` as pure functions. This module fetches rows, hands them
- * over, and persists what comes back.
+ * ── THIS MODULE DOES NO ARITHMETIC ─────────────────────────────────────────────────
  *
- * ── Two properties worth stating up front ──────────────────────────────────────────
+ * `rules.ts` decides; this fetches rows, hands them over, and persists the plan that comes back.
+ * That division is not stylistic. When both files calculated, they drifted — expiry was computed
+ * in one and applied in the other, so expired points stayed spendable; the tier multiplier was
+ * applied on write but not on read, so a Bouquet customer's points were worth two thirds of what
+ * they should be until something happened to call the sweep. Both bugs were invisible because
+ * each file was self-consistent.
  *
- * NOTHING HERE DEPENDS ON A SCHEDULED JOB. Confirmation, tier and expiry are computed from the
- * ledger and the orders behind it every time an account is read. `materialise()` writes those
- * conclusions down, but only as a cache: skip it forever and every balance is still correct.
+ * So if you find yourself adding a calculation below, it belongs in `rules.ts`. The test for
+ * whether this file is still honest: `materialise()` must contain no branch that decides an
+ * amount, a date or a tier.
  *
- * NOTHING HERE MUTATES A BALANCE. `balanceCached` is written, but only ever to the value the
- * ledger already implies. Points move by appending entries — including negative ones.
+ * ── NOTHING HERE DEPENDS ON A SCHEDULED JOB ────────────────────────────────────────
+ *
+ * Confirmation, the multiplier, the tier and expiry are all derived every time an account is
+ * read, and `readAccount` reports them whether or not any row has been written. `materialise()`
+ * writes those same conclusions down so the database agrees with what was reported, which
+ * matters for admin queries, exports and dispute history — but skip it forever and every
+ * customer-facing number stays correct.
+ *
+ * ── NOTHING HERE MUTATES A BALANCE ─────────────────────────────────────────────────
+ *
+ * `balanceCached` is written, but only ever to the value the ledger already implies. Points move
+ * by appending entries — including negative ones.
  */
 import { Prisma, type PrismaClient } from "@prisma/client";
 import {
@@ -26,15 +40,12 @@ import {
   type TierKey,
 } from "./config.js";
 import {
-  addMonths,
-  applyMultiplier,
   basePointsFor,
   computeState,
-  effectiveTier,
+  isMoney,
   merchandiseCentsOf,
-  multiplierFor,
+  pointsToCents,
   quoteRedemption,
-  tierForSpend,
   type AccountState,
   type LedgerFacts,
   type OrderFacts,
@@ -60,11 +71,21 @@ export class LoyaltyError extends Error {
  * The number is normalised here and nowhere else on the write path. Every account key in the
  * system therefore comes from one function, which is the only way two spellings of one number
  * cannot become two accounts.
+ *
+ * THIS FUNCTION DOES NOT BIND A LOGIN. It used to take a `customerId` and attach it to any
+ * existing account that had none, which meant anyone who could reach a caller with a phone number
+ * of their choosing could claim a stranger's balance — verified: 1200 points moved to an
+ * attacker's login, permanently, because the "never re-point an account that already belongs to
+ * somebody" guard then locked the real owner out of their own account.
+ *
+ * Binding a login to a phone is a claim of identity, and there is no way to verify one here: no
+ * SMS provider, no WhatsApp Business API, SMTP unconfigured. The same reasoning already sent
+ * guest back-fill through admin review. Linking goes the same way — see `linkCustomerToAccount`.
  */
 export async function getOrCreateAccount(
   db: Db,
   rawPhone: string,
-  extra: { customerId?: number | null; email?: string } = {},
+  extra: { email?: string } = {},
 ): Promise<{ id: number; phoneE164: string; created: boolean }> {
   const phone = normaliseLebanesePhone(rawPhone);
   if (!phone.ok) {
@@ -73,37 +94,72 @@ export async function getOrCreateAccount(
 
   const existing = await db.loyaltyAccount.findUnique({ where: { phoneE164: phone.e164 } });
   if (existing) {
-    // Link a login to an account that was created from a guest order, without ever re-pointing
-    // an account that already belongs to somebody.
-    if (extra.customerId && !existing.customerId) {
-      await db.loyaltyAccount.update({ where: { id: existing.id }, data: { customerId: extra.customerId } });
-    }
     if (extra.email && !existing.email) {
       await db.loyaltyAccount.update({ where: { id: existing.id }, data: { email: extra.email } });
     }
     return { id: existing.id, phoneE164: existing.phoneE164, created: false };
   }
 
-  const account = await db.loyaltyAccount.create({
-    data: {
-      phoneE164: phone.e164,
-      customerId: extra.customerId ?? null,
-      email: extra.email ?? "",
-    },
+  try {
+    const account = await db.loyaltyAccount.create({
+      data: { phoneE164: phone.e164, email: extra.email ?? "" },
+    });
+    return { id: account.id, phoneE164: account.phoneE164, created: true };
+  } catch (e) {
+    // Two checkouts for the same new number arriving together: one wins the unique index on
+    // phoneE164, the other lands here. Re-read rather than throwing P2002 at the caller — the
+    // account it wanted now exists, which is the outcome it asked for.
+    if (!isUniqueViolation(e)) throw e;
+    const won = await db.loyaltyAccount.findUnique({ where: { phoneE164: phone.e164 } });
+    if (!won) throw e;
+    return { id: won.id, phoneE164: won.phoneE164, created: false };
+  }
+}
+
+/**
+ * Attach a storefront login to a loyalty account.
+ *
+ * Deliberately separate from lookup, deliberately explicit, and NOT to be called with a phone
+ * number the customer typed. Whoever calls this is asserting that the login and the phone belong
+ * to the same person; today the only thing that can honestly assert that is an admin looking at
+ * the order history, which is the same gate guest back-fill goes through.
+ *
+ * Refuses to re-point an account that already belongs to somebody. That guard is necessary but
+ * not sufficient on its own — it is what made the takeover permanent when the binding itself was
+ * reachable from ordinary lookup.
+ */
+export async function linkCustomerToAccount(
+  db: Db,
+  input: { accountId: number; customerId: number; approvedBy: string },
+): Promise<{ linked: boolean }> {
+  const approvedBy = input.approvedBy.trim();
+  if (!approvedBy) throw new LoyaltyError("Initials are required.", "entered-by-required");
+
+  const account = await db.loyaltyAccount.findUnique({ where: { id: input.accountId } });
+  if (!account) throw new LoyaltyError(`No loyalty account ${input.accountId}`, "no-account");
+  if (account.customerId === input.customerId) return { linked: false };
+  if (account.customerId !== null) {
+    throw new LoyaltyError("This loyalty account already belongs to a different login.", "already-linked");
+  }
+
+  // Conditional so two approvals racing produce one link and one no-op, rather than the second
+  // silently overwriting the first.
+  const res = await db.loyaltyAccount.updateMany({
+    where: { id: input.accountId, customerId: null },
+    data: { customerId: input.customerId },
   });
-  return { id: account.id, phoneE164: account.phoneE164, created: true };
+  return { linked: res.count > 0 };
 }
 
 // ───────────────────────────────────────────────────────────────── reading
 
 type LoadedAccount = {
   id: number;
-  tier: TierKey;
-  tierEarnedAt: Date;
+  /** The tier STORED on the row. `state.tier` is the one in force — prefer that. */
+  storedTier: TierKey;
+  storedTierEarnedAt: Date;
   balanceCached: number;
   state: AccountState;
-  /** Tier the trailing-window spend qualifies for, before the hold rule is applied. */
-  qualifiesFor: TierKey;
   refusalCount: number;
 };
 
@@ -137,19 +193,24 @@ async function load(db: Db, accountId: number, now: Date): Promise<LoadedAccount
     merchandise.set(o.id, merchandiseCentsOf(o));
   }
 
-  const state = computeState(entries, orders, merchandise, now);
+  const state = computeState(
+    entries,
+    orders,
+    merchandise,
+    { tier: account.tier as TierKey, earnedAt: account.tierEarnedAt },
+    now,
+  );
 
-  // Refusals are counted from the orders this account actually has entries against, which is
-  // the only link between an account and its orders until history linkage exists as a feature.
+  // Refusals are counted from the orders this account actually has entries against, which is the
+  // only link between an account and its orders until history linkage exists as a feature.
   const refusalCount = orderRows.filter((o) => o.status === "refused").length;
 
   return {
     id: account.id,
-    tier: account.tier as TierKey,
-    tierEarnedAt: account.tierEarnedAt,
+    storedTier: account.tier as TierKey,
+    storedTierEarnedAt: account.tierEarnedAt,
     balanceCached: account.balanceCached,
     state,
-    qualifiesFor: tierForSpend(state.windowSpendCents),
     refusalCount,
   };
 }
@@ -162,15 +223,16 @@ export async function readAccount(db: Db, accountId: number, now = new Date()): 
 // ───────────────────────────────────────────────────────────────── materialising
 
 /**
- * Write down what the rules already imply: confirm matured earns, apply the tier, lapse expired
- * points, refresh the cached balance.
+ * Execute the plan `computeState` produced. Decides nothing.
  *
- * Purely a cache refresh. Every value it writes was already true; not calling it changes no
- * customer-visible number, which is the property that makes the missing cron a cosmetic problem
- * rather than a correctness one.
+ * Every value written here came out of the rules and has ALREADY been reported to whoever read
+ * the account — this only makes the database say the same thing. That is the property that makes
+ * the missing cron a cosmetic problem rather than a correctness one, and it holds because there
+ * is no second calculation in this function to disagree with the first.
  *
- * Idempotent and concurrency-safe: each confirmation is a conditional update matching only rows
- * still `pending`, so two callers racing produce one confirmation and one no-op.
+ * Idempotent and concurrency-safe throughout: confirmations are conditional updates matching only
+ * rows still `pending`, and expiry entries carry a `dedupeKey`, so two callers racing produce one
+ * write and one no-op.
  */
 export async function materialise(db: Db, accountId: number, now = new Date()): Promise<{
   confirmed: number;
@@ -178,97 +240,69 @@ export async function materialise(db: Db, accountId: number, now = new Date()): 
   tierChanged: boolean;
   balance: number;
 }> {
+  const loaded = await load(db, accountId, now);
+  const { plan, balance } = loaded.state;
+
   let confirmed = 0;
-  let expiredPoints = 0;
-
-  let loaded = await load(db, accountId, now);
-
-  // Confirm OLDEST FIRST, recomputing the tier after each one.
-  //
-  // The order matters and is the whole reason this is a loop rather than an updateMany: a
-  // customer crossing into Bloom partway through a batch must get 1.25x on the orders that
-  // confirm after the crossing and 1.0x on the ones before it. Confirming them together, or
-  // newest-first, would either over-pay or under-pay the difference.
-  const ready = [...loaded.state.readyToConfirm].sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
-
-  for (const entry of ready) {
-    // CONFIRMED spend only — not `windowSpendCents`, which also counts matured-but-unconfirmed
-    // earns. Using that would let this entry's own spend, and every sibling maturing alongside
-    // it, count toward the tier that multiplies it: one large order would push the customer to
-    // Bloom and then pay itself 1.25x. The reload at the bottom of this loop is what lets the
-    // NEXT entry see this one's spend.
-    const tierNow = effectiveTier(
-      tierForSpend(loaded.state.confirmedSpendCents),
-      { tier: loaded.tier, earnedAt: loaded.tierEarnedAt },
-      now,
-    );
-    const multiplier = multiplierFor(tierNow.tier);
-
-    // `points` currently holds BASE points — the multiplier is applied at confirmation, not at
-    // placement, because the tier at placement is not the tier that should be honoured.
-    const finalPoints = applyMultiplier(entry.points, multiplier);
-
+  for (const c of plan.confirm) {
     const res = await db.loyaltyLedgerEntry.updateMany({
-      where: { id: entry.id, status: "pending" }, // conditional: a racing caller finds nothing
+      where: { id: c.entryId, status: "pending" }, // conditional: a racing caller finds nothing
       data: {
         status: "confirmed",
-        confirmedAt: now,
-        points: finalPoints,
-        multiplierApplied: new Prisma.Decimal(multiplier),
-        expiresAt: addMonths(now, RATES.expiryMonths),
+        confirmedAt: c.confirmedAt,
+        points: c.finalPoints,
+        multiplierApplied: new Prisma.Decimal(c.multiplier),
+        // `expiresAt` is deliberately NOT written. Expiry is a property of the account's activity
+        // clock, not of an entry: a purchase in month eleven moves the whole balance's expiry, so
+        // a per-entry date recorded at confirmation is wrong by month twelve and there is nothing
+        // that reads it. A stale date on a customer-facing "your points expire on…" line is worse
+        // than no date. The column stays because dropping it is a destructive migration.
       },
     });
-    if (res.count === 0) continue; // somebody else confirmed it first
+    if (res.count > 0) confirmed++;
+  }
 
-    confirmed++;
-    if (tierNow.changed) {
-      await db.loyaltyAccount.update({
-        where: { id: accountId },
-        data: { tier: tierNow.tier, tierEarnedAt: tierNow.earnedAt },
+  let expiredPoints = 0;
+  for (const x of plan.expire) {
+    try {
+      await db.loyaltyLedgerEntry.create({
+        data: {
+          accountId,
+          type: "expiry",
+          status: "confirmed",
+          points: -x.points,
+          confirmedAt: x.dueAt,
+          reason: x.reason,
+          // Keyed on the due date, not on `now`: two callers arriving together compute the same
+          // due date from the same ledger, so the second hits the unique index instead of
+          // writing a second lapse and driving the balance negative.
+          dedupeKey: `expiry:${accountId}:${x.dueAt.toISOString()}`,
+        },
       });
+      expiredPoints += x.points;
+    } catch (e) {
+      if (!isUniqueViolation(e)) throw e; // already written by whoever got here first
     }
-    loaded = await load(db, accountId, now); // spend moved, so the tier may have too
   }
 
-  // Tier can also change with nothing confirming — a demotion falls due at an anniversary.
-  const finalTier = effectiveTier(
-    loaded.qualifiesFor,
-    { tier: loaded.tier, earnedAt: loaded.tierEarnedAt },
-    now,
-  );
-  const tierChanged = finalTier.tier !== loaded.tier;
-  if (tierChanged) {
+  if (plan.tier.changed) {
     await db.loyaltyAccount.update({
       where: { id: accountId },
-      data: { tier: finalTier.tier, tierEarnedAt: finalTier.earnedAt },
-    });
-    loaded = await load(db, accountId, now);
-  }
-
-  // Expiry. Always an entry — points never vanish without a record to point at.
-  if (loaded.state.hasLapsed && loaded.state.balance > 0) {
-    expiredPoints = loaded.state.balance;
-    await db.loyaltyLedgerEntry.create({
-      data: {
-        accountId,
-        type: "expiry",
-        status: "confirmed",
-        points: -expiredPoints,
-        confirmedAt: now,
-        reason: `${RATES.expiryMonths} months with no confirmed earn or redemption`,
-      },
-    });
-    loaded = await load(db, accountId, now);
-  }
-
-  if (loaded.balanceCached !== loaded.state.balance) {
-    await db.loyaltyAccount.update({
-      where: { id: accountId },
-      data: { balanceCached: loaded.state.balance },
+      data: { tier: plan.tier.tier, tierEarnedAt: plan.tier.earnedAt },
     });
   }
 
-  return { confirmed, expiredPoints, tierChanged, balance: loaded.state.balance };
+  // Conditional on the value we read, so a redemption that committed while this was running is
+  // not clobbered by a figure computed before it. Losing the race just means the cache is
+  // refreshed by the next reader; the ledger is the truth either way.
+  if (loaded.balanceCached !== balance) {
+    await db.loyaltyAccount.updateMany({
+      where: { id: accountId, balanceCached: loaded.balanceCached },
+      data: { balanceCached: balance },
+    });
+  }
+
+  return { confirmed, expiredPoints, tierChanged: plan.tier.changed, balance };
 }
 
 // ───────────────────────────────────────────────────────────────── earning
@@ -277,8 +311,8 @@ export async function materialise(db: Db, accountId: number, now = new Date()): 
  * Record the points an order will earn, held pending until the COD hold elapses.
  *
  * Stores BASE points; the multiplier lands at confirmation. Idempotent by database constraint:
- * a second call for the same order hits the unique index on `earnOrderId` and is swallowed, so
- * a replayed status change or a double-submitted checkout cannot grant twice.
+ * a second call for the same order hits the unique index on `earnOrderId` and is swallowed, so a
+ * replayed status change or a double-submitted checkout cannot grant twice.
  */
 export async function recordEarn(
   db: Db,
@@ -309,36 +343,73 @@ export async function recordEarn(
   }
 }
 
-/** 100 points, once per account, ever. */
+/**
+ * 100 points, once per account, ever.
+ *
+ * Guarded by the unique index rather than by a preceding read. The read-then-write version
+ * granted twice under a double-submitted register form, because both requests looked before
+ * either wrote.
+ */
 export async function recordSignupBonus(db: Db, accountId: number, now = new Date()) {
   if (!LOYALTY_ENABLED) return { created: false };
-  const already = await db.loyaltyLedgerEntry.findFirst({
-    where: { accountId, type: "manualAdjustment", reason: { startsWith: SIGNUP_REASON } },
+  return writeOnce(db, {
+    accountId,
+    dedupeKey: `signup:${accountId}`,
+    points: RATES.signupBonusPoints,
+    reason: SIGNUP_REASON,
+    now,
   });
-  if (already) return { created: false };
-  await db.loyaltyLedgerEntry.create({
-    data: {
-      accountId, type: "manualAdjustment", status: "confirmed",
-      points: RATES.signupBonusPoints, confirmedAt: now,
-      reason: SIGNUP_REASON,
-    },
-  });
-  return { created: true };
 }
 
-/** 200 points, once per calendar year. */
-export async function recordBirthdayBonus(db: Db, accountId: number, now = new Date()) {
+/**
+ * 200 points, once per calendar year, and only inside the customer's stated birth month.
+ *
+ * `birthMonth` is passed in rather than read here because the rules own the decision and this
+ * module owns the write. A caller with no birth month on file gets nothing — inventing a month
+ * would grant a bonus on a date that means nothing to the customer.
+ */
+export async function recordBirthdayBonus(
+  db: Db,
+  input: { accountId: number; birthMonth: number | null; now?: Date },
+) {
   if (!LOYALTY_ENABLED) return { created: false };
-  const reason = `${BIRTHDAY_REASON} ${now.getFullYear()}`;
-  const already = await db.loyaltyLedgerEntry.findFirst({ where: { accountId, reason } });
-  if (already) return { created: false };
-  await db.loyaltyLedgerEntry.create({
-    data: {
-      accountId, type: "manualAdjustment", status: "confirmed",
-      points: RATES.birthdayBonusPoints, confirmedAt: now, reason,
-    },
+  const now = input.now ?? new Date();
+  if (!input.birthMonth || input.birthMonth < 1 || input.birthMonth > 12) return { created: false };
+  // Months are 1-12 in the schema and 0-11 from getMonth(). Without this the bonus lands a month
+  // early, every year, for everybody.
+  if (now.getMonth() + 1 !== input.birthMonth) return { created: false };
+
+  return writeOnce(db, {
+    accountId: input.accountId,
+    dedupeKey: `birthday:${input.accountId}:${now.getFullYear()}`,
+    points: RATES.birthdayBonusPoints,
+    reason: `${BIRTHDAY_REASON} ${now.getFullYear()}`,
+    now,
   });
-  return { created: true };
+}
+
+/** Insert a confirmed entry that must exist at most once, letting Postgres do the deciding. */
+async function writeOnce(
+  db: Db,
+  input: { accountId: number; dedupeKey: string; points: number; reason: string; now: Date },
+): Promise<{ created: boolean }> {
+  try {
+    await db.loyaltyLedgerEntry.create({
+      data: {
+        accountId: input.accountId,
+        type: "manualAdjustment",
+        status: "confirmed",
+        points: input.points,
+        confirmedAt: input.now,
+        reason: input.reason,
+        dedupeKey: input.dedupeKey,
+      },
+    });
+    return { created: true };
+  } catch (e) {
+    if (isUniqueViolation(e)) return { created: false };
+    throw e;
+  }
 }
 
 const SIGNUP_REASON = "Welcome bonus";
@@ -367,8 +438,11 @@ export async function voidEarnForOrder(db: Db, orderId: number, reason: string) 
  * PORTION BELOW 1 TODAY, and that is deliberate rather than an oversight: the order system does
  * not model partial refusal, so there is no field recording refunded merchandise value and no
  * honest way to compute the share automatically. The arithmetic lives here so that an admin
- * making the judgement by hand has one correct implementation to call. See the note in the
- * stage-2 report.
+ * making the judgement by hand has one correct implementation to call.
+ *
+ * Keyed on (order, portion), so a retried request or a double-clicked button reverses once. A
+ * genuine second reversal of the same order at the same portion is not expressible, and should
+ * not be — that is what `manualAdjustment` is for, with a reason attached.
  */
 export async function reverseEarn(
   db: Db,
@@ -379,64 +453,97 @@ export async function reverseEarn(
 
   const earns = await db.loyaltyLedgerEntry.findMany({
     where: { orderId: input.orderId, type: "earn", status: "confirmed" },
+    orderBy: { id: "asc" },
   });
   if (earns.length === 0) return { reversed: 0, points: 0 };
 
   let total = 0;
+  let reversed = 0;
   for (const e of earns) {
     // Rounded so the customer keeps the fraction rather than the shop.
     const take = Math.floor(e.points * portion);
     if (take <= 0) continue;
-    await db.loyaltyLedgerEntry.create({
-      data: {
-        accountId: e.accountId, orderId: input.orderId,
-        type: "reversal", status: "confirmed",
-        points: -take, confirmedAt: now,
-        reason: input.reason, createdBy: input.enteredBy ?? "",
-      },
-    });
-    total += take;
+    try {
+      await db.loyaltyLedgerEntry.create({
+        data: {
+          accountId: e.accountId, orderId: input.orderId,
+          type: "reversal", status: "confirmed",
+          points: -take, confirmedAt: now,
+          reason: input.reason, createdBy: input.enteredBy ?? "",
+          dedupeKey: `reversal:${e.id}:${portion}`,
+        },
+      });
+      total += take;
+      reversed++;
+    } catch (err) {
+      if (!isUniqueViolation(err)) throw err; // already clawed back
+    }
   }
-  return { reversed: earns.length, points: total };
+  return { reversed, points: total };
 }
 
-/** Give back points spent on an order that was cancelled or refused. */
+/**
+ * Give back points spent on an order that was cancelled or refused.
+ *
+ * The old version read for an existing reversal and then wrote, which restored twice when a
+ * status change double-fired. The key does the deciding now.
+ */
 export async function reverseRedemption(db: Db, orderId: number, reason: string, now = new Date()) {
   const spends = await db.loyaltyLedgerEntry.findMany({
     where: { orderId, type: "redeem" },
+    orderBy: { id: "asc" },
   });
-  const alreadyBack = await db.loyaltyLedgerEntry.findFirst({
-    where: { orderId, type: "redemptionReversal" },
-  });
-  if (alreadyBack || spends.length === 0) return { restored: 0 };
+  if (spends.length === 0) return { restored: 0 };
 
   let restored = 0;
   for (const s of spends) {
-    await db.loyaltyLedgerEntry.create({
-      data: {
-        accountId: s.accountId, orderId,
-        type: "redemptionReversal", status: "confirmed",
-        points: Math.abs(s.points), confirmedAt: now, reason,
-      },
-    });
-    restored += Math.abs(s.points);
+    try {
+      await db.loyaltyLedgerEntry.create({
+        data: {
+          accountId: s.accountId, orderId,
+          type: "redemptionReversal", status: "confirmed",
+          points: Math.abs(s.points), confirmedAt: now, reason,
+          dedupeKey: `redemption-reversal:${s.id}`,
+        },
+      });
+      restored += Math.abs(s.points);
+    } catch (e) {
+      if (!isUniqueViolation(e)) throw e;
+    }
   }
   return { restored };
 }
 
 // ───────────────────────────────────────────────────────────────── redeeming
 
+/** Points already taken off this order, in cents. The 50% cap is a property of the ORDER. */
+async function redeemedCentsOnOrder(db: Db, orderId: number): Promise<number> {
+  const rows = await db.loyaltyLedgerEntry.findMany({
+    where: { orderId, type: "redeem", status: { not: "void" } },
+    select: { points: true },
+  });
+  const reversals = await db.loyaltyLedgerEntry.findMany({
+    where: { orderId, type: "redemptionReversal", status: { not: "void" } },
+    select: { points: true },
+  });
+  const spent = rows.reduce((n, r) => n + Math.abs(r.points), 0);
+  const back = reversals.reduce((n, r) => n + Math.abs(r.points), 0);
+  return pointsToCents(Math.max(0, spent - back));
+}
+
 /** What may be redeemed, without writing anything. Safe for a preview endpoint. */
 export async function previewRedemption(
   db: Db,
-  input: { accountId: number; requestedPoints: number; merchandiseCents: number; signedIn: boolean; now?: Date },
+  input: { accountId: number; orderId?: number; requestedPoints: number; merchandiseCents: number; signedIn: boolean; now?: Date },
 ): Promise<RedemptionQuote> {
   const now = input.now ?? new Date();
   const loaded = await load(db, input.accountId, now);
+  const already = input.orderId ? await redeemedCentsOnOrder(db, input.orderId) : 0;
   return quoteRedemption({
     requestedPoints: input.requestedPoints,
     balance: loaded.state.balance,
     merchandiseCents: input.merchandiseCents,
+    alreadyRedeemedCentsOnOrder: already,
     redemptionEnabled: LOYALTY_REDEMPTION_ENABLED,
     signedIn: input.signedIn,
     refusalCount: loaded.refusalCount,
@@ -446,10 +553,10 @@ export async function previewRedemption(
 /**
  * Spend points on an order.
  *
- * Runs SERIALIZABLE and re-reads the balance inside the transaction, so two checkout tabs
- * redeeming the same points cannot both succeed — one commits and the other fails its
- * serialisation check. Reading the balance before opening the transaction and trusting it would
- * be the obvious exploit, and it is the one that gets found.
+ * Runs SERIALIZABLE and re-reads BOTH the balance and what this order has already had redeemed
+ * against it inside the transaction. Reading either before opening the transaction and trusting
+ * it is the obvious exploit, and it is the one that gets found: the cap used to be evaluated per
+ * call, so two redemptions of $30 landed on one $60 basket and covered all of it.
  *
  * The caller must pass a PrismaClient, not a transaction handle: this opens its own.
  */
@@ -466,13 +573,19 @@ export async function redeem(
 ): Promise<{ points: number; cents: number }> {
   const now = input.now ?? new Date();
 
+  if (!isMoney(input.merchandiseCents)) {
+    throw new LoyaltyError("Basket total is not a whole number of cents.", "bad-input");
+  }
+
   return db.$transaction(
     async (tx) => {
       const loaded = await load(tx, input.accountId, now);
+      const already = await redeemedCentsOnOrder(tx, input.orderId);
       const quote = quoteRedemption({
         requestedPoints: input.requestedPoints,
         balance: loaded.state.balance,
         merchandiseCents: input.merchandiseCents,
+        alreadyRedeemedCentsOnOrder: already,
         redemptionEnabled: LOYALTY_REDEMPTION_ENABLED,
         signedIn: input.signedIn,
         refusalCount: loaded.refusalCount,
@@ -491,8 +604,8 @@ export async function redeem(
         },
       });
 
-      // Written inside the same transaction so a concurrent reader never sees a balance that
-      // has not had this redemption taken off it.
+      // Written inside the same transaction so a concurrent reader never sees a balance that has
+      // not had this redemption taken off it.
       await tx.loyaltyAccount.update({
         where: { id: input.accountId },
         data: { balanceCached: loaded.state.balance - quote.points },
@@ -514,8 +627,8 @@ export async function redeem(
  * Nothing may ever trust it for authorisation. The accountability that works here is the
  * mandatory reason and the timestamp.
  *
- * NOTE FOR WHOEVER READS THIS NEXT: the moment a second person has admin access, real
- * per-admin identity stops being optional.
+ * NOTE FOR WHOEVER READS THIS NEXT: the moment a second person has admin access, real per-admin
+ * identity stops being optional.
  */
 export async function manualAdjustment(
   db: Db,
@@ -561,13 +674,17 @@ export type GuestClaim = {
 /**
  * Delivered guest orders whose phone matches this account and which nobody has ruled on.
  *
- * DERIVED, not a queue table. A pending claim is simply a match with no decision recorded
- * against it, so there is no second copy of the truth to fall out of step.
+ * DERIVED, not a queue table. A pending claim is simply a match with no decision recorded against
+ * it, so there is no second copy of the truth to fall out of step.
  *
- * Deliberately does NOT touch Order.customerId. Attaching a past guest order to an account
- * changes what appears in that customer's order history — addresses, items, everything — which
- * is an orders-domain decision with its own privacy weight, not something loyalty should do as
- * a side effect. Approving a claim writes ledger entries and nothing else.
+ * A match is a CANDIDATE, never an approval. Anyone can type a stranger's number at checkout, so
+ * the phone proves nothing on its own — an admin decides, which is the same gate that now governs
+ * linking a login to an account.
+ *
+ * Deliberately does NOT touch Order.customerId. Attaching a past guest order to an account changes
+ * what appears in that customer's order history — addresses, items, everything — which is an
+ * orders-domain decision with its own privacy weight, not something loyalty should do as a side
+ * effect. Approving a claim writes ledger entries and nothing else.
  */
 export async function pendingGuestClaims(db: Db, accountId: number, now = new Date()): Promise<GuestClaim[]> {
   const account = await db.loyaltyAccount.findUnique({ where: { id: accountId } });
