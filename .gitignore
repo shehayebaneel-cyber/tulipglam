@@ -16,3 +16,7 @@ server/uploads
 _backups
 .DS_Store
 _design
+
+# stray dev-server logs
+web/vite.log
+server/*.log
