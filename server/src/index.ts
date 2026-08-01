@@ -17,8 +17,9 @@ import {
   assertLoyaltyConfig, LOYALTY_SWEEP_SECRET,
 } from "./loyalty/hooks.js";
 import { LOYALTY_ENABLED } from "./loyalty/config.js";
-import { repricePendingEarn } from "./loyalty/ledger.js";
+import { repricePendingEarn, readAccount } from "./loyalty/ledger.js";
 import { merchandiseCentsOf } from "./loyalty/rules.js";
+import { buildView, emptyView, HISTORY_LIMIT } from "./loyalty/present.js";
 import { runSweep } from "./loyalty/sweep.js";
 
 const db = new PrismaClient();
@@ -317,7 +318,9 @@ app.get("/api/site", asyncH(async (_req, res) => {
     // Feature flags so the client never advertises a section that would come back empty.
     // The men/women totals went with the /men and /women shelves; the per-category split
     // below is what the department dropdowns and the shop filter still use.
-    flags: { hasSale: saleCount > 0 },
+    // `loyalty` gates the Rewards link in the account area. Off means the programme is not
+    // mentioned anywhere on the storefront — no link, no teaser, no disabled entry.
+    flags: { hasSale: saleCount > 0, loyalty: LOYALTY_ENABLED },
     trust: trustItems(settings),
   });
 }));
@@ -754,6 +757,92 @@ app.post("/api/orders", withCustomer, asyncH(async (req, res) => {
   if (order.email) sendMail(settings, order.email, `Order ${order.number} received`, orderConfirmationEmail(settings.storeName ?? "TulipGlam", fullName, order.number, "$" + (total / 100).toFixed(2)));
 
   res.json({ number: order.number, totalCents: total, subtotalCents: subtotal, discountCents: discount, giftCardCents: giftUsed, deliveryCents: delivery, whatsappNumber: settings.whatsappNumber ?? "" });
+}));
+
+// ============================================================ LOYALTY (customer-facing)
+
+/**
+ * The signed-in customer's rewards page, in one call.
+ *
+ * ── OWNERSHIP ──────────────────────────────────────────────────────────────────────
+ *
+ * The account is found by `customerId`, taken from the verified JWT by `requireCustomer`. It is
+ * NEVER found by anything the client sends. Not a phone number, not an account id, not an email.
+ * There is no parameter on this route at all, which is the only version of this that cannot be
+ * got wrong later: a filter you could pass is a filter someone will eventually pass.
+ *
+ * That rule comes from a real finding. `getOrCreateAccount` used to accept a customerId and bind
+ * it to whatever phone it was handed, and 1,200 points moved to an attacker's login in a test
+ * against the live database. Looking an account up by a client-supplied phone here would be the
+ * same mistake with a different shape — a phone number typed into a form proves nothing about
+ * who owns it, and there is no SMS provider to prove otherwise.
+ *
+ * ── NO ENUMERATION SURFACE ─────────────────────────────────────────────────────────
+ *
+ * There is deliberately no endpoint anywhere that answers "does this phone have an account", "is
+ * this number registered" or "how many points does account 91 have". This route answers exactly
+ * one question, about exactly one account, to the person holding that account's token. A
+ * customer with no account gets the empty view — the same body a brand-new customer gets — so
+ * even the existence of an account is not observable from outside.
+ */
+app.get("/api/loyalty/me", requireCustomer, asyncH(async (req, res) => {
+  if (!LOYALTY_ENABLED) return res.status(404).json({ error: "Not found." });
+
+  const customerId = (req as express.Request & { customerId?: number }).customerId!;
+  const account = await db.loyaltyAccount.findUnique({ where: { customerId } });
+
+  // ─────────────────────────────────────────────────────────────────────────────────
+  //  DECISION PENDING — the sign-up bonus for accounts that predate the programme.
+  //
+  //  This is the seam. An account created before LOYALTY_ENABLED was flipped has no welcome
+  //  bonus, because `recordSignupBonus` returns early while the flag is off. Granting it
+  //  lazily on first read after launch would go HERE, before `readAccount`, as:
+  //
+  //      await safely("signup bonus", () => recordSignupBonus(db, account.id));
+  //
+  //  It is already safe to call: keyed `signup:<accountId>` on a unique index, so it grants
+  //  exactly once however many times this route is hit, and `safely` means a failure cannot
+  //  break the page. The reason it is not written is that it is a business decision with a real
+  //  cost — every pre-existing customer becomes 100 points richer the moment they open the
+  //  page — and the amount is unbounded until you know how many accounts that is.
+  //
+  //  Flagged, not decided. Awaiting a call.
+  // ─────────────────────────────────────────────────────────────────────────────────
+
+  if (!account) return res.json(emptyView());
+
+  const now = new Date();
+  const { state } = await readAccount(db, account.id, now);
+
+  const entries = await db.loyaltyLedgerEntry.findMany({
+    where: { accountId: account.id },
+    orderBy: { createdAt: "desc" },
+    // Bounded at the query, not after: an account with years of history must not pull every row
+    // into memory to show forty of them.
+    take: HISTORY_LIMIT + 1,
+    select: {
+      id: true, type: true, status: true, points: true, orderId: true,
+      createdAt: true, confirmedAt: true, multiplierApplied: true,
+      reason: true, dedupeKey: true,
+    },
+  });
+
+  const orderIds = [...new Set(entries.map((e) => e.orderId).filter((v): v is number => v !== null))];
+  const orderRows = orderIds.length
+    ? await db.order.findMany({ where: { id: { in: orderIds } }, select: { id: true, number: true, status: true, deliveredAt: true } })
+    : [];
+
+  const orders = new Map(orderRows.map((o) => [o.id, { id: o.id, status: o.status, deliveredAt: o.deliveredAt }]));
+  const orderNumbers = new Map(orderRows.map((o) => [o.id, o.number]));
+
+  res.setHeader("Cache-Control", "no-store");
+  res.json(buildView({
+    state,
+    entries: entries.map((e) => ({ ...e, multiplierApplied: e.multiplierApplied === null ? 1 : Number(e.multiplierApplied) })) as never,
+    orders,
+    orderNumbers,
+    now,
+  }));
 }));
 
 // ============================================================ INTERNAL (shared secret)

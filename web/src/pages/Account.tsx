@@ -4,7 +4,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { api, usd, type Address, type Order } from "../lib/api";
 import { useStore } from "../lib/store";
 import { ProductGlyph } from "../components/ProductGlyph";
-import { UserIcon, BoxIcon, HeartIcon, ChevronRight, PlusIcon, TrashIcon, Spinner, CloseIcon } from "../components/ui";
+import { UserIcon, BoxIcon, HeartIcon, ChevronRight, PlusIcon, TrashIcon, Spinner, CloseIcon, StarIcon } from "../components/ui";
 
 export function Account() {
   const { customer, authReady, logout, wishlist, setCustomer, site } = useStore();
@@ -29,6 +29,20 @@ export function Account() {
         </div>
         <button onClick={() => { logout(); navigate("/"); }} className="btn btn-ghost px-5 py-2.5 text-[13px]">Sign out</button>
       </div>
+
+      {/* Only when the programme is on. A "Rewards" link that 404s, or that opens a page
+          explaining a scheme nobody can join yet, is worse than no link — the same rule the
+          Sale link follows. */}
+      {site?.flags.loyalty && (
+        <Link to="/rewards" className="mt-5 flex items-center gap-3 rounded-2xl border border-line bg-plum-soft/50 p-4 transition hover:border-plum/40">
+          <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-surface text-plum"><StarIcon className="h-5 w-5" /></span>
+          <div className="min-w-0 flex-1">
+            <p className="text-[14px] font-semibold text-ink">TulipGlam Rewards</p>
+            <p className="text-[12px] text-muted">Your points, your tier, and what you’ve earned</p>
+          </div>
+          <ChevronRight className="h-4 w-4 shrink-0 text-muted" />
+        </Link>
+      )}
 
       <div className="mt-6 flex gap-1 border-b border-line">
         {([["orders", "Orders"], ["addresses", "Addresses"], ["profile", "Profile"]] as const).map(([k, l]) => (

@@ -49,7 +49,7 @@ export type TrustItem = { title: string; body: string };
  * `audience` field itself is very much alive: it drives the "For him / For her" filter, the
  * department dropdowns, and the admin tooling.
  */
-export type SiteFlags = { hasSale: boolean };
+export type SiteFlags = { hasSale: boolean; loyalty: boolean };
 
 export type SiteData = {
   settings: Record<string, string>;
@@ -105,6 +105,40 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
   return body as T;
 }
 
+/**
+ * The rewards page, as the server computed it.
+ *
+ * EVERY number and EVERY sentence here is server-derived, including the progress percentage and
+ * the "confirms 14 Aug" note. Nothing on the page may recompute any of it — a threshold divided
+ * by a spend figure in JSX is `tierForSpend` reimplemented, and it goes stale silently the first
+ * time a rate changes. If the page needs a number that is not on this type, add it to
+ * `server/src/loyalty/present.ts`, not to the component.
+ */
+export type RewardsFact = { key: string; title: string; body: string };
+export type RewardsHistoryEntry = {
+  id: number; title: string; detail: string;
+  points: number; pointsLabel: string;
+  at: string; atLabel: string;
+  tone: "credit" | "debit" | "waiting";
+};
+export type RewardsTier = { key: string; label: string; multiplier: number; multiplierLabel: string; perks: string[] };
+export type Rewards = {
+  enabled: boolean;
+  /** When false the page says NOTHING about spending points. No disabled panel, no "soon". */
+  redemptionEnabled: boolean;
+  linked: boolean;
+  available: number; availableLabel: string;
+  pending: number; pendingLabel: string; pendingNote: string;
+  tier: RewardsTier;
+  next: { key: string; label: string; toGoCents: number; toGoLabel: string; percent: number; multiplierLabel: string } | null;
+  spendLabel: string;
+  expiresAtLabel: string;
+  history: RewardsHistoryEntry[];
+  historyTruncated: boolean;
+  facts: RewardsFact[];
+  earnRateLabel: string;
+};
+
 export type Customer = { id: number; email: string; fullName: string; phone: string };
 export type Address = { id: number; label: string; fullName: string; phone: string; area: string; city: string; address: string; isDefault: boolean };
 
@@ -143,6 +177,10 @@ export const api = {
   addAddress: (body: unknown) => req<{ id: number }>("/auth/addresses", { method: "POST", body: JSON.stringify(body) }),
   updateAddress: (id: number, body: unknown) => req<{ ok: boolean }>(`/auth/addresses/${id}`, { method: "PUT", body: JSON.stringify(body) }),
   deleteAddress: (id: number) => req<{ ok: boolean }>(`/auth/addresses/${id}`, { method: "DELETE" }),
+  // Takes no arguments, and that is the design. The account is resolved from the bearer token
+  // server-side; there is no phone, id or email to pass, so there is nothing here that a caller
+  // could point at somebody else's account.
+  rewards: () => req<Rewards>("/loyalty/me"),
 };
 
 export const usd = (cents: number) => "$" + (cents / 100).toFixed(cents % 100 === 0 ? 0 : 2);

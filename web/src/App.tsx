@@ -14,6 +14,7 @@ import { Brands } from "./pages/Brands";
 import { GiftCards } from "./pages/GiftCards";
 import { Contact } from "./pages/Contact";
 import { Account } from "./pages/Account";
+import { Rewards } from "./pages/Rewards";
 import { Login } from "./pages/Login";
 import { ForgotPassword, ResetPassword } from "./pages/Password";
 import { Info } from "./pages/Info";
@@ -109,6 +110,7 @@ const router = createBrowserRouter([
       { path: "/gift-cards", element: <GiftCards /> },
       { path: "/contact", element: <Contact /> },
       { path: "/account", element: <Account /> },
+      { path: "/rewards", element: <Rewards /> },
       { path: "/login", element: <Login mode="login" /> },
       { path: "/register", element: <Login mode="register" /> },
       { path: "/forgot-password", element: <ForgotPassword /> },
