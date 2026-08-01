@@ -435,9 +435,98 @@ audience page includes unisex. Gone: the routes, both nav links, `pages/Audience
 on `/api/site`), the `Facets.audience` counts, `Brand.audience`, the admin editor/filter/bulk
 action, and `scripts/classify-audience.ts`.
 
+## TulipGlam Rewards (built Aug 2026) — `server/src/loyalty/`
+
+A points programme built around two constraints that kill the usual architecture:
+**orders are cash on delivery** (so points cannot be granted at placement — COD orders get
+refused at the door), and **Render's free tier spins down** (so there is no reliable cron).
+
+**Off by default.** `LOYALTY_ENABLED` and `LOYALTY_REDEMPTION_ENABLED` are separate flags.
+Redemption stays off until the courier can be told the discounted amount at the door — today
+the only place a total reaches a human is a WhatsApp message the *customer* composes.
+
+### The one rule that shapes everything
+**`rules.ts` decides; `ledger.ts` writes.** `computeState` returns the state *and a plan* —
+the exact rows `materialise()` must write. `materialise()` executes it and calculates nothing.
+
+This is not stylistic. The two used to both calculate and they drifted: expiry was computed in
+one and applied in the other (so expired points stayed spendable forever on a server where the
+sweep never runs — which is every server, by design), and the tier multiplier was applied on
+write but not on read (so a Bouquet customer's points were worth two-thirds of what they should
+be). Both were live; neither was caught, because each file was self-consistent with itself.
+**If you are adding a calculation to `ledger.ts`, it belongs in `rules.ts`.**
+
+### Rules worth knowing before touching it
+- **The rate you see when you order is the rate you get.** The multiplier is stamped on the earn
+  at placement and honoured at maturity, never re-derived. The COD hold is *our* mechanism and a
+  tier anniversary falling inside it must not cost the customer points. Runs both ways: an order
+  placed at Petal pays Petal even after a promotion.
+- **A new tier applies from the next order.** An order can never buy the tier that pays it.
+- **Points confirm 7 days after delivery**, from `Order.deliveredAt` — a stored timestamp, so the
+  answer is the same whether or not any job has run.
+- **A loyalty failure must never cost a sale.** Every hook goes through `safely()` — swallowed,
+  logged, 4s timeout. Tested by forcing a real throw on the genuine checkout path.
+- **Free delivery is a real perk**, honoured in checkout via `tierDeliveryCents`, composing with
+  the store-wide threshold as the *lower* of the two. It was advertised for a while before
+  anything honoured it; don't let that recur.
+- **`enteredBy` is self-declared and must never be trusted for authorisation.** The moment a
+  second person has the admin key, real per-admin identity stops being optional.
+
+### Identity — read this before adding any lookup
+Accounts are keyed by **phone (E.164, via `phone.ts`)**. `getOrCreateAccount` once accepted a
+`customerId` and bound it to a caller-supplied phone; **1,200 points moved to an attacker's
+login in a test against the live database.** Lookup no longer binds anything.
+
+- `GET /api/loyalty/me` takes **no parameter at all** and resolves the account from the JWT.
+  There is deliberately **no endpoint anywhere that answers "does this phone have an account"**.
+- `autoLinkOnFirstRead` links only when the phone has **no existing account and no delivered
+  orders** — provably nothing to steal. Everything with history goes to the admin queue.
+- `linkCustomerToAccount` is admin-only and explicit.
+
+### Surfaces
+| | |
+|---|---|
+| `rules.ts` | all arithmetic, pure, no I/O |
+| `ledger.ts` | the only module that writes entries |
+| `present.ts` | customer-facing shaping — **no internal vocabulary ever leaves here** |
+| `admin.ts` | the operator view — raw types, ids and reasons, deliberately |
+| `hooks.ts` | order-pipeline hooks + `safely()` + the delivery perk |
+| `sweep.ts` | `POST /api/internal/loyalty-sweep`, bounded, shared-secret |
+
+`/rewards` (customer) · `/admin/loyalty` (operator). `/api/site` carries `flags.loyalty`, so
+nothing is advertised while the programme is off.
+
+**The sweep is a cache refresh, not a cron.** Skip it forever and every customer-visible number
+stays correct — `sweepChangesNothing` asserts exactly that against the database.
+
+### Tests
+```
+node --import tsx scripts/test-loyalty-ledger.mjs --write   # 240
+node --import tsx scripts/test-loyalty-rewards.mjs --write  #  97
+node --import tsx scripts/test-loyalty-phone.mjs           #  76
+node --import tsx scripts/test-loyalty-admin.mjs --write    #  70
+node --import tsx scripts/test-loyalty-hooks.mjs --write    #  63
+node --import tsx scripts/test-security.mjs --write         #  39
+```
+
+### Still open
+- **Redemption has no UI and no route.** The ledger supports it; the process does not.
+- Registration still answers 200/400 by whether an email exists — the cheap paths are closed
+  and the endpoint is rate-limited, but the full fix needs SMTP. Flagged in the test output.
+
+## Boot guards — the server refuses to start when
+- `JWT_SECRET` is missing, under 24 chars, equal to `ADMIN_KEY`, or the old repo constant.
+  **Unconditional** — every ownership check rests on it. (`assertAuthConfig`)
+- `COMING_SOON=true` and `PREVIEW_KEY` is missing or weak. (`assertComingSoonConfig`)
+- `LOYALTY_ENABLED=true` and `LOYALTY_SWEEP_SECRET` is missing or weak. (`assertLoyaltyConfig`)
+- `NODE_ENV=production` and `ADMIN_KEY` is still the dev default.
+
+The last three are enforced **only while their feature is on**, so a missing value cannot take
+production down over something switched off. The first one is not, because auth is never off.
+
 ## Phase 3 ideas (not started)
 Automated WhatsApp Business API notifications, richer promo/hero management UI (multiple banners),
-per-product New-Arrivals date overrides, product bundles, loyalty/points.
+per-product New-Arrivals date overrides, product bundles.
 
 ## Deploy (NOT done — ask first)
 Single Render web service like the other stores (server serves `web/dist` — fallthrough already in
