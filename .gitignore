@@ -20,3 +20,6 @@ _design
 # stray dev-server logs
 web/vite.log
 server/*.log
+
+# local database backups — never commit customer data
+backups/
