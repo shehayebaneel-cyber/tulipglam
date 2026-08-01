@@ -40,8 +40,72 @@ const qs = (params: Record<string, string | number | undefined>) => {
   return s ? `?${s}` : "";
 };
 
+
+/**
+ * Loyalty admin types.
+ *
+ * These deliberately carry the RAW ledger vocabulary — `redemptionReversal`, `void`,
+ * `dedupeKey`, row ids. The customer-facing `Rewards` type in lib/api.ts carries none of it.
+ * Two shapes for two audiences, and the customer one is the one that must never leak machinery.
+ */
+export type LoyaltyDashboard = {
+  outstandingPoints: number; liabilityCents: number; centsPerPoint: number;
+  pendingPoints: number; pendingLiabilityCents: number;
+  issuedThisMonth: number; redeemedThisMonth: number; expiredThisMonth: number;
+  accounts: number; linkedAccounts: number;
+  tiers: { key: string; label: string; count: number }[];
+  monthLabel: string;
+};
+
+export type LoyaltyHit = {
+  id: number; phoneE164: string; phoneDisplay: string;
+  customerId: number | null; customerName: string; customerEmail: string;
+  tier: string; balanceCached: number; createdAt: string;
+};
+
+export type LoyaltyClaim = {
+  orderId: number; number: string; deliveredAt: string | null;
+  merchandiseCents: number; basePoints: number;
+  matchedOn: string; customerName: string;
+  decision: { decision: string; decidedBy: string; note: string; decidedAt: string } | null;
+};
+
+export type LoyaltyLedgerRow = {
+  id: number; type: string; status: string; points: number; multiplierApplied: number;
+  orderId: number | null; orderNumber: string | null; orderStatus: string | null;
+  reason: string; enteredBy: string; dedupeKey: string | null;
+  createdAt: string; confirmedAt: string | null;
+};
+
+export type LoyaltyAccountDetail = {
+  id: number; phoneE164: string; phoneDisplay: string; email: string; createdAt: string;
+  customer: { id: number; fullName: string; email: string } | null;
+  refusalCount: number; redemptionBlocked: boolean;
+  stored: { tier: string; tierEarnedAt: string; balanceCached: number };
+  derived: {
+    balance: number; pending: number; tier: string; tierEarnedAt: string;
+    qualifiesFor: string; windowSpendCents: number;
+    expiresAt: string | null; hasLapsed: boolean;
+    pendingWrites: { confirm: number; expirePoints: number; tierChange: string | null };
+  };
+  claims: { guest: LoyaltyClaim[]; signedIn: LoyaltyClaim[] };
+  entries: LoyaltyLedgerRow[];
+};
+
 export const adminApi = {
   summary: () => req<AdminSummary>("/summary"),
+  // loyalty — behind the same x-admin-key gate as everything else here
+  loyaltyDashboard: () => req<LoyaltyDashboard>("/loyalty/dashboard"),
+  loyaltyAccounts: (q: string) => req<{ accounts: LoyaltyHit[] }>(`/loyalty/accounts${qs({ q })}`),
+  loyaltyAccount: (id: number) => req<LoyaltyAccountDetail>(`/loyalty/accounts/${id}`),
+  loyaltyAdjust: (id: number, body: { points: number; reason: string; enteredBy: string; orderId?: number }) =>
+    req<{ ok: boolean; id: number }>(`/loyalty/accounts/${id}/adjust`, { method: "POST", body: JSON.stringify(body) }),
+  loyaltyDecideClaim: (id: number, orderId: number, body: { decision: "approved" | "rejected"; decidedBy: string; note: string }) =>
+    req<{ ok: boolean; granted: number }>(`/loyalty/accounts/${id}/claims/${orderId}`, { method: "POST", body: JSON.stringify(body) }),
+  loyaltyLink: (id: number, body: { customerId: number; approvedBy: string }) =>
+    req<{ ok: boolean; linked: boolean }>(`/loyalty/accounts/${id}/link`, { method: "POST", body: JSON.stringify(body) }),
+  loyaltyMaterialise: (id: number) =>
+    req<{ confirmed: number; expiredPoints: number; tierChanged: boolean; balance: number }>(`/loyalty/accounts/${id}/materialise`, { method: "POST" }),
   /** Everything unconfigured or placeholder-valued, for the Dashboard banner. */
   setup: () => req<{ checks: SetupCheck[]; adminKeyIsDefault: boolean }>("/setup"),
   catalogueHealth: () => req<CatalogueHealth>("/catalogue-health"),

@@ -270,6 +270,7 @@ model Order {
   items          OrderItem[]
   events         OrderEvent[]
   loyaltyEntries LoyaltyLedgerEntry[]
+  loyaltyClaimDecisions LoyaltyClaimDecision[]
   createdAt      DateTime             @default(now())
   updatedAt      DateTime             @updatedAt
 
@@ -398,10 +399,46 @@ model LoyaltyAccount {
   balanceCached Int @default(0)
 
   entries   LoyaltyLedgerEntry[]
+  decisions LoyaltyClaimDecision[]
   createdAt DateTime             @default(now())
   updatedAt DateTime             @updatedAt
 
   @@index([tier])
+}
+
+/// An admin's ruling on whether a past order belongs to a loyalty account.
+///
+/// The QUEUE itself is derived, not stored: a pending claim is simply a phone match with no row
+/// here against it (see `pendingGuestClaims`). This table records only the DECISIONS, so there is
+/// no second copy of "what is outstanding" to fall out of step with the orders it describes.
+///
+/// A rejection matters as much as an approval — without a row, a claim an admin has already
+/// looked at and refused would reappear in the queue on every visit, and the fifth time it
+/// appeared somebody would approve it just to make it go away.
+model LoyaltyClaimDecision {
+  id        Int            @id @default(autoincrement())
+  accountId Int
+  account   LoyaltyAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  orderId   Int
+  order     Order          @relation(fields: [orderId], references: [id])
+
+  /// approved | rejected
+  decision String
+
+  /// Self-declared initials, exactly like `LoyaltyLedgerEntry.createdBy`. Admin access is one
+  /// shared key with no per-admin identity, so this can only ever mean "someone holding the key".
+  /// NOTHING MAY EVER TRUST IT FOR AUTHORISATION.
+  decidedBy String @default("")
+
+  /// Why. Required by the API, because a decision without a reason is unreviewable a year later.
+  note String @default("")
+
+  decidedAt DateTime @default(now())
+
+  /// One ruling per (account, order). A second look is an edit, not a new row — and this is what
+  /// makes a double-clicked Approve button grant once rather than twice.
+  @@unique([accountId, orderId])
+  @@index([accountId])
 }
 
 model LoyaltyLedgerEntry {

@@ -7,6 +7,7 @@ import { PrismaClient, Prisma } from "@prisma/client";
 import * as XLSX from "xlsx";
 import { ORDER_STATUSES, STATUS_KEYS, statusMeta, nextStatuses, canTransition } from "./status.js";
 import { hashPassword, checkPassword, signToken, withCustomer, requireCustomer, assertAuthConfig } from "./auth.js";
+import { rateLimit, LIMITS } from "./rateLimit.js";
 import { sendMail, mailConfigured, orderConfirmationEmail, statusUpdateEmail, passwordResetEmail } from "./mailer.js";
 import { DEV_ADMIN_KEY, validateSettings, setupChecks } from "./setup.js";
 import { resolvePromo } from "./promo.js";
@@ -17,13 +18,33 @@ import {
   assertLoyaltyConfig, LOYALTY_SWEEP_SECRET,
 } from "./loyalty/hooks.js";
 import { LOYALTY_ENABLED } from "./loyalty/config.js";
-import { repricePendingEarn, readAccount, autoLinkOnFirstRead, recordSignupBonus } from "./loyalty/ledger.js";
+import {
+  repricePendingEarn, readAccount, autoLinkOnFirstRead, recordSignupBonus,
+  manualAdjustment, linkCustomerToAccount, materialise, LoyaltyError,
+} from "./loyalty/ledger.js";
+import {
+  dashboard as loyaltyDashboard, findAccounts, accountDetail,
+  guestClaims, signedInBackfill, decideClaim,
+} from "./loyalty/admin.js";
 import { merchandiseCentsOf } from "./loyalty/rules.js";
 import { buildView, emptyView, HISTORY_FETCH } from "./loyalty/present.js";
 import { runSweep } from "./loyalty/sweep.js";
 
 const db = new PrismaClient();
 const app = express();
+
+/**
+ * Exactly one proxy hop.
+ *
+ * Render terminates TLS and forwards, appending the real client address to X-Forwarded-For.
+ * With this set, req.ip reads the entry RENDER appended rather than the leftmost value in that
+ * header, which the client controls — without it, every request on Render would report the
+ * proxy address and the rate limiter would count the entire internet into a single bucket,
+ * locking out the whole store the first time anyone ran a script. Trusting blindly (`true`)
+ * would be the opposite mistake: an attacker could inject an X-Forwarded-For of their choosing
+ * and get a fresh allowance on every request.
+ */
+app.set("trust proxy", 1);
 
 // The coming-soon gate goes first, ahead of CORS and body parsing, so a gated request is
 // answered before anything else in the app runs — no 12 MB body parse, and nothing that could
@@ -984,7 +1005,7 @@ app.get("/api/orders/:number", withCustomer, asyncH(async (req, res) => {
 // ============================================================ CUSTOMER ACCOUNTS
 const publicCustomer = (c: { id: number; email: string; fullName: string; phone: string }) => ({ id: c.id, email: c.email, fullName: c.fullName, phone: c.phone });
 
-app.post("/api/auth/register", asyncH(async (req, res) => {
+app.post("/api/auth/register", rateLimit(LIMITS.register), asyncH(async (req, res) => {
   const email = str(req.body.email).trim().toLowerCase();
   const password = str(req.body.password);
   const fullName = str(req.body.fullName).trim();
@@ -1023,7 +1044,7 @@ app.post("/api/auth/register", asyncH(async (req, res) => {
   res.json({ token: signToken(customer.id), customer: publicCustomer(customer) });
 }));
 
-app.post("/api/auth/login", asyncH(async (req, res) => {
+app.post("/api/auth/login", rateLimit(LIMITS.login), asyncH(async (req, res) => {
   const email = str(req.body.email).trim().toLowerCase();
   const customer = await db.customer.findUnique({ where: { email } });
   if (!customer || !(await checkPassword(str(req.body.password), customer.passwordHash))) return res.status(401).json({ error: "Wrong email or password." });
@@ -1037,7 +1058,7 @@ app.post("/api/auth/login", asyncH(async (req, res) => {
 const RESET_TTL_MIN = 30;
 const resetTokenHash = (token: string) => createHash("sha256").update(token).digest("hex");
 
-app.post("/api/auth/forgot", asyncH(async (req, res) => {
+app.post("/api/auth/forgot", rateLimit(LIMITS.passwordReset), asyncH(async (req, res) => {
   const settings = await getSettings();
   if (!mailConfigured(settings)) {
     return res.status(503).json({ error: "Password reset by email isn't set up yet. Message us and we'll sort it out." });
@@ -1063,7 +1084,7 @@ app.post("/api/auth/forgot", asyncH(async (req, res) => {
   res.json({ ok: true });
 }));
 
-app.post("/api/auth/reset", asyncH(async (req, res) => {
+app.post("/api/auth/reset", rateLimit(LIMITS.passwordReset), asyncH(async (req, res) => {
   const token = str(req.body.token).trim();
   const password = str(req.body.password);
   if (!token) return res.status(400).json({ error: "This reset link is incomplete. Request a new one." });
@@ -1793,6 +1814,92 @@ admin.put("/gift-cards/:id", asyncH(async (req, res) => {
   res.json({ ok: true });
 }));
 admin.delete("/gift-cards/:id", asyncH(async (req, res) => { await db.giftCard.delete({ where: { id: num(req.params.id) } }); res.json({ ok: true }); }));
+
+// ---- loyalty ----
+//
+// Everything under here is behind `admin.use(requireAdmin)` — the x-admin-key header, same gate
+// as the rest of admin. That is what makes it acceptable for this surface to do the things the
+// customer API deliberately refuses: search by phone, show raw entry types, expose row ids.
+// The protection is the key, not the absence of a search box.
+
+admin.get("/loyalty/dashboard", asyncH(async (_req, res) => {
+  res.json(await loyaltyDashboard(db));
+}));
+
+admin.get("/loyalty/accounts", asyncH(async (req, res) => {
+  res.json({ accounts: await findAccounts(db, str(req.query.q)) });
+}));
+
+admin.get("/loyalty/accounts/:id", asyncH(async (req, res) => {
+  const detail = await accountDetail(db, num(req.params.id));
+  if (!detail) return res.status(404).json({ error: "No such loyalty account." });
+  const [guest, signedIn] = await Promise.all([
+    guestClaims(db, detail.id),
+    signedInBackfill(db, detail.id),
+  ]);
+  res.json({ ...detail, claims: { guest, signedIn } });
+}));
+
+/** A correction. `enteredBy` and a real reason are both mandatory — see manualAdjustment. */
+admin.post("/loyalty/accounts/:id/adjust", asyncH(async (req, res) => {
+  try {
+    const r = await manualAdjustment(db, {
+      accountId: num(req.params.id),
+      points: num(req.body.points),
+      reason: str(req.body.reason),
+      enteredBy: str(req.body.enteredBy),
+      orderId: req.body.orderId ? num(req.body.orderId) : undefined,
+    });
+    res.json({ ok: true, id: r.id });
+  } catch (e) {
+    if (e instanceof LoyaltyError) return res.status(400).json({ error: e.message, code: e.code });
+    throw e;
+  }
+}));
+
+/** Rule on a back-fill claim. Approving writes a ledger entry and nothing else. */
+admin.post("/loyalty/accounts/:id/claims/:orderId", asyncH(async (req, res) => {
+  const decision = str(req.body.decision);
+  if (decision !== "approved" && decision !== "rejected") {
+    return res.status(400).json({ error: "Decision must be approved or rejected." });
+  }
+  const r = await decideClaim(db, {
+    accountId: num(req.params.id),
+    orderId: num(req.params.orderId),
+    decision,
+    decidedBy: str(req.body.decidedBy),
+    note: str(req.body.note),
+  });
+  if (!r.ok) return res.status(400).json({ error: r.error, code: r.code });
+  res.json({ ok: true, granted: r.granted });
+}));
+
+/**
+ * Attach a storefront login to a loyalty account.
+ *
+ * Admin-only and explicit, because a phone number typed at checkout proves nothing about who
+ * owns it and there is no SMS provider to prove otherwise. The automatic path
+ * (`autoLinkOnFirstRead`) only ever fires on an account with no balance and no history; anything
+ * with something to steal arrives here instead.
+ */
+admin.post("/loyalty/accounts/:id/link", asyncH(async (req, res) => {
+  try {
+    const r = await linkCustomerToAccount(db, {
+      accountId: num(req.params.id),
+      customerId: num(req.body.customerId),
+      approvedBy: str(req.body.approvedBy),
+    });
+    res.json({ ok: true, linked: r.linked });
+  } catch (e) {
+    if (e instanceof LoyaltyError) return res.status(400).json({ error: e.message, code: e.code });
+    throw e;
+  }
+}));
+
+/** Run the sweep by hand, for an operator who wants the stored rows to agree right now. */
+admin.post("/loyalty/accounts/:id/materialise", asyncH(async (req, res) => {
+  res.json(await materialise(db, num(req.params.id)));
+}));
 
 // ---- customers ----
 admin.get("/customers", asyncH(async (req, res) => {
