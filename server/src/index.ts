@@ -9,6 +9,7 @@ import { ORDER_STATUSES, STATUS_KEYS, statusMeta, nextStatuses, canTransition } 
 import { hashPassword, checkPassword, signToken, withCustomer, requireCustomer, assertAuthConfig } from "./auth.js";
 import { rateLimit, LIMITS } from "./rateLimit.js";
 import { recordSignup, launchListStats, launchListCsv } from "./launchList.js";
+import { manifest, dispatchLine, courierMessage } from "./dispatch.js";
 import { sendMail, mailConfigured, orderConfirmationEmail, statusUpdateEmail, passwordResetEmail } from "./mailer.js";
 import { DEV_ADMIN_KEY, validateSettings, setupChecks } from "./setup.js";
 import { resolvePromo } from "./promo.js";
@@ -1961,6 +1962,25 @@ admin.put("/gift-cards/:id", asyncH(async (req, res) => {
   res.json({ ok: true });
 }));
 admin.delete("/gift-cards/:id", asyncH(async (req, res) => { await db.giftCard.delete({ where: { id: num(req.params.id) } }); res.json({ ok: true }); }));
+
+// ---- dispatch ----
+//
+// What a delivery driver needs to know at the door. See dispatch.ts for why this exists at all:
+// there is no courier integration, and the only place an order total currently reaches a human
+// is a WhatsApp message the customer composes. That is the last thing standing between
+// redemption and going live.
+
+admin.get("/dispatch", asyncH(async (_req, res) => {
+  res.setHeader("Cache-Control", "no-store");
+  res.json(await manifest(db));
+}));
+
+admin.get("/dispatch/:id", asyncH(async (req, res) => {
+  const line = await dispatchLine(db, num(req.params.id));
+  if (!line) return res.status(404).json({ error: "No such order." });
+  res.setHeader("Cache-Control", "no-store");
+  res.json({ ...line, courierMessage: courierMessage(line) });
+}));
 
 // ---- launch list ----
 

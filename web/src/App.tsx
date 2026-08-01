@@ -45,6 +45,7 @@ const AdminCoupons = lazy(() => import("./admin/AdminCoupons").then((m) => ({ de
 const AdminGiftCards = lazy(() => import("./admin/AdminGiftCards").then((m) => ({ default: m.AdminGiftCards })));
 const AdminCustomers = lazy(() => import("./admin/AdminCustomers").then((m) => ({ default: m.AdminCustomers })));
 const AdminLoyalty = lazy(() => import("./admin/AdminLoyalty").then((m) => ({ default: m.AdminLoyalty })));
+const AdminDispatch = lazy(() => import("./admin/AdminDispatch").then((m) => ({ default: m.AdminDispatch })));
 
 /** Shown while an admin chunk downloads. Full height so the layout doesn't jump when it lands. */
 const AdminChunk = ({ children }: { children: React.ReactNode }) => (
@@ -140,6 +141,7 @@ const router = createBrowserRouter([
       { path: "gift-cards", element: <AdminChunk><AdminGiftCards /></AdminChunk> },
       { path: "customers", element: <AdminChunk><AdminCustomers /></AdminChunk> },
       { path: "loyalty", element: <AdminChunk><AdminLoyalty /></AdminChunk> },
+      { path: "dispatch", element: <AdminChunk><AdminDispatch /></AdminChunk> },
       { path: "reviews", element: <AdminChunk><AdminReviews /></AdminChunk> },
       { path: "settings", element: <AdminChunk><AdminSettings /></AdminChunk> },
       { path: "import", element: <AdminChunk><AdminImport /></AdminChunk> },

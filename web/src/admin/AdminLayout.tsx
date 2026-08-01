@@ -3,7 +3,7 @@ import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { adminApi, getKey, setKey, clearKey } from "./adminApi";
 import {
   TulipMark, Spinner, CloseIcon, MenuIcon, GaugeIcon, BoxIcon, TagIcon, LayersIcon,
-  TicketIcon, GiftIcon, UsersIcon, ChatIcon, UploadIcon, SettingsIcon, ClipboardIcon, ExternalIcon, StarIcon,
+  TicketIcon, GiftIcon, UsersIcon, ChatIcon, UploadIcon, SettingsIcon, ClipboardIcon, ExternalIcon, StarIcon, TruckIcon,
 } from "../components/ui";
 import { ToastProvider } from "./primitives/Toast";
 
@@ -24,6 +24,7 @@ const NAV: { group: string; items: Item[] }[] = [
     group: "Sales",
     items: [
       { to: "/admin/orders", label: "Orders", icon: ClipboardIcon },
+      { to: "/admin/dispatch", label: "Dispatch", icon: TruckIcon },
       { to: "/admin/coupons", label: "Coupons", icon: TicketIcon },
       { to: "/admin/gift-cards", label: "Gift Cards", icon: GiftIcon },
     ],

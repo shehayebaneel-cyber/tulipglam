@@ -92,8 +92,38 @@ export type LoyaltyAccountDetail = {
   entries: LoyaltyLedgerRow[];
 };
 
+/** One order, as a delivery driver needs to see it. `collectCents` is the order total, never recomputed. */
+export type DispatchLine = {
+  id: number; number: string; status: string; statusLabel: string;
+  fullName: string; phone: string; whatsapp: string;
+  area: string; city: string; address: string; notes: string;
+  itemCount: number; collectCents: number; collectLabel: string;
+  whyDifferent: string; createdAt: string;
+  items: { name: string; variantLabel: string; qty: number; priceCents: number }[];
+};
+
+export type Manifest = {
+  generatedAt: string;
+  outForDelivery: DispatchLine[];
+  preparing: DispatchLine[];
+  expectedCashCents: number; expectedCashLabel: string;
+  discountedCount: number;
+};
+
+/** The launch list, for the coming-soon email capture. */
+export type LaunchList = {
+  total: number; subscribed: number; unsubscribed: number; notified: number;
+  today: number; last7: number;
+  recent: { id: number; email: string; source: string; createdAt: string; notifiedAt: string | null; unsubscribedAt: string | null }[];
+};
+
 export const adminApi = {
   summary: () => req<AdminSummary>("/summary"),
+  // dispatch — what the driver collects
+  dispatch: () => req<Manifest>("/dispatch"),
+  dispatchOne: (id: number) => req<DispatchLine & { courierMessage: string }>(`/dispatch/${id}`),
+  // launch list
+  launchList: () => req<LaunchList>("/launch-signups"),
   // loyalty — behind the same x-admin-key gate as everything else here
   loyaltyDashboard: () => req<LoyaltyDashboard>("/loyalty/dashboard"),
   loyaltyAccounts: (q: string) => req<{ accounts: LoyaltyHit[] }>(`/loyalty/accounts${qs({ q })}`),
