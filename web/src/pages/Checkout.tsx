@@ -6,6 +6,7 @@ import { useStore } from "../lib/store";
 import { Field } from "../components/Field";
 import { ProductGlyph } from "../components/ProductGlyph";
 import { TruckIcon, ChevronDown, WhatsAppIcon, CheckIcon, CloseIcon } from "../components/ui";
+import { RedeemPoints } from "../components/RedeemPoints";
 
 export function Checkout() {
   const navigate = useNavigate();
@@ -38,6 +39,9 @@ export function Checkout() {
   const [giftInput, setGiftInput] = useState("");
   const [gift, setGift] = useState<{ code: string; balanceCents: number } | null>(null);
   const [giftErr, setGiftErr] = useState("");
+  // Points the customer wants to spend. Always 0 while redemption is off — the panel that sets
+  // it is not rendered, and the server ignores it regardless.
+  const [redeemPoints, setRedeemPoints] = useState(0);
 
   useEffect(() => { if (cart.length === 0 && !busy) navigate("/cart", { replace: true }); }, [cart.length, busy, navigate]);
 
@@ -70,7 +74,13 @@ export function Checkout() {
   const freeShip = thresholdFreeShip || tierFreeShip;
   const delivery = freeShip ? 0 : area?.feeCents ?? defaultFee;
   const discount = coupon?.discountCents ?? 0;
-  const beforeGift = cartSubtotal - discount + delivery;
+  // Goods after the coupon — the figure the points cap is measured against, and what the
+  // server uses too. Points never pay for delivery: a customer in a far governorate would
+  // otherwise redeem their way out of a fee the shop actually pays.
+  const merchandiseAfterCoupon = Math.max(0, cartSubtotal - discount);
+  const pointsCents = redeemPoints > 0 ? Math.floor(redeemPoints / 100) * 300 : 0;
+  const pointsOff = Math.min(pointsCents, Math.floor(merchandiseAfterCoupon / 2));
+  const beforeGift = cartSubtotal - discount - pointsOff + delivery;
   const giftUsed = gift ? Math.min(gift.balanceCents, beforeGift) : 0;
   const total = beforeGift - giftUsed;
 
@@ -97,7 +107,7 @@ export function Checkout() {
     try {
       const res = await api.createOrder({
         ...form, areaId: Number(form.areaId),
-        couponCode: coupon?.code ?? "", giftCardCode: gift?.code ?? "",
+        couponCode: coupon?.code ?? "", giftCardCode: gift?.code ?? "", redeemPoints,
         items: cart.map((l) => ({ productId: l.productId, variantId: l.variantId, qty: l.qty })),
       });
       const lines = cart.map((l) => `• ${l.qty}× ${l.name}${l.variantLabel ? ` (${l.variantLabel})` : ""}`).join("\n");
@@ -214,6 +224,21 @@ export function Checkout() {
               ))}
             </ul>
 
+            {/* Points. Renders nothing at all unless the server reports redemption on AND this
+                customer has a linked account with a spendable balance — see RedeemPoints. It sits
+                above the coupon field because points come off after the coupon, and a panel that
+                changes a figure should appear after the thing it depends on. */}
+            {rewards?.redemptionEnabled && (
+              <div className="mt-4">
+                <RedeemPoints
+                  rewards={rewards}
+                  merchandiseCents={merchandiseAfterCoupon}
+                  points={redeemPoints}
+                  onChange={setRedeemPoints}
+                />
+              </div>
+            )}
+
             {/* coupon */}
             <div className="mt-4 border-t border-line pt-4">
               {coupon ? (
@@ -247,6 +272,9 @@ export function Checkout() {
             </div>
 
             <dl className="mt-4 space-y-2 border-t border-line pt-4 text-[14px]">
+              {pointsOff > 0 && (
+                <div className="flex justify-between"><dt className="text-muted">Points</dt><dd className="tabular text-plum">−{usd(pointsOff)}</dd></div>
+              )}
               <div className="flex justify-between"><dt className="text-muted">Subtotal</dt><dd className="tabular">{usd(cartSubtotal)}</dd></div>
               {discount > 0 && <div className="flex justify-between text-plum"><dt>Discount</dt><dd className="tabular">−{usd(discount)}</dd></div>}
               <div className="flex justify-between">

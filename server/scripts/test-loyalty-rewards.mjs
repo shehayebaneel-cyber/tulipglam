@@ -59,9 +59,20 @@ section("There is no endpoint that can be pointed at somebody else's account:");
   const src = readFileSync(new URL("../src/index.ts", import.meta.url), "utf8");
   const routes = [...src.matchAll(/app\.(get|post|put|patch|delete)\(\s*"(\/api\/loyalty[^"]*)"/g)].map((m) => `${m[1].toUpperCase()} ${m[2]}`);
 
-  ck("exactly one customer-facing loyalty route exists", routes.length === 1, routes.join(", "));
-  ck("  ...and it is GET /api/loyalty/me", routes[0] === "GET /api/loyalty/me", String(routes[0]));
-  ck("  ...with no path parameter to point somewhere else", !/\/api\/loyalty\/[^"]*:/.test(src));
+  // Asserting a COUNT was wrong: it failed the moment a second, equally safe route was added,
+  // and it would have passed if somebody replaced /me with something dangerous. The invariant
+  // is not "how many" — it is that NONE of them can be aimed at another account. So every route
+  // is checked, whatever the list grows to.
+  ck("there is at least one customer-facing loyalty route", routes.length >= 1, routes.join(", "));
+  for (const r of routes) {
+    ck(`  ${r} has no path parameter`, !/:/.test(r.split(" ")[1]));
+  }
+  ck("  ...and every one of them is behind requireCustomer",
+    routes.every((r) => {
+      const path = r.split(" ")[1];
+      const at = src.indexOf(`"${path}"`);
+      return src.slice(at, at + 200).includes("requireCustomer");
+    }), routes.join(", "));
 
   // A lookup endpoint is the classic enumeration surface: "is this number registered" answered
   // for anyone who asks. There must not be one, by any of its usual names.

@@ -686,6 +686,79 @@ async function redeemedCentsOnOrder(db: Db, orderId: number): Promise<number> {
   return pointsToCents(Math.max(0, spent - back));
 }
 
+/**
+ * Spend points as part of a LARGER transaction — specifically, the one that creates the order.
+ *
+ * ── WHY THIS EXISTS ALONGSIDE `redeem()` ───────────────────────────────────────────
+ *
+ * `redeem()` opens its own SERIALIZABLE transaction, which is right when redemption is the whole
+ * operation. It is wrong at checkout: the points discount and the order have to land together or
+ * not at all. Writing the order first and the ledger entry after leaves an order discounted by
+ * points nobody paid; writing the ledger entry first and failing the order leaves points spent on
+ * an order that does not exist.
+ *
+ * So this takes the caller's `tx` and does its work inside it. THE CALLER IS RESPONSIBLE FOR THE
+ * ISOLATION LEVEL — `POST /api/orders` raises its transaction to Serializable when, and only
+ * when, points are being spent, so a checkout that redeems nothing is completely unaffected.
+ * Read-committed here would let two checkout tabs both read the same balance and both spend it,
+ * which is exactly how this codebase once gave away $50 twice from one gift card.
+ *
+ * Returns 0 when the programme or redemption is off, so the caller needs no flag check.
+ */
+export async function redeemWithin(
+  tx: Prisma.TransactionClient,
+  input: {
+    accountId: number;
+    orderId: number;
+    requestedPoints: number;
+    merchandiseCents: number;
+    signedIn: boolean;
+    now?: Date;
+  },
+): Promise<{ points: number; cents: number }> {
+  if (!LOYALTY_REDEMPTION_ENABLED || input.requestedPoints <= 0) return { points: 0, cents: 0 };
+  if (!isMoney(input.merchandiseCents)) {
+    throw new LoyaltyError("Basket total is not a whole number of cents.", "bad-input");
+  }
+
+  const now = input.now ?? new Date();
+  const loaded = await load(tx, input.accountId, now);
+  const already = await redeemedCentsOnOrder(tx, input.orderId);
+
+  const quote = quoteRedemption({
+    requestedPoints: input.requestedPoints,
+    balance: loaded.state.balance,
+    merchandiseCents: input.merchandiseCents,
+    alreadyRedeemedCentsOnOrder: already,
+    redemptionEnabled: LOYALTY_REDEMPTION_ENABLED,
+    signedIn: input.signedIn,
+    refusalCount: loaded.refusalCount,
+  });
+  if (!quote.ok) throw new LoyaltyError(quote.detail, quote.reason);
+
+  await tx.loyaltyLedgerEntry.create({
+    data: {
+      accountId: input.accountId,
+      orderId: input.orderId,
+      type: "redeem",
+      status: "confirmed",
+      points: -quote.points,
+      confirmedAt: now,
+      reason: `Redeemed ${quote.points} points for ${(quote.cents / 100).toFixed(2)} off`,
+      // One redemption row per order at checkout. A retried checkout that somehow reached here
+      // twice with the same order hits the index rather than spending twice.
+      dedupeKey: `checkout-redeem:${input.orderId}`,
+    },
+  });
+
+  await tx.loyaltyAccount.update({
+    where: { id: input.accountId },
+    data: { balanceCached: loaded.state.balance - quote.points },
+  });
+
+  return { points: quote.points, cents: quote.cents };
+}
+
 /** What may be redeemed, without writing anything. Safe for a preview endpoint. */
 export async function previewRedemption(
   db: Db,

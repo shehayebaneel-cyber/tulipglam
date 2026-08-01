@@ -154,6 +154,12 @@ export type Rewards = {
   earnRateLabel: string;
 };
 
+/** A redemption quote. `ok:false` carries why, in words already written for a customer. */
+export type RedeemQuote = {
+  ok: boolean; reason?: string; detail?: string;
+  points: number; cents: number; maxPoints: number;
+};
+
 export type Customer = { id: number; email: string; fullName: string; phone: string };
 export type Address = { id: number; label: string; fullName: string; phone: string; area: string; city: string; address: string; isDefault: boolean };
 
@@ -170,7 +176,7 @@ export const api = {
   product: (slug: string) => req<ProductFull>(`/products/${slug}`),
   search: (q: string) => req<{ products: Card[] }>(`/search?q=${encodeURIComponent(q)}`),
   brands: () => req<{ brands: Brand[] }>("/brands"),
-  createOrder: (body: unknown) => req<{ number: string; totalCents: number; subtotalCents: number; discountCents: number; giftCardCents: number; deliveryCents: number; whatsappNumber: string }>("/orders", { method: "POST", body: JSON.stringify(body) }),
+  createOrder: (body: unknown) => req<{ number: string; totalCents: number; subtotalCents: number; discountCents: number; giftCardCents: number; pointsDiscountCents: number; pointsSpent: number; deliveryCents: number; freeDeliveryReason: string; whatsappNumber: string }>("/orders", { method: "POST", body: JSON.stringify(body) }),
   trackOrder: (number: string) => req<Order>(`/orders/${number}`),
   submitReview: (slug: string, body: unknown) => req<{ ok: boolean; message: string }>(`/products/${slug}/reviews`, { method: "POST", body: JSON.stringify(body) }),
   // promotions
@@ -196,6 +202,15 @@ export const api = {
   // server-side; there is no phone, id or email to pass, so there is nothing here that a caller
   // could point at somebody else's account.
   rewards: () => req<Rewards>("/loyalty/me"),
+  /**
+   * What the signed-in customer could spend against this basket.
+   *
+   * 404s while redemption is switched off, and the caller treats that as "there is nothing to
+   * offer" rather than as an error — the checkout must show no trace of the feature until it
+   * is real.
+   */
+  redeemPreview: (merchandiseCents: number, points: number) =>
+    req<RedeemQuote>("/loyalty/redeem-preview", { method: "POST", body: JSON.stringify({ merchandiseCents, points }) }),
 };
 
 export const usd = (cents: number) => "$" + (cents / 100).toFixed(cents % 100 === 0 ? 0 : 2);

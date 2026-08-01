@@ -18,16 +18,17 @@ import {
   safely, onOrderPlaced, onOrderStatusChanged, tierDeliveryCents,
   assertLoyaltyConfig, LOYALTY_SWEEP_SECRET,
 } from "./loyalty/hooks.js";
-import { LOYALTY_ENABLED } from "./loyalty/config.js";
+import { LOYALTY_ENABLED, LOYALTY_REDEMPTION_ENABLED } from "./loyalty/config.js";
 import {
   repricePendingEarn, readAccount, autoLinkOnFirstRead, recordSignupBonus,
+  redeemWithin, previewRedemption,
   manualAdjustment, linkCustomerToAccount, materialise, LoyaltyError,
 } from "./loyalty/ledger.js";
 import {
   dashboard as loyaltyDashboard, findAccounts, accountDetail,
   guestClaims, signedInBackfill, decideClaim,
 } from "./loyalty/admin.js";
-import { merchandiseCentsOf } from "./loyalty/rules.js";
+import { merchandiseCentsOf, parseCents } from "./loyalty/rules.js";
 import { buildView, emptyView, HISTORY_FETCH } from "./loyalty/present.js";
 import { runSweep } from "./loyalty/sweep.js";
 
@@ -725,6 +726,22 @@ app.post("/api/orders", withCustomer, asyncH(async (req, res) => {
   const requestedGiftCode = str(b.giftCardCode).trim().toUpperCase();
   const { coupon } = await evalCoupon(requestedCoupon, subtotal);
 
+  /**
+   * Points the customer asked to spend.
+   *
+   * Zero unless they are signed in AND redemption is switched on — so while the flag is off this
+   * is always zero and every line below behaves exactly as it did before. The AMOUNT is never
+   * trusted from the client; it is re-quoted against the ledger inside the transaction, because
+   * the cap depends on a basket the browser can change after the quote was issued.
+   */
+  const requestedPoints = LOYALTY_REDEMPTION_ENABLED && customerId
+    ? Math.max(0, num(b.redeemPoints, 0))
+    : 0;
+
+  const loyaltyAccount = requestedPoints > 0
+    ? await safely("redeem lookup", () => db.loyaltyAccount.findUnique({ where: { customerId }, select: { id: true } }))
+    : null;
+
   const result = await db.$transaction(async (tx) => {
     let discount = 0;
     let couponCode = "";
@@ -743,7 +760,45 @@ app.post("/api/orders", withCustomer, asyncH(async (req, res) => {
       // full price rather than failing — the response reports the real numbers.
     }
 
-    const afterDiscount = subtotal - discount + delivery;
+    /**
+     * Points, applied to MERCHANDISE only and after any coupon.
+     *
+     * The order of the three is deliberate and it is not interchangeable:
+     *
+     *   coupon      a discount on the goods
+     *   points      a discount on the goods, capped at a share of what is left after the coupon
+     *   delivery    added
+     *   gift card   a means of PAYMENT against the total, not a discount on anything
+     *
+     * Points come off the goods, so they cannot pay for delivery — a customer in a far
+     * governorate would otherwise redeem their way out of a fee that costs the shop real money.
+     * And the 50% cap is measured against the post-coupon figure, which is what the customer is
+     * actually paying for the items.
+     *
+     * The order row does not exist yet, so the ledger entry is written after it, still inside
+     * this transaction. If anything below throws, the whole thing — order, points, coupon
+     * claim, gift-card debit — rolls back together.
+     */
+    const merchandiseAfterCoupon = Math.max(0, subtotal - discount);
+    let pointsDiscount = 0;
+
+    if (loyaltyAccount && requestedPoints > 0) {
+      // Quoted here so the gift card and the total see the reduced figure. The authoritative
+      // write happens after the order exists, via redeemWithin, which re-quotes against the
+      // same transaction snapshot — so it cannot disagree with this, and if it somehow did it
+      // throws and the entire order rolls back rather than shipping a wrong price.
+      const quote = await previewRedemption(tx, {
+        accountId: loyaltyAccount.id,
+        requestedPoints,
+        merchandiseCents: merchandiseAfterCoupon,
+        signedIn: true,
+      });
+      // A refusal is not an error at checkout. The customer asked to spend points and cannot —
+      // the order still goes through at the real price, exactly as a spent-out coupon does.
+      if (quote.ok) pointsDiscount = quote.cents;
+    }
+
+    const afterDiscount = subtotal - discount - pointsDiscount + delivery;
 
     // Gift card, applied last against what is left.
     let giftUsed = 0;
@@ -776,6 +831,7 @@ app.post("/api/orders", withCustomer, asyncH(async (req, res) => {
         fullName, phone, whatsapp: str(b.whatsapp || b.phone), email: str(b.email),
         area: areaRow?.name ?? str(b.area), city: str(b.city), address: str(b.address), notes: str(b.notes),
         subtotalCents: subtotal, discountCents: discount, giftCardCents: giftUsed,
+        pointsDiscountCents: pointsDiscount,
         couponCode, giftCardCode,
         deliveryCents: delivery, totalCents: total, paymentMethod: "cod",
         items: { create: orderItems },
@@ -783,10 +839,38 @@ app.post("/api/orders", withCustomer, asyncH(async (req, res) => {
       },
       include: { items: true },
     });
-    return { order, discount, giftUsed, total };
-  });
 
-  const { order, discount, giftUsed, total } = result;
+    // The authoritative spend, inside the same transaction as the order it pays for. It
+    // re-quotes against this snapshot; if it disagrees with the figure the total was built
+    // from, it throws and everything above rolls back rather than shipping a wrong price.
+    let pointsSpent = 0;
+    if (loyaltyAccount && pointsDiscount > 0) {
+      const spent = await redeemWithin(tx, {
+        accountId: loyaltyAccount.id,
+        orderId: order.id,
+        requestedPoints,
+        merchandiseCents: merchandiseAfterCoupon,
+        signedIn: true,
+      });
+      pointsSpent = spent.points;
+      if (spent.cents !== pointsDiscount) {
+        throw new Error(`points quote moved inside the transaction: ${pointsDiscount} then ${spent.cents}`);
+      }
+    }
+
+    return { order, discount, giftUsed, total, pointsDiscount, pointsSpent };
+  }, requestedPoints > 0
+    // SERIALIZABLE only when points are actually being spent. A balance is derived from the
+    // ledger, so it cannot be claimed with a conditional UPDATE the way a gift card's balance
+    // is — two checkout tabs at read-committed would both read the same balance and both spend
+    // it, which is precisely how this codebase once gave away $50 twice from one card.
+    //
+    // Every other checkout — and ALL of them while redemption is switched off — keeps the
+    // default isolation and is completely unaffected.
+    ? { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }
+    : undefined);
+
+  const { order, discount, giftUsed, total, pointsDiscount, pointsSpent } = result;
 
   // Loyalty runs AFTER the transaction has committed, and its failure is swallowed by `safely`.
   // Both halves of that matter: inside the transaction a ledger error would roll the order back,
@@ -797,7 +881,7 @@ app.post("/api/orders", withCustomer, asyncH(async (req, res) => {
   // fire-and-forget confirmation email (no-op unless SMTP configured)
   if (order.email) sendMail(settings, order.email, `Order ${order.number} received`, orderConfirmationEmail(settings.storeName ?? "TulipGlam", fullName, order.number, "$" + (total / 100).toFixed(2)));
 
-  res.json({ number: order.number, totalCents: total, subtotalCents: subtotal, discountCents: discount, giftCardCents: giftUsed, deliveryCents: delivery, freeDeliveryReason, whatsappNumber: settings.whatsappNumber ?? "" });
+  res.json({ number: order.number, totalCents: total, subtotalCents: subtotal, discountCents: discount, giftCardCents: giftUsed, pointsDiscountCents: pointsDiscount, pointsSpent, deliveryCents: delivery, freeDeliveryReason, whatsappNumber: settings.whatsappNumber ?? "" });
 }));
 
 /**
@@ -927,6 +1011,47 @@ app.get("/api/loyalty/me", requireCustomer, asyncH(async (req, res) => {
     totalEntries,
     now,
   }));
+}));
+
+/**
+ * What this customer could spend against the basket in front of them.
+ *
+ * POST rather than GET so the basket total does not end up in access logs and browser history,
+ * and — like /api/loyalty/me — it identifies the account from the token alone. The only input is
+ * how much the goods cost and how many points they want to use.
+ *
+ * 404 when redemption is off, not 403 and not an empty quote: while the flag is down this
+ * endpoint should be indistinguishable from one that was never built. A customer poking at the
+ * network tab should find nothing to look forward to, because a promise they can see is a
+ * promise with a date on it.
+ *
+ * The answer here is ADVISORY. Checkout re-quotes inside the order transaction against a basket
+ * it priced itself, because this one is computed from a number the browser supplied.
+ */
+app.post("/api/loyalty/redeem-preview", requireCustomer, asyncH(async (req, res) => {
+  if (!LOYALTY_ENABLED || !LOYALTY_REDEMPTION_ENABLED) return res.status(404).json({ error: "Not found." });
+
+  const customerId = (req as express.Request & { customerId?: number }).customerId!;
+  const account = await db.loyaltyAccount.findUnique({ where: { customerId }, select: { id: true } });
+
+  const merchandiseCents = parseCents(req.body?.merchandiseCents);
+  if (merchandiseCents === null || merchandiseCents < 0) {
+    return res.status(400).json({ error: "Basket total must be a whole number of cents." });
+  }
+  const requestedPoints = parseCents(req.body?.points) ?? 0;
+
+  res.setHeader("Cache-Control", "no-store");
+  if (!account) return res.json({ ok: false, reason: "no-account", detail: "", maxPoints: 0, points: 0, cents: 0 });
+
+  const quote = await previewRedemption(db, {
+    accountId: account.id,
+    requestedPoints,
+    merchandiseCents,
+    signedIn: true,
+  });
+  res.json(quote.ok
+    ? { ok: true, points: quote.points, cents: quote.cents, maxPoints: quote.maxPoints }
+    : { ok: false, reason: quote.reason, detail: quote.detail, maxPoints: quote.maxPoints, points: 0, cents: 0 });
 }));
 
 // ============================================================ INTERNAL (shared secret)
