@@ -11,6 +11,7 @@ import { rateLimit, LIMITS } from "./rateLimit.js";
 import { recordSignup, launchListStats, launchListCsv } from "./launchList.js";
 import { manifest, dispatchLine, courierMessage } from "./dispatch.js";
 import { queueMail, flushOutbox, outboxStatus } from "./outbox.js";
+import { recordError, countRequest, pulse, recentErrors, resolveError } from "./observe.js";
 import { sendMail, mailConfigured, orderConfirmationEmail, statusUpdateEmail, passwordResetEmail } from "./mailer.js";
 import { DEV_ADMIN_KEY, validateSettings, setupChecks } from "./setup.js";
 import { resolvePromo } from "./promo.js";
@@ -65,6 +66,10 @@ assertLoyaltyConfig();
 if (COMING_SOON) app.use(comingSoonGate());
 
 app.use(cors());
+// Server-side request counting. No script on the page, no cookie, no third party — the whole
+// point is that the storefront ships nothing to anyone else. See observe.ts for what this
+// does and does not measure.
+app.use((req, _res, next) => { countRequest(req.path); next(); });
 app.use(express.json({ limit: "12mb" })); // room for base64 image uploads
 
 const PORT = Number(process.env.PORT ?? 4230);
@@ -106,10 +111,25 @@ const list = (s: string) => str(s).split(",").map((t) => t.trim()).filter(Boolea
 const slugify = (s: string, suffix = "") =>
   (s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "") || "item") + (suffix ? `-${suffix}` : "");
 
+/**
+ * Every async route goes through here, so this is where a 500 becomes visible.
+ *
+ * The customer still gets the same opaque message — an error page must never leak a stack
+ * trace or a query. What changed is that the error is now RECORDED as well as logged: Render's
+ * free tier keeps a short log window and nobody reads it, so in practice a 500 in production
+ * used to be invisible until somebody complained.
+ *
+ * Recording is fire-and-forget with its own catch. An error logger that can fail the request
+ * it is reporting on is worse than no error logger.
+ */
 const asyncH =
   (fn: (req: express.Request, res: express.Response) => Promise<unknown>) =>
   (req: express.Request, res: express.Response) =>
-    fn(req, res).catch((e) => { console.error(e); res.status(500).json({ error: "Something went wrong." }); });
+    fn(req, res).catch((e) => {
+      console.error(e);
+      void recordError(db, { method: req.method, path: req.path, status: 500, err: e }).catch(() => {});
+      res.status(500).json({ error: "Something went wrong." });
+    });
 
 /** Products a shopper can reach. Everything customer-facing filters through this. */
 const VISIBLE: Prisma.ProductWhereInput = { status: { in: ["active", "unavailable"] } };
@@ -1982,6 +2002,23 @@ admin.put("/gift-cards/:id", asyncH(async (req, res) => {
   res.json({ ok: true });
 }));
 admin.delete("/gift-cards/:id", asyncH(async (req, res) => { await db.giftCard.delete({ where: { id: num(req.params.id) } }); res.json({ ok: true }); }));
+
+// ---- what is happening ----
+
+admin.get("/pulse", asyncH(async (_req, res) => {
+  res.setHeader("Cache-Control", "no-store");
+  res.json(await pulse(db));
+}));
+
+admin.get("/errors", asyncH(async (_req, res) => {
+  res.json({ errors: await recentErrors(db) });
+}));
+
+/** Mark one as dealt with. A recurrence re-opens it automatically — see recordError. */
+admin.post("/errors/:id/resolve", asyncH(async (req, res) => {
+  await resolveError(db, num(req.params.id));
+  res.json({ ok: true });
+}));
 
 // ---- email outbox ----
 //

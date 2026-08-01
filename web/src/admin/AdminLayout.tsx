@@ -11,7 +11,10 @@ type Item = { to: string; label: string; icon: (p: { className?: string }) => Re
 
 /** Grouped so the eleven destinations read as four short lists rather than one long one. */
 const NAV: { group: string; items: Item[] }[] = [
-  { group: "", items: [{ to: "/admin", label: "Dashboard", icon: GaugeIcon, end: true }] },
+  { group: "", items: [
+    { to: "/admin", label: "Dashboard", icon: GaugeIcon, end: true },
+    { to: "/admin/pulse", label: "What's happening", icon: ChatIcon },
+  ] },
   {
     group: "Catalog",
     items: [

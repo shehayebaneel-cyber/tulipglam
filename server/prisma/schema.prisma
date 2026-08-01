@@ -166,6 +166,42 @@ model Review {
   createdAt DateTime @default(now())
 }
 
+/// A server error, kept so the owner finds out before a customer tells them.
+///
+/// The express error handler answers `{"error":"Something went wrong."}` and logs to stdout.
+/// Render's free tier keeps a short log window and nobody reads it, so in practice a 500 in
+/// production is invisible until somebody complains. This is the record.
+///
+/// Deliberately NOT a full APM: no third-party service, no script on the public page, no
+/// per-visitor identifiers. Just what broke, where, and how often.
+model ErrorLog {
+  id Int @id @default(autoincrement())
+
+  /// Grouping key — method + route pattern + error name. Same key means "the same thing broke".
+  fingerprint String
+
+  method String
+  path   String
+  status Int    @default(500)
+
+  message String
+  /// First few frames. Enough to find the line, short enough not to bloat the table.
+  stack   String @default("")
+
+  /// How many times this fingerprint has been seen, and when. One row per distinct problem
+  /// rather than one per occurrence — a loop erroring 4,000 times should not fill the table.
+  count     Int      @default(1)
+  firstSeen DateTime @default(now())
+  lastSeen  DateTime @default(now())
+
+  /// Set when the owner has looked at it. Keeps the dashboard about what is NEW.
+  resolvedAt DateTime?
+
+  @@unique([fingerprint])
+  @@index([lastSeen])
+  @@index([resolvedAt])
+}
+
 /// An email the store intended to send.
 ///
 /// SMTP is unconfigured, and the mailer's previous behaviour was to log "not-configured" and

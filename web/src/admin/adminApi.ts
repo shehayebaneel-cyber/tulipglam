@@ -117,8 +117,49 @@ export type LaunchList = {
   recent: { id: number; email: string; source: string; createdAt: string; notifiedAt: string | null; unsubscribedAt: string | null }[];
 };
 
+export type Pulse = {
+  ordersToday: number; ordersWeek: number; revenueTodayCents: number;
+  signupsToday: number; signupsTotal: number;
+  openErrors: number;
+  newestError: { message: string; path: string; count: number; lastSeen: string } | null;
+  outboxWaiting: number;
+  traffic: { since: string; pageViews: number; apiCalls: number; topPaths: { path: string; hits: number }[] };
+};
+
+export type ErrorRow = {
+  id: number; fingerprint: string; method: string; path: string; status: number;
+  message: string; stack: string; count: number;
+  firstSeen: string; lastSeen: string; resolvedAt: string | null;
+};
+
+export type OutboxStatus = {
+  configured: boolean; waiting: number; sent: number; expired: number; failed: number;
+  byKind: { kind: string; waiting: number }[];
+  oldestWaiting: string | null;
+};
+
 export const adminApi = {
   summary: () => req<AdminSummary>("/summary"),
+  // what's happening — all measured server-side, no tracker on the storefront
+  pulse: () => req<Pulse>("/pulse"),
+  errors: () => req<{ errors: ErrorRow[] }>("/errors"),
+  resolveError: (id: number) => req<{ ok: boolean }>(`/errors/${id}/resolve`, { method: "POST" }),
+  outbox: () => req<OutboxStatus>("/outbox"),
+  flushOutbox: () => req<{ configured: boolean; sent: number; failed: number; expired: number; remaining: number }>("/outbox/flush", { method: "POST" }),
+  /**
+   * The launch list as a file.
+   *
+   * Fetched with the admin key in a HEADER and handed back as a blob, rather than linked with
+   * the key in a query string — a link would put the key in Render's access logs, the browser
+   * history and any Referer.
+   */
+  launchListCsv: async (): Promise<{ blob: Blob; filename: string }> => {
+    const res = await fetch("/api/admin/launch-signups.csv", { headers: { "x-admin-key": getKey() } });
+    if (!res.ok) throw new ApiError(res.status === 401 ? "Unauthorized" : "Could not export the list", res.status);
+    const disposition = res.headers.get("content-disposition") ?? "";
+    const match = disposition.match(/filename="([^"]+)"/);
+    return { blob: await res.blob(), filename: match?.[1] ?? "tulipglam-launch-list.csv" };
+  },
   // dispatch — what the driver collects
   dispatch: () => req<Manifest>("/dispatch"),
   dispatchOne: (id: number) => req<DispatchLine & { courierMessage: string }>(`/dispatch/${id}`),
