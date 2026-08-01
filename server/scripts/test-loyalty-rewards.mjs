@@ -330,6 +330,107 @@ try {
       }
     }
 
+    section("Auto-link on first read — only when there is nothing to steal:");
+    {
+      const freshPhone = "+96171200055";
+      const dave = await register("dave");
+      await db.customer.update({ where: { id: dave.customer.id }, data: { phone: freshPhone } });
+
+      const before = await db.loyaltyAccount.findUnique({ where: { phoneE164: freshPhone } });
+      ck("no account exists for the phone beforehand", before === null);
+
+      const v = await (await rewardsAs(dave.token)).json();
+      const after = await db.loyaltyAccount.findUnique({ where: { phoneE164: freshPhone } });
+      if (after) made.accounts.push(after.id);
+      ck("first read opens and links an account", after !== null && after.customerId === dave.customer.id,
+        JSON.stringify(after && { id: after.id, customerId: after.customerId }));
+      ck("  ...and the page is no longer the empty state", v.linked === true);
+
+      // The bonus arrives in the same motion — not on a later visit.
+      ck("  ...with the welcome bonus already granted", v.available === 100, String(v.available));
+      ck("  ...shown as a welcome bonus, not an adjustment",
+        v.history.some((h) => h.title === "Welcome bonus"), JSON.stringify(v.history.map((h) => h.title)));
+
+      // Idempotent: reading again must not grant a second bonus or re-link.
+      const again = await (await rewardsAs(dave.token)).json();
+      ck("reading again grants nothing further", again.available === 100, String(again.available));
+      ck("  ...and leaves exactly one welcome bonus",
+        again.history.filter((h) => h.title === "Welcome bonus").length === 1);
+    }
+
+    section("Auto-link refuses anything with history:");
+    {
+      // Alice's phone already has an account with a balance — precisely the takeover shape.
+      const eve = await register("eve");
+      await db.customer.update({ where: { id: eve.customer.id }, data: { phone: alicePhone } });
+      const v = await (await rewardsAs(eve.token)).json();
+      const acctRow = await db.loyaltyAccount.findUnique({ where: { phoneE164: alicePhone } });
+      ck("a phone with an existing account is NOT linked", v.linked === false);
+      ck("  ...and its owner is untouched", acctRow.customerId === alice.customer.id,
+        `customerId=${acctRow.customerId}, expected ${alice.customer.id}`);
+      ck("  ...so no points move", v.available === 0);
+
+      // A phone with delivered orders but no account — the pre-launch case.
+      const preLaunchPhone = "+96171200077";
+      const preOrder = await db.order.create({
+        data: {
+          number: `RW${stamp}P`, status: "delivered", deliveredAt: new Date("2026-05-01T10:00:00Z"),
+          phone: preLaunchPhone, fullName: "Pre Launch",
+          subtotalCents: 100_00, discountCents: 0, pointsDiscountCents: 0,
+          deliveryCents: 0, totalCents: 100_00,
+        },
+      });
+      made.orders.push(preOrder.id);
+      const frank = await register("frank");
+      await db.customer.update({ where: { id: frank.customer.id }, data: { phone: preLaunchPhone } });
+      const fv = await (await rewardsAs(frank.token)).json();
+      const noAccount = await db.loyaltyAccount.findUnique({ where: { phoneE164: preLaunchPhone } });
+      ck("a phone with delivered orders is NOT auto-linked", fv.linked === false && noAccount === null,
+        JSON.stringify({ linked: fv.linked, account: !!noAccount }));
+      ck("  ...it goes to the admin queue instead, so no bonus either", fv.available === 0);
+
+      // An unusable phone must not open anything.
+      const gina = await register("gina");
+      await db.customer.update({ where: { id: gina.customer.id }, data: { phone: "12" } });
+      const gv = await (await rewardsAs(gina.token)).json();
+      ck("an unusable phone links nothing", gv.linked === false);
+    }
+
+    section("Two first-reads racing on one fresh phone produce ONE account and ONE link:");
+    {
+      // The same class of race fixed three times already in this ledger. Stated as a test
+      // because a check-then-create is only atomic if the database is the thing deciding.
+      const racePhone = "+96171200099";
+      const a = await register("race-a");
+      const b = await register("race-b");
+      await db.customer.update({ where: { id: a.customer.id }, data: { phone: racePhone } });
+      await db.customer.update({ where: { id: b.customer.id }, data: { phone: racePhone } });
+
+      const [va, vb] = await Promise.all([
+        rewardsAs(a.token).then((r) => r.json()),
+        rewardsAs(b.token).then((r) => r.json()),
+      ]);
+
+      const accounts = await db.loyaltyAccount.findMany({ where: { phoneE164: racePhone } });
+      accounts.forEach((x) => made.accounts.push(x.id));
+      ck("exactly one account exists for the phone", accounts.length === 1, String(accounts.length));
+      ck("  ...owned by exactly one of the two", [a.customer.id, b.customer.id].includes(accounts[0].customerId),
+        String(accounts[0].customerId));
+      ck("  ...and exactly one of them sees it linked", [va.linked, vb.linked].filter(Boolean).length === 1,
+        JSON.stringify([va.linked, vb.linked]));
+      ck("  ...the loser is not given somebody else's account", (va.linked ? vb : va).available === 0);
+      ck("  ...and only one welcome bonus was granted", (va.linked ? va : vb).available === 100);
+
+      // The same customer double-submitting must be idempotent, not a second account.
+      const [c1, c2] = await Promise.all([
+        rewardsAs(a.token).then((r) => r.json()),
+        rewardsAs(a.token).then((r) => r.json()),
+      ]);
+      const stillOne = await db.loyaltyAccount.count({ where: { phoneE164: racePhone } });
+      ck("one customer reading twice at once stays at one account", stillOne === 1, String(stillOne));
+      ck("  ...and one bonus", c1.available === c2.available && c1.available <= 100, `${c1.available}/${c2.available}`);
+    }
+
     section("A token for a deleted customer cannot resurrect an account:");
     {
       const ghost = await register("ghost");

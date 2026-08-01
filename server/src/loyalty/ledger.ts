@@ -153,6 +153,87 @@ export async function linkCustomerToAccount(
   return { linked: res.count > 0 };
 }
 
+/**
+ * Link a brand-new login to a brand-new loyalty account, on the customer's first authenticated
+ * read — but ONLY when there is provably nothing to steal.
+ *
+ * ── THE RULE ───────────────────────────────────────────────────────────────────────
+ *
+ * Link only when the normalised phone has NO existing loyalty account AND NO delivered orders.
+ * Nothing of value can move, because nothing of value exists yet: no balance, no history, no
+ * spend toward a tier. Anything with history goes to the admin queue instead.
+ *
+ * ── WHY NOT SOMETHING MORE GENEROUS ────────────────────────────────────────────────
+ *
+ * Every automatic route that reaches an account with history reopens the takeover: a phone
+ * number is self-declared, there is no SMS provider to verify one, and `getOrCreateAccount`
+ * binding a caller-supplied customerId to a caller-supplied phone is exactly how 1,200 points
+ * moved to an attacker's login in a test against the live database. The most an attacker can do
+ * under this rule is claim a stranger's FUTURE orders on a number they do not own — and only
+ * before that stranger ever orders or registers. It is a support problem, not a theft.
+ *
+ * ── AND WHY THE RACE MATTERS ───────────────────────────────────────────────────────
+ *
+ * Two first-reads arriving together on the same fresh phone must produce one account and one
+ * link. The check-then-create is made atomic by the unique index on `phoneE164`, not by the
+ * check: the loser of the race gets P2002, re-reads, finds an account that now HAS an owner, and
+ * declines — which is the same decision it would have made had it arrived a second later. This
+ * is the fourth member of the check-then-act family in this file and it is guarded the same way
+ * as the other three.
+ */
+export async function autoLinkOnFirstRead(
+  db: Db,
+  input: { customerId: number; rawPhone: string; now?: Date },
+): Promise<{ linked: boolean; accountId: number | null; reason: string }> {
+  if (!LOYALTY_ENABLED) return { linked: false, accountId: null, reason: "disabled" };
+
+  const phone = normaliseLebanesePhone(input.rawPhone);
+  if (!phone.ok) return { linked: false, accountId: null, reason: `unusable-phone:${phone.reason}` };
+
+  const existing = await db.loyaltyAccount.findUnique({ where: { phoneE164: phone.e164 } });
+  if (existing) {
+    // Somebody has already earned against this number. Whether that is this customer or not is
+    // exactly the question an automatic rule cannot answer.
+    return { linked: false, accountId: null, reason: "account-exists" };
+  }
+
+  // Orders placed before the programme was switched on have no ledger row, so the account check
+  // above cannot see them. Bounded: this runs once per customer, and the scan stops at a size
+  // that would mean this store had grown far past the point where an admin queue was optional.
+  const delivered = await db.order.findMany({
+    where: { status: { in: [...DELIVERED_STATUSES] } },
+    select: { phone: true, whatsapp: true },
+    take: 5000,
+  });
+  const hasHistory = delivered.some((o) =>
+    [o.phone, o.whatsapp].some((p) => {
+      const n = normaliseLebanesePhone(p);
+      return n.ok && n.e164 === phone.e164;
+    }),
+  );
+  if (hasHistory) return { linked: false, accountId: null, reason: "delivered-orders-exist" };
+
+  try {
+    const account = await db.loyaltyAccount.create({
+      data: { phoneE164: phone.e164, customerId: input.customerId },
+    });
+    // Logged deliberately, with both values, so that if this rule ever turns out too generous
+    // there is a record of exactly what it did and to whom.
+    console.log(`[loyalty] auto-linked ${phone.e164} to customer ${input.customerId} (account ${account.id})`);
+    return { linked: true, accountId: account.id, reason: "linked" };
+  } catch (e) {
+    if (!isUniqueViolation(e)) throw e;
+    // Lost the race. Re-read and decide again on what is now true.
+    const won = await db.loyaltyAccount.findUnique({ where: { phoneE164: phone.e164 } });
+    if (won && won.customerId === input.customerId) {
+      // The same customer, twice at once. Idempotent, not a takeover.
+      return { linked: true, accountId: won.id, reason: "linked-by-concurrent-request" };
+    }
+    console.log(`[loyalty] auto-link declined for customer ${input.customerId}: ${phone.e164} was claimed concurrently`);
+    return { linked: false, accountId: null, reason: "lost-race" };
+  }
+}
+
 // ───────────────────────────────────────────────────────────────── reading
 
 type LoadedAccount = {

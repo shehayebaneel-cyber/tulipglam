@@ -17,7 +17,7 @@ import {
   assertLoyaltyConfig, LOYALTY_SWEEP_SECRET,
 } from "./loyalty/hooks.js";
 import { LOYALTY_ENABLED } from "./loyalty/config.js";
-import { repricePendingEarn, readAccount } from "./loyalty/ledger.js";
+import { repricePendingEarn, readAccount, autoLinkOnFirstRead, recordSignupBonus } from "./loyalty/ledger.js";
 import { merchandiseCentsOf } from "./loyalty/rules.js";
 import { buildView, emptyView, HISTORY_FETCH } from "./loyalty/present.js";
 import { runSweep } from "./loyalty/sweep.js";
@@ -815,25 +815,33 @@ app.get("/api/loyalty/me", requireCustomer, asyncH(async (req, res) => {
   res.setHeader("Cache-Control", "no-store");
 
   const customerId = (req as express.Request & { customerId?: number }).customerId!;
-  const account = await db.loyaltyAccount.findUnique({ where: { customerId } });
+  let account = await db.loyaltyAccount.findUnique({ where: { customerId } });
 
-  // ─────────────────────────────────────────────────────────────────────────────────
-  //  DECISION PENDING — the sign-up bonus for accounts that predate the programme.
+  // ── FIRST AUTHENTICATED READ ─────────────────────────────────────────────────────
   //
-  //  This is the seam. An account created before LOYALTY_ENABLED was flipped has no welcome
-  //  bonus, because `recordSignupBonus` returns early while the flag is off. Granting it
-  //  lazily on first read after launch would go HERE, before `readAccount`, as:
+  // Two things happen here, once each, and both are wrapped so neither can break the page.
   //
-  //      await safely("signup bonus", () => recordSignupBonus(db, account.id));
+  // AUTO-LINK. A customer who registered before they ever ordered has no loyalty account, and
+  // linking is otherwise admin-only. `autoLinkOnFirstRead` opens and links one when the phone
+  // on their profile has no existing account and no delivered orders — provably nothing to
+  // steal. Anything with history goes to the admin queue instead. See the note on that function
+  // for why nothing more generous is safe.
   //
-  //  It is already safe to call: keyed `signup:<accountId>` on a unique index, so it grants
-  //  exactly once however many times this route is hit, and `safely` means a failure cannot
-  //  break the page. The reason it is not written is that it is a business decision with a real
-  //  cost — every pre-existing customer becomes 100 points richer the moment they open the
-  //  page — and the amount is unbounded until you know how many accounts that is.
+  // SIGN-UP BONUS. Granted lazily rather than at registration, because registration predates the
+  // programme for everyone who signed up before the flag was flipped. Keyed `signup:<accountId>`
+  // on a unique index, so it lands exactly once however many times this route is hit.
   //
-  //  Flagged, not decided. Awaiting a call.
-  // ─────────────────────────────────────────────────────────────────────────────────
+  // The order matters: link first, then grant. A customer who registers, gets auto-linked and
+  // lands on this page sees their welcome points already there, in one motion, rather than an
+  // empty state that fills in on a later visit.
+  if (!account) {
+    const me = await db.customer.findUnique({ where: { id: customerId }, select: { phone: true } });
+    if (me?.phone) {
+      const linked = await safely("auto-link", () => autoLinkOnFirstRead(db, { customerId, rawPhone: me.phone }));
+      if (linked?.linked) account = await db.loyaltyAccount.findUnique({ where: { customerId } });
+    }
+  }
+  if (account) await safely("signup bonus", () => recordSignupBonus(db, account!.id));
 
   if (!account) return res.json(emptyView());
 
