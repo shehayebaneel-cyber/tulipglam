@@ -23,3 +23,6 @@ server/*.log
 
 # local database backups — never commit customer data
 backups/
+
+# scratch scripts written during a session — never part of the repo
+_tmp-*
