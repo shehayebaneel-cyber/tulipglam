@@ -93,6 +93,12 @@ export const LIMITS = {
   register: { name: "register", max: 30, windowMs: WINDOW },
   login: { name: "login", max: 60, windowMs: WINDOW },
   passwordReset: { name: "password-reset", max: 15, windowMs: WINDOW },
+  /**
+   * The coming-soon email capture. Tighter than registration because a legitimate visitor
+   * submits once — but still well clear of a shared carrier address, where a genuinely popular
+   * launch could see a handful of real people on one IP.
+   */
+  launchSignup: { name: "launch-signup", max: 20, windowMs: WINDOW },
 } as const;
 
 /**

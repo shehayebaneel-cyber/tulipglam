@@ -166,6 +166,38 @@ model Review {
   createdAt DateTime @default(now())
 }
 
+/// Somebody who left their email on the coming-soon page.
+///
+/// Not a Customer: they have no account, no password and no orders — they are an audience, and
+/// conflating the two would put half-people in the customers table and break every count that
+/// reads it. When one of them eventually registers, they exist in both, which is correct: one
+/// row is "asked to be told", the other is "has an account".
+model LaunchSignup {
+  id Int @id @default(autoincrement())
+
+  /// Stored lowercased and trimmed, and unique on that — so "A@b.com" and "a@b.com " are one
+  /// person. The endpoint answers identically whether the row was created or already existed,
+  /// so this is never an oracle for "is this address on the list".
+  email String @unique
+
+  /// Where it came from, so a second capture point later is distinguishable. "coming-soon" today.
+  source String @default("coming-soon")
+
+  /// Set when the launch announcement is actually sent to this address. Null means unsent, which
+  /// is what makes the send resumable: SMTP is unconfigured, so the list will sit unsent for a
+  /// while and the eventual send must be safe to run twice.
+  notifiedAt DateTime?
+
+  /// Set if they ask to come off the list. Kept as a row rather than deleted — a deleted row
+  /// would be re-added by the next signup and start mailing them again.
+  unsubscribedAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([notifiedAt])
+}
+
 // ------------------------------------------------------------------ customers
 model Customer {
   id           Int             @id @default(autoincrement())

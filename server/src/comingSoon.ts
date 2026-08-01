@@ -55,6 +55,18 @@ const ALLOW_EXACT = new Set([
   "/sitemap.xml",
   // Render calls this; blocking it fails the health check and the service gets restarted.
   "/api/health",
+  /**
+   * The coming-soon page's own email capture.
+   *
+   * The one public WRITE endpoint reachable while the gate is on, and it has to be: the
+   * placeholder is the only thing a visitor can see, so this is the only way tonight's traffic
+   * becomes an audience rather than a bounce. Listed by exact path rather than opening a
+   * prefix, so it is the only thing that gets through.
+   *
+   * It is rate-limited, it stores nothing but an address, and it answers identically whether
+   * that address was new or already known.
+   */
+  "/api/launch-signup",
 ]);
 
 const ALLOW_PREFIX = [

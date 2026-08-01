@@ -8,6 +8,7 @@ import * as XLSX from "xlsx";
 import { ORDER_STATUSES, STATUS_KEYS, statusMeta, nextStatuses, canTransition } from "./status.js";
 import { hashPassword, checkPassword, signToken, withCustomer, requireCustomer, assertAuthConfig } from "./auth.js";
 import { rateLimit, LIMITS } from "./rateLimit.js";
+import { recordSignup, launchListStats, launchListCsv } from "./launchList.js";
 import { sendMail, mailConfigured, orderConfirmationEmail, statusUpdateEmail, passwordResetEmail } from "./mailer.js";
 import { DEV_ADMIN_KEY, validateSettings, setupChecks } from "./setup.js";
 import { resolvePromo } from "./promo.js";
@@ -797,6 +798,27 @@ app.post("/api/orders", withCustomer, asyncH(async (req, res) => {
   if (order.email) sendMail(settings, order.email, `Order ${order.number} received`, orderConfirmationEmail(settings.storeName ?? "TulipGlam", fullName, order.number, "$" + (total / 100).toFixed(2)));
 
   res.json({ number: order.number, totalCents: total, subtotalCents: subtotal, discountCents: discount, giftCardCents: giftUsed, deliveryCents: delivery, freeDeliveryReason, whatsappNumber: settings.whatsappNumber ?? "" });
+}));
+
+/**
+ * The coming-soon page's email capture.
+ *
+ * Public, unauthenticated, and reachable WHILE THE GATE IS ON — which is the whole point, since
+ * the gate is the only thing a visitor can currently see. It is allowlisted by exact path in
+ * comingSoon.ts rather than by prefix, so nothing else public gets opened up alongside it.
+ *
+ * Always answers 200 with the same body. Not a courtesy: an endpoint that distinguishes "added"
+ * from "already on the list" lets anyone with a list of addresses test which belong to this
+ * store's audience. Same rule as /api/auth/forgot and registration.
+ *
+ * A malformed address also gets 200. The page has already checked the shape, so a bad one here
+ * is either a bot or a browser that let something odd through — and telling either of them
+ * precisely what was wrong helps only the bot.
+ */
+app.post("/api/launch-signup", rateLimit(LIMITS.launchSignup), asyncH(async (req, res) => {
+  await recordSignup(db, { email: str(req.body?.email), source: str(req.body?.source) });
+  res.setHeader("Cache-Control", "no-store");
+  res.json({ ok: true });
 }));
 
 // ============================================================ LOYALTY (customer-facing)
@@ -1814,6 +1836,28 @@ admin.put("/gift-cards/:id", asyncH(async (req, res) => {
   res.json({ ok: true });
 }));
 admin.delete("/gift-cards/:id", asyncH(async (req, res) => { await db.giftCard.delete({ where: { id: num(req.params.id) } }); res.json({ ok: true }); }));
+
+// ---- launch list ----
+
+admin.get("/launch-signups", asyncH(async (_req, res) => {
+  res.json(await launchListStats(db));
+}));
+
+/**
+ * The list as a file.
+ *
+ * `Content-Disposition: attachment` with a dated filename, because the likeliest thing that
+ * happens to this file is that it gets uploaded to a mail provider months from now, and
+ * "launch-list.csv" three times in a downloads folder is a guessing game.
+ */
+admin.get("/launch-signups.csv", asyncH(async (_req, res) => {
+  const csv = await launchListCsv(db);
+  const stamp = new Date().toISOString().slice(0, 10);
+  res.setHeader("Content-Type", "text/csv; charset=utf-8");
+  res.setHeader("Content-Disposition", `attachment; filename="tulipglam-launch-list-${stamp}.csv"`);
+  res.setHeader("Cache-Control", "no-store");
+  res.send(csv);
+}));
 
 // ---- loyalty ----
 //
