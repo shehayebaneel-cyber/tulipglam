@@ -1,6 +1,7 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
+import { analyseBundle } from "./scripts/analyse-bundle.js";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 
@@ -51,7 +52,9 @@ if (!cookie) {
 }
 
 export default defineConfig({
-  plugins: [react(), tailwindcss()],
+  // ANALYSE=1 adds a build-only reporter that writes bundle-report.txt. Off by default so a
+  // normal build is byte-identical to what it was.
+  plugins: [react(), tailwindcss(), ...(process.env.ANALYSE ? [analyseBundle()] : [])],
   server: {
     port: 5330,
     /**
