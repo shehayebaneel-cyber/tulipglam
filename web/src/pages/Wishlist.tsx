@@ -1,20 +1,16 @@
-import { ButtonLink } from "../components/Button";
 import { useStore } from "../lib/store";
 import { ProductCard } from "../components/ProductCard";
-import { HeartIcon } from "../components/ui";
+import { EmptyState } from "../components/EmptyState";
 
 export function Wishlist() {
   const { wishlist } = useStore();
 
   if (wishlist.length === 0) return (
-    <div className="wrap grid min-h-[56vh] place-items-center py-16 text-center">
-      <div>
-        <div className="mx-auto grid h-16 w-16 place-items-center rounded-full bg-plum-soft text-plum"><HeartIcon className="h-7 w-7" /></div>
-        <h1 className="serif mt-5 text-3xl text-ink">Your wishlist is empty</h1>
-        <p className="mx-auto mt-2 max-w-xs text-sm text-muted">Tap the heart on anything you love to save it here for later.</p>
-        <ButtonLink to="/shop" variant="primary" size="lg" className="mt-6">Explore products</ButtonLink>
-      </div>
-    </div>
+    <EmptyState
+      title="Your wishlist is empty"
+      body="Tap the heart on anything you want to come back to. It stays on this device."
+      action={{ label: "Browse the shop", to: "/shop" }}
+    />
   );
 
   return (

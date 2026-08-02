@@ -5,8 +5,9 @@ import { api, usd, type Brand, type Card, type Facets, type SiteData } from "../
 import { useStore } from "../lib/store";
 import { useFetch } from "../lib/hooks";
 import { ProductCard } from "../components/ProductCard";
+import { ProductGridSkeleton } from "../components/EmptyState";
 import { ErrorState } from "../components/ErrorState";
-import { FilterIcon, CloseIcon, ChevronDown, Spinner, ChevronRight, SearchIcon } from "../components/ui";
+import { FilterIcon, CloseIcon, ChevronDown, ChevronRight, SearchIcon } from "../components/ui";
 
 type Mode = "all" | "category" | "new" | "bestsellers" | "sale" | "search";
 
@@ -246,7 +247,11 @@ export function Shop({ mode }: { mode: Mode }) {
         {/* grid */}
         <div className="min-w-0 flex-1">
           {loading ? (
-            <div className="grid place-items-center py-24 text-plum"><Spinner /></div>
+            /* The card shape at the card size, not a spinner in the middle of nothing. The
+               grid's final layout exists before the products do, so landing them moves
+               nothing — which on a Lebanese mobile connection is several seconds of a page
+               that would otherwise be reflowing under the reader's thumb. */
+            <ProductGridSkeleton count={products.length || 8} />
           ) : error ? (
             /* Without this, a failed request rendered "Nothing here yet" — telling a shopper
                the catalogue is empty when nothing was ever loaded. */
@@ -254,8 +259,8 @@ export function Shop({ mode }: { mode: Mode }) {
           ) : products.length === 0 ? (
             <div className="grid place-items-center rounded-2xl border border-dashed border-line-strong py-20 text-center">
               <div>
-                <p className="serif text-2xl text-ink">Nothing here yet</p>
-                <p className="mx-auto mt-2 max-w-xs text-sm text-muted">
+                <p className="t-section text-ink">{activeCount > 0 ? "No matches" : "Nothing here yet"}</p>
+                <p className="t-small measure mx-auto mt-2 text-muted">
                   {activeCount > 0 ? "No products match these filters. Try removing one." : "There's nothing in this section right now."}
                 </p>
                 {activeCount > 0 && <button onClick={clearAll} className="btn btn-ghost mt-5 px-6 py-2.5">Clear filters</button>}

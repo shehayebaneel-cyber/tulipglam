@@ -1,9 +1,31 @@
-import { Outlet, ScrollRestoration } from "react-router-dom";
+import { Outlet, ScrollRestoration, useLocation } from "react-router-dom";
 import { Header } from "./Header";
 import { Footer } from "./Footer";
 import { BottomNav } from "./BottomNav";
+import { CheckoutShell } from "./CheckoutShell";
+
+/**
+ * Routes that get the stripped shell instead of the storefront one.
+ *
+ * Only checkout. The cart deliberately keeps full navigation — someone with a bag open is
+ * still shopping and "add one more thing" is a good outcome there. Once they have committed to
+ * paying, every link is a way to lose the sale. See CheckoutShell for the reasoning.
+ */
+const FOCUSED = new Set(["/checkout"]);
 
 export function Layout() {
+  const { pathname } = useLocation();
+
+  if (FOCUSED.has(pathname)) {
+    return (
+      <>
+        <a href="#main" className="skip-link">Skip to content</a>
+        <CheckoutShell><Outlet /></CheckoutShell>
+        <ScrollRestoration />
+      </>
+    );
+  }
+
   return (
     <div className="flex min-h-screen flex-col">
       {/*

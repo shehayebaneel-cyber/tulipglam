@@ -18,6 +18,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { fixtureFor, fixtureProducts } from "./fixtures.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const LABEL = process.argv[2];
@@ -25,11 +26,12 @@ if (!LABEL || LABEL.startsWith("--")) { console.error("usage: shots.mjs <before|
 const onlyAt = process.argv.indexOf("--only");
 const ONLY = onlyAt > -1 ? process.argv[onlyAt + 1] : null;
 const DESKTOP = process.argv.includes("--desktop");
+const MOCK = process.argv.includes("--mock");
 
 const OUT = path.resolve(HERE, "..", "..", "shots", LABEL);
 fs.mkdirSync(OUT, { recursive: true });
 
-const WEB = process.env.WEB_ORIGIN || "http://localhost:5331";
+const WEB = process.env.WEB_ORIGIN || "http://localhost:5330"; // matches vite.config server.port
 const ADMIN_KEY = process.env.ADMIN_KEY || "tulip-admin-2026";
 const CHROME = process.env.CHROME_PATH
   || ["C:/Program Files/Google/Chrome/Application/chrome.exe", "C:/Program Files (x86)/Google/Chrome/Application/chrome.exe"].find((p) => fs.existsSync(p));
@@ -93,6 +95,43 @@ try {
 
   await call("Page.enable");
   await call("Runtime.enable");
+
+  /**
+   * `--mock` serves the API from fixtures instead of the database.
+   *
+   * Not a convenience. The database is in Ohio and this machine lost its route to it, which
+   * turns every storefront surface into an error state and makes design work unverifiable.
+   * Intercepting at the browser means NO production code knows about this — there is no mock
+   * flag in the app, no fixture import in a bundle, nothing that could ship. The app makes its
+   * normal fetches and Chrome answers them.
+   *
+   * Images are deliberately NOT intercepted: they load from disk as they really would, so what
+   * is photographed is the real image pipeline, which is half of what these shots are evidence
+   * for.
+   */
+  if (MOCK) {
+    await call("Fetch.enable", { patterns: [{ urlPattern: "*/api/*" }] });
+    ws.addEventListener("message", async (ev) => {
+      const m = JSON.parse(ev.data);
+      if (m.method !== "Fetch.requestPaused" || m.sessionId !== sessionId) return;
+      const { requestId, request } = m.params;
+      try {
+        const u = new URL(request.url);
+        const body = fixtureFor(u.pathname, u.search);
+        if (body === null) { await call("Fetch.continueRequest", { requestId }); return; }
+        const status = body.__status ?? 200;
+        const payload = Buffer.from(JSON.stringify(body)).toString("base64");
+        await call("Fetch.fulfillRequest", {
+          requestId, responseCode: status,
+          responseHeaders: [{ name: "Content-Type", value: "application/json" }],
+          body: payload,
+        });
+      } catch {
+        try { await call("Fetch.failRequest", { requestId, errorReason: "Failed" }); } catch { /* target gone */ }
+      }
+    });
+    console.log("  (serving /api/* from fixtures — no database)\n");
+  }
   const metrics = DESKTOP
     ? { width: 1280, height: 900, deviceScaleFactor: 1, mobile: false }
     : { width: 390, height: 844, deviceScaleFactor: 2, mobile: true };
@@ -114,8 +153,8 @@ try {
    * thirty-second timeout attributed to the wrong surface.
    */
   const api = process.env.API_ORIGIN || WEB; // through Vite, which attaches the preview cookie the gate requires
-  const firstProduct = await fetch(`${api}/api/products?limit=1`).then((r) => r.json()).catch(() => null);
-  const product = firstProduct?.products?.[0] ?? null;
+  const firstProduct = MOCK ? null : await fetch(`${api}/api/products?limit=1`).then((r) => r.json()).catch(() => null);
+  const product = MOCK ? fixtureProducts[0] : (firstProduct?.products?.[0] ?? null);
   const productSlug = product?.slug ?? "";
   if (!product) console.log("  warn  no product from the API — product/cart/checkout shots will be skipped");
 
@@ -130,7 +169,7 @@ try {
       // A real line from a real product at the server's own price — not a fabricated cart.
       const line = [{
         productId: product.id, slug: product.slug, name: product.name,
-        image: product.images?.[0]?.url ?? "",
+        image: product.image || product.images?.[0]?.url || "", // Card carries `image`; ProductFull carries `images`
         priceCents: product.salePriceCents || product.priceCents,
         qty: 2, variantId: null, variantLabel: "",
       }];
@@ -187,10 +226,29 @@ try {
     const file = path.join(OUT, `${s.name}.png`);
     fs.writeFileSync(file, Buffer.from(data, "base64"));
 
-    // Sideways scroll at phone width is a layout failure, so it is recorded with the shot.
-    const overflow = await evaluate(`document.documentElement.scrollWidth > document.documentElement.clientWidth`);
-    done.push({ name: s.name, height, overflows: !!overflow.result?.value });
-    console.log(`  ok    ${s.name.padEnd(20)} ${metrics.width}x${height}${overflow.result?.value ? "   ⚠ SCROLLS SIDEWAYS" : ""}`);
+    /**
+     * Sideways scroll at phone width is a layout failure, and the flag alone is not actionable —
+     * "home scrolls sideways" sends you hunting through a page of nested divs. So the check also
+     * names the outermost elements that cross the right edge, which is almost always the cause;
+     * everything inside them is just being carried along.
+     */
+    const of = await evaluate(`(() => {
+      const vw = document.documentElement.clientWidth;
+      if (document.documentElement.scrollWidth <= vw) return "";
+      const hits = [];
+      for (const el of document.querySelectorAll('body *')) {
+        const r = el.getBoundingClientRect();
+        if (r.width > 0 && r.right > vw + 1) {
+          if (hits.some((h) => h.el.contains(el))) continue;   // outermost only
+          const cls = el.className && el.className.baseVal !== undefined ? el.className.baseVal : String(el.className || '');
+          hits.push({ el, s: el.tagName.toLowerCase() + (cls ? '.' + cls.trim().split(/\\s+/).slice(0, 4).join('.') : '') + ' →' + Math.round(r.right) + 'px' });
+        }
+      }
+      return hits.slice(0, 4).map((h) => h.s).join(' | ');
+    })()`);
+    const overflows = !!of.result?.value;
+    done.push({ name: s.name, height, overflows, offenders: of.result?.value || "" });
+    console.log(`  ok    ${s.name.padEnd(20)} ${metrics.width}x${height}${overflows ? `   ⚠ SCROLLS SIDEWAYS: ${of.result.value}` : ""}`);
 
     await call("Emulation.setDeviceMetricsOverride", metrics);
   }

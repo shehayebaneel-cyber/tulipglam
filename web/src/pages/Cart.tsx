@@ -1,10 +1,11 @@
 import { Link } from "react-router-dom";
+import { EmptyState } from "../components/EmptyState";
 import { ButtonLink } from "../components/Button";
 import { usd } from "../lib/api";
 import { productImage } from "../lib/img";
 import { useStore, lineKey } from "../lib/store";
 import { ProductGlyph } from "../components/ProductGlyph";
-import { PlusIcon, MinusIcon, TrashIcon, BagIcon, ChevronRight } from "../components/ui";
+import { PlusIcon, MinusIcon, TrashIcon, ChevronRight } from "../components/ui";
 
 export function Cart() {
   const { cart, setQty, removeLine, cartSubtotal, site } = useStore();
@@ -13,14 +14,12 @@ export function Cart() {
   const toFree = Math.max(0, threshold - cartSubtotal);
 
   if (cart.length === 0) return (
-    <div className="wrap grid min-h-[56vh] place-items-center py-16 text-center">
-      <div>
-        <div className="mx-auto grid h-16 w-16 place-items-center rounded-full bg-plum-soft text-plum"><BagIcon className="h-7 w-7" /></div>
-        <h1 className="serif mt-5 text-3xl text-ink">Your bag is empty</h1>
-        <p className="mx-auto mt-2 max-w-xs text-sm text-muted">Discover our best sellers and new arrivals — beautifully sourced for Lebanon.</p>
-        <ButtonLink to="/shop" variant="primary" size="lg" className="mt-6">Start shopping</ButtonLink>
-      </div>
-    </div>
+    <EmptyState
+      title="Your bag is empty"
+      body="Nothing in here yet. Everything is sourced to order and confirmed with you on WhatsApp before it goes out."
+      action={{ label: "Start shopping", to: "/shop" }}
+      secondary={{ label: "View wishlist", to: "/wishlist" }}
+    />
   );
 
   return (

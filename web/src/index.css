@@ -100,12 +100,135 @@ body {
   }
 }
 
+/* ============================================================
+   TYPE SCALE
+
+   Sizes were being chosen per-component — text-[13px] here,
+   text-[14px] there, text-2xl somewhere else — which is why the
+   storefront read as assembled rather than designed while the
+   coming-soon page read as composed. Same palette, same fonts,
+   no shared rhythm.
+
+   Six steps, and a page should use three or four of them. Tuned
+   at 390px first: `t-body` is 15px because 14px sets too small
+   for a paragraph held at arm's length on a phone, and `t-micro`
+   is the floor — nothing on the storefront goes below 11px.
+
+   Display sizes carry `text-wrap: balance` so a two-line heading
+   breaks evenly instead of leaving one orphaned word, and tight
+   tracking, because Fraunces at display size is loose by default.
+   ============================================================ */
+.t-display {
+  font-family: var(--font-serif);
+  font-size: clamp(2rem, 1.35rem + 2.7vw, 3.25rem);
+  line-height: 1.04;
+  letter-spacing: -0.022em;
+  font-weight: 500;
+  text-wrap: balance;
+}
+.t-title {
+  font-family: var(--font-serif);
+  font-size: clamp(1.5rem, 1.2rem + 1.3vw, 2rem);
+  line-height: 1.14;
+  letter-spacing: -0.015em;
+  font-weight: 500;
+  text-wrap: balance;
+}
+.t-section {
+  font-family: var(--font-serif);
+  font-size: 1.25rem;
+  line-height: 1.25;
+  letter-spacing: -0.01em;
+  font-weight: 500;
+}
+.t-body {
+  font-size: 0.9375rem;
+  line-height: 1.62;
+}
+.t-small {
+  font-size: 0.8125rem;
+  line-height: 1.5;
+}
+.t-micro {
+  font-size: 0.6875rem;
+  line-height: 1.45;
+  letter-spacing: 0.02em;
+}
+
+/* Measure. Long-form copy past ~68 characters is measurably harder to track back from
+   the end of one line to the start of the next. */
+.measure {
+  max-width: 34em;
+}
+
+/* A section's opening: eyebrow, heading, optional lead — one component's worth of rhythm
+   so every section on every page starts the same way instead of each page inventing a gap. */
+.section-head {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
 .eyebrow {
   font-size: 0.6875rem;
   letter-spacing: 0.2em;
   text-transform: uppercase;
   font-weight: 600;
   color: var(--color-plum);
+}
+
+/* ============================================================
+   VERTICAL RHYTHM
+
+   Sections were spaced with whatever margin each page happened
+   to use, so the gap between hero and grid differed from the gap
+   between grid and trust bar on the same screen. One step, used
+   everywhere, and the phone gets a smaller one than the desktop
+   because 96px of air on a 390px screen is a scroll with nothing
+   in it.
+   ============================================================ */
+.section {
+  padding-block: 2.75rem;
+}
+@media (min-width: 768px) {
+  .section {
+    padding-block: 4rem;
+  }
+}
+.section-tight {
+  padding-block: 1.75rem;
+}
+@media (min-width: 768px) {
+  .section-tight {
+    padding-block: 2.5rem;
+  }
+}
+
+/* ============================================================
+   SURFACES
+
+   One card treatment. Radius, border and background were being
+   re-specified at every call site with slightly different values
+   — rounded-2xl here, rounded-3xl there, sometimes a shadow and
+   sometimes not.
+   ============================================================ */
+.panel {
+  background: var(--color-surface);
+  border: 1px solid var(--color-line);
+  border-radius: 1rem;
+}
+.panel-quiet {
+  background: var(--color-soft);
+  border: 1px solid transparent;
+  border-radius: 1rem;
+}
+/* The one panel per page that carries the money or the decision. Slightly stronger than
+   its neighbours; used once, or it stops meaning anything. */
+.panel-key {
+  background: var(--color-surface);
+  border: 1px solid var(--color-line-strong);
+  border-radius: 1.25rem;
+  box-shadow: var(--shadow-card);
 }
 
 .serif {
