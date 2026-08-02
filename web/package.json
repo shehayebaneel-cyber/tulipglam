@@ -5,11 +5,12 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "node scripts/image-build.mjs --write && tsc -b && vite build",
+    "build": "node scripts/verify-sources.mjs && node scripts/image-build.mjs --write && tsc -b && vite build",
     "lint": "eslint . --max-warnings 0",
     "preview": "vite preview",
     "typecheck": "tsc -b --force",
-    "build:images": "node scripts/image-build.mjs --write"
+    "build:images": "node scripts/image-build.mjs --write",
+    "verify:sources": "node scripts/verify-sources.mjs"
   },
   "dependencies": {
     "react": "^19.2.7",

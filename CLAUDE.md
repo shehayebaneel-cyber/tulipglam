@@ -666,3 +666,37 @@ is cash on delivery; the doorstep is where an invented photograph surfaces, with
 the buyer's hand. Decorative art — the hero, category headers — is a different thing and is
 fine. The catalogue JSON is left untouched on purpose: it is an honest record of what the
 supplier published, and the filtering belongs in code.
+
+## An ignored gate is worse than none, because it still looks like a control
+
+**Owner's rule, 3 Aug 2026.** Before adding a check that blocks a person, ask honestly whether
+they will still be obeying it in a month. A gate that gets clicked through is not a weaker
+control than no gate — it is a *negative* one, because everyone downstream now believes the
+thing was checked.
+
+Where this landed: the import contact sheet is **not** approval-gated. An approval step on a
+9,373-product catalogue would be dismissed within two runs. So the import proceeds and the sheet
+is guaranteed to exist, which buys a smaller promise that is actually kept — *an invented photo
+survives at most one import cycle instead of forever.*
+
+The companion rule is the opposite case: **where a check CAN be enforced without a human in the
+loop, enforce it structurally.** `verify-sources.mjs` runs as the first step of `npm run build`
+and exits 1 if any product-image source changed outside an import, so a modified source cannot
+become a deploy. That one costs nobody any patience — it is 2.3 seconds and it only ever speaks
+when something is wrong.
+
+Choosing between them is the judgement: **gate machines, inform people.**
+
+### Why sources get that treatment specifically
+
+A test of mine tried to rewrite a real source image to simulate a supplier change. It failed —
+because Windows happened to have the file open. Luck wearing a uniform.
+
+Product-image sources are the one thing here that cannot be regenerated: derivatives, the
+database and the whole site are rebuilt *from* them. So the rule stopped being "scripts should
+not write there" and became a hash check the build runs, using the manifest the import review
+already maintains. Integrity and review are the same question asked twice; they share one answer
+rather than drifting into two.
+
+The legitimate path is unchanged: importer runs → `image-review.mjs` rebaselines and shows a
+contact sheet → build passes. Nothing else reproduces that, which is the point.
