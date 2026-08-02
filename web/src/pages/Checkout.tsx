@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api, usd, waHref, type Address, type Rewards } from "../lib/api";
+import { productImage } from "../lib/img";
 import { Button } from "../components/Button";
 import { useStore } from "../lib/store";
 import { Field } from "../components/Field";
@@ -212,7 +213,7 @@ export function Checkout() {
               {cart.map((l, i) => (
                 <li key={i} className="flex gap-3">
                   <span className="relative grid h-14 w-12 shrink-0 place-items-center overflow-hidden rounded-lg" style={{ background: l.tint }}>
-                    {l.image ? <img src={l.image} alt="" loading="lazy" decoding="async" className="h-full w-full object-cover" /> : <ProductGlyph kind={l.glyph} className="h-full w-full p-2 text-plum/45" />}
+                    {l.image ? <img src={productImage(l.image, "thumb")} alt="" width={200} height={200} loading="lazy" decoding="async" className="h-full w-full object-contain" /> : <ProductGlyph kind={l.glyph} className="h-full w-full p-2 text-plum/45" />}
                     <span className="absolute -right-1.5 -top-1.5 grid h-5 min-w-5 place-items-center rounded-full bg-ink px-1 text-[10px] font-bold text-paper">{l.qty}</span>
                   </span>
                   <div className="min-w-0 flex-1">

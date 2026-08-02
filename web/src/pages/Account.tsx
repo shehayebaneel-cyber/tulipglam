@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Button, ButtonLink } from "../components/Button";
 import { Link, useNavigate } from "react-router-dom";
 import { api, usd, type Address, type Order } from "../lib/api";
+import { productImage } from "../lib/img";
 import { useStore } from "../lib/store";
 import { ProductGlyph } from "../components/ProductGlyph";
 import { UserIcon, BoxIcon, HeartIcon, ChevronRight, PlusIcon, TrashIcon, Spinner, CloseIcon, StarIcon } from "../components/ui";
@@ -73,7 +74,7 @@ function OrdersTab({ orders, statuses }: { orders: Order[] | null; statuses: { k
           <div className="flex -space-x-3">
             {o.items.slice(0, 3).map((it) => (
               <span key={it.id} className="grid h-11 w-10 place-items-center overflow-hidden rounded-lg border-2 border-surface" style={{ background: it.tint }}>
-                {it.imageUrl ? <img src={it.imageUrl} alt="" loading="lazy" decoding="async" className="h-full w-full object-cover" /> : <ProductGlyph kind={it.glyph as never} className="h-full w-full p-1.5 text-plum/45" />}
+                {it.imageUrl ? <img src={productImage(it.imageUrl, "thumb")} alt="" width={200} height={200} loading="lazy" decoding="async" className="h-full w-full object-contain" /> : <ProductGlyph kind={it.glyph as never} className="h-full w-full p-1.5 text-plum/45" />}
               </span>
             ))}
           </div>

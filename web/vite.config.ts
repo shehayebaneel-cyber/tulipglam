@@ -54,6 +54,18 @@ export default defineConfig({
   plugins: [react(), tailwindcss()],
   server: {
     port: 5330,
+    /**
+     * Don't watch the generated image derivatives.
+     *
+     * `public/i/` holds 39,692 WebP files built by `scripts/image-build.mjs`. Vite's watcher
+     * tries to follow everything under `public/`, and writing that many files during a build
+     * wedged the dev server hard enough that it stopped answering requests entirely — which
+     * presented as "the site is down" rather than as anything to do with images.
+     *
+     * They are build output, not source: nothing under `public/i` is ever hand-edited, and a
+     * rebuild is a deliberate command. There is nothing for a watcher to usefully react to.
+     */
+    watch: { ignored: ["**/public/i/**", "**/public/products/**"] },
     proxy: {
       "/api": {
         target: "http://localhost:4230",

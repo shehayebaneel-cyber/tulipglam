@@ -2,9 +2,10 @@ import { useState } from "react";
 import { Button } from "../components/Button";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import { api, usd, priceOf, type Variant } from "../lib/api";
+import { productImage } from "../lib/img";
 import { useStore } from "../lib/store";
 import { useFetch } from "../lib/hooks";
-import { ProductGlyph } from "../components/ProductGlyph";
+import { ProductImage } from "../components/ProductImage";
 import { ProductCard } from "../components/ProductCard";
 import { Stars, HeartIcon, HeartFill, PlusIcon, MinusIcon, CheckIcon, TruckIcon, PlayIcon, ChevronRight, Spinner } from "../components/ui";
 
@@ -18,9 +19,6 @@ export function Product() {
   // When a shade with its own photo is picked, that photo takes over the hero.
   // Clicking a thumbnail hands control back to the gallery.
   const [showShadeImg, setShowShadeImg] = useState(true);
-  // Photos that failed to load, tracked per URL so one bad shade photo doesn't hide
-  // the hero for every other shade. Falls back to the glyph instead of raw alt text.
-  const [failedImgs, setFailedImgs] = useState<ReadonlySet<string>>(new Set());
   const [variant, setVariant] = useState<Variant | null>(null);
   const [qty, setQty] = useState(1);
   const [added, setAdded] = useState(false);
@@ -74,16 +72,24 @@ export function Product() {
         {/* ---------- gallery ---------- */}
         <div className="lg:sticky lg:top-28 lg:self-start">
           <div className="relative overflow-hidden rounded-3xl" style={{ background: p.tint }}>
-            <div className="aspect-square w-full">
-              {heroUrl && !failedImgs.has(heroUrl) ? (
-                /* This page's LCP element — the reason it is eager and high priority, while
-                    the thumbnails below are lazy. */
-                <img src={heroUrl} alt={heroAlt} loading="eager" fetchPriority="high" decoding="async"
-                  onError={() => setFailedImgs((s) => new Set(s).add(heroUrl))} className="h-full w-full object-cover" />
-              ) : (
-                <ProductGlyph kind={p.glyph} className="h-full w-full p-16 text-plum/45" />
-              )}
-            </div>
+            {/*
+              This page's LCP element — eager and high priority, while the thumbnails stay lazy.
+
+              `object-contain`, not cover. Cover crops to fill, and on a product photo that
+              means shaving the edges off the thing being sold: the cap of a bottle, the shade
+              name printed down the side of a lipstick. It looked harmless only because the
+              catalogue is mostly square; the 179 padded images would have been cropped.
+            */}
+            <ProductImage
+              url={heroUrl}
+              alt={heroAlt}
+              glyph={p.glyph}
+              slot="hero"
+              eager
+              pad="p-6"
+              className="!bg-transparent"
+              sizes="(min-width: 1024px) 560px, 100vw"
+            />
             {(p.onSale || p.isNew) && (
               <div className="absolute left-4 top-4 flex gap-2">
                 {p.onSale && <span className="rounded-full bg-sale px-2.5 py-1 text-[11px] font-bold text-white">Sale</span>}
@@ -97,7 +103,7 @@ export function Product() {
               {gallery.map((im, i) => (
                 <button key={i} onClick={() => { setImgIdx(i); setShowShadeImg(false); }}
                   className={`h-16 w-16 overflow-hidden rounded-xl border-2 ${i === imgIdx && !(showShadeImg && shadeImg) ? "border-plum" : "border-transparent"}`}>
-                  <img src={im.url} alt="" loading="lazy" decoding="async" className="h-full w-full object-cover" />
+                  <img src={productImage(im.url, "thumb")} alt="" width={200} height={200} loading="lazy" decoding="async" className="h-full w-full object-contain bg-soft" />
                 </button>
               ))}
             </div>

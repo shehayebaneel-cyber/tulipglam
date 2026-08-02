@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Button } from "../components/Button";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { api, usd, type Order } from "../lib/api";
+import { productImage } from "../lib/img";
 import { useStore } from "../lib/store";
 import { useFetch } from "../lib/hooks";
 import { ProductGlyph } from "../components/ProductGlyph";
@@ -63,7 +64,7 @@ function TrackResult({ number }: { number: string }) {
                 {order.items.map((it) => (
                   <li key={it.id} className="flex gap-3">
                     <span className="grid h-12 w-11 shrink-0 place-items-center overflow-hidden rounded-lg" style={{ background: it.tint }}>
-                      {it.imageUrl ? <img src={it.imageUrl} alt="" loading="lazy" decoding="async" className="h-full w-full object-cover" /> : <ProductGlyph kind={it.glyph} className="h-full w-full p-2 text-plum/45" />}
+                      {it.imageUrl ? <img src={productImage(it.imageUrl, "thumb")} alt="" width={200} height={200} loading="lazy" decoding="async" className="h-full w-full object-contain" /> : <ProductGlyph kind={it.glyph} className="h-full w-full p-2 text-plum/45" />}
                     </span>
                     <div className="min-w-0 flex-1">
                       <p className="line-clamp-1 text-[13px] font-medium text-ink">{it.name}</p>

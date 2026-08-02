@@ -1,15 +1,13 @@
-import { useState } from "react";
 import { Link } from "react-router-dom";
 import { usd, priceOf, type Card } from "../lib/api";
 import { useStore, lineFromCard } from "../lib/store";
-import { ProductGlyph } from "./ProductGlyph";
+import { ProductImage } from "./ProductImage";
 import { HeartIcon, HeartFill } from "./ui";
 
 export function ProductCard({ p }: { p: Card }) {
   const { addToCart, toggleWish, inWish } = useStore();
-  // If the photo 404s or fails to decode, fall back to the line-art glyph rather than
-  // leaving the browser to render raw alt text over the tint.
-  const [imgFailed, setImgFailed] = useState(false);
+  // The photo-failed fallback moved into ProductImage, which owns it for every surface —
+  // a corrupt source shows the house glyph in the cart and on the order page too, not only here.
   const off = p.onSale && p.saleCents != null ? Math.round((1 - p.saleCents / p.priceCents) * 100) : 0;
   const wished = inWish(p.slug);
   // Not orderable. Named for the status rather than "sold out" — nothing here is stocked,
@@ -19,26 +17,31 @@ export function ProductCard({ p }: { p: Card }) {
 
   return (
     <Link to={`/product/${p.slug}`} className="group flex flex-col">
-      {/* image bed */}
-      {/* Neutral bed and `object-contain` with padding: supplier photos arrive at wildly
-          different shapes — a wide Babyliss airbrush next to a tall narrow bottle — and
-          `object-cover` cropped some to fill while others floated tiny. Containing every
-          image in an identical frame makes the grid read as one shelf. */}
-      <div className="relative overflow-hidden rounded-2xl bg-soft">
-        <div className="aspect-[4/5] w-full p-3">
-          {p.image && !imgFailed ? (
-            <img
-              src={p.image}
-              alt={`${p.brand?.name ? `${p.brand.name} ` : ""}${p.name}`}
-              loading="lazy"
-              decoding="async"
-              onError={() => setImgFailed(true)}
-              className="h-full w-full object-contain transition-transform duration-300 group-hover:scale-[1.04]"
-            />
-          ) : (
-            <ProductGlyph kind={p.glyph} className="h-full w-full p-8 text-plum/45 transition-transform duration-300 group-hover:scale-[1.04]" />
-          )}
-        </div>
+      {/*
+        The shelf.
+
+        `ProductImage` reserves a square box before the photo arrives and serves the 400/600
+        WebP derivative rather than the source PNG — the sources average 84 KB each and the
+        card derivatives are a fraction of that, which on a category page is the difference
+        between a grid that fills and a grid that trickles.
+
+        Square rather than 4:5 because the catalogue measured 98.2% square: a 4:5 bed
+        letterboxed almost every product with dead space above and below, making the goods
+        look smaller than the tile they were sitting in.
+
+        `sizes` describes the real layout — two columns with the page gutter and the gap
+        removed — so a phone requests the 1x file and only a dense screen pays for 2x.
+      */}
+      <div className="relative overflow-hidden rounded-2xl">
+        <ProductImage
+          url={p.image}
+          alt={`${p.brand?.name ? `${p.brand.name} ` : ""}${p.name}`}
+          glyph={p.glyph}
+          slot="card"
+          srcSet
+          sizes="(min-width: 1024px) 220px, (min-width: 640px) 30vw, 45vw"
+          imgClassName="transition-transform duration-300 group-hover:scale-[1.04]"
+        />
         {/* badges */}
         <div className="absolute left-2.5 top-2.5 flex flex-col items-start gap-1">
           {off > 0 && <span className="rounded-full bg-sale px-2 py-0.5 text-[10px] font-bold tracking-wide text-white">-{off}%</span>}
