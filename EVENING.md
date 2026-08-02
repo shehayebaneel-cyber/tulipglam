@@ -1,5 +1,20 @@
 # Evening — what happened
 
+> **Correction, added after the network came back.**
+>
+> I reported the homepage screenshot as `ok 390x2416` without opening it. It was a **stack
+> trace**. Under a payload missing one field the whole homepage white-screened, and I published
+> a green line for it — the exact failure this project has caught me on before: a check that
+> reports a number instead of a look.
+>
+> Cause: `data?.reviews.length` guards `data` being null and does nothing about `reviews` being
+> absent. Not a live bug — the server sends the field — but one missing field taking down the
+> entire homepage is a blast radius worth closing, and it is closed. Home now renders at
+> 3,996px on a phone and 3,102px at desktop, and **I looked at both**.
+>
+> Everything is pushed. Four commits. Production verified through the deploy: gate holding,
+> coming-soon page, store dark.
+
 **Read `DECISIONS.md` first.** Five things need you; four of them are one word each.
 
 Two commits, **neither pushed**. The machine lost its route to GitHub and to Neon partway

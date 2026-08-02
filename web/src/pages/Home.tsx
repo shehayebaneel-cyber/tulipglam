@@ -236,8 +236,21 @@ export function Home() {
         </div>
       )}
 
+      {/*
+        Optional chaining on the ARRAY, not only on `data`.
+
+        `data?.reviews.length` guards `data` being null and does nothing about `reviews` being
+        absent, so a /api/home response missing one field threw through React and white-screened
+        the whole homepage — stack trace and all, at every viewport. Found by screenshotting
+        home against a payload that omitted `reviews`.
+
+        The server sends all three today, so this is not a live bug; it is a blast radius. One
+        missing field should hide one section. This codebase already decided that a failed
+        request must not render "Nothing here yet" — a blank page with a stack trace on it is
+        worse than either.
+      */}
       {/* ---------------- BEST SELLERS ---------------- */}
-      {!!data?.bestSellers.length && (
+      {!!data?.bestSellers?.length && (
         <section className="wrap mt-14">
           <SectionHead eyebrow="Loved by everyone" title="Best sellers" to="/bestsellers" />
           <Row items={data.bestSellers} />
@@ -265,7 +278,7 @@ export function Home() {
       )}
 
       {/* ---------------- NEW ARRIVALS ---------------- */}
-      {!!data?.newArrivals.length && (
+      {!!data?.newArrivals?.length && (
         <section className="wrap mt-14">
           <SectionHead eyebrow="Just landed" title="New arrivals" to="/new" />
           <Row items={data.newArrivals} />
@@ -312,7 +325,7 @@ export function Home() {
       </section>
 
       {/* ---------------- REVIEWS ---------------- */}
-      {!!data?.reviews.length && (
+      {!!data?.reviews?.length && (
         <section className="wrap mt-14">
           <SectionHead eyebrow="Kind words" title="What our customers say" />
           <div className="grid gap-4 sm:grid-cols-3">

@@ -175,6 +175,10 @@ with individual dismiss and Clear all, and full URL sync of filter/sort/page/sea
 ### 3.6 Card image framing — FIXED
 Fixed aspect ratio, `object-fit: contain`, consistent padding and neutral bed.
 
+**Superseded 2 Aug** — the ratio was 4:5 and the catalogue then measured **98.2% square**, so
+the bed was letterboxing nearly every product with dead space above and below. Now square, and
+served from generated WebP derivatives rather than the source PNG. See the 2 August section.
+
 ### 3.7 Unavailable overlay — FIXED
 Heavy dark bar replaced with a compact on-palette badge reading "Unavailable";
 discontinued gets its own distinct treatment.
@@ -458,3 +462,43 @@ match, because matching is on word boundaries.
 8. **Decide which brands to hide.** Tooling and the report are built; the editorial call is yours.
 9. **Pricing.** Every price still equals the supplier's retail price, so margin is ~zero. Left
    untouched as instructed.
+
+---
+
+# 2 August — worked from the top; what is left is all yours
+
+Everything in Phases 1–6 above still reads FIXED and I re-read the list rather than assuming.
+**The punch list has no unambiguous items remaining.** The nine in BLOCKED are the whole
+residue, and each of them needs a value, a photograph, or an editorial decision that is not
+mine to make. I did not run the audience classifier or the brand normaliser: both are listed
+as needing your review first, and both write to the live catalogue.
+
+### Corroborated, not merely repeated
+
+**BLOCKED #3 — the hero is AI-generated.** Confirmed again today from the rendered page
+(`shots/before/home.png`), and there is now a **second** instance: a Beesline product photograph
+whose filename is Google Gemini's own output convention,
+`Gemini_Generated_Image_8hgb1o8hgb1o8hgb_…png`, flagged by the image pipeline and listed in
+`IMAGE-SUSPECTS.txt`.
+
+A generated hero is a mood; a generated *product* photograph is a claim about an object a
+customer will hold. Raised as DECISIONS.md §2 rather than acted on — which product it belongs to
+and whether it was deliberate is yours to know.
+
+### New this day, and relevant to items above
+
+- **3.6 superseded** (see inline note): 4:5 → square, and every surface now serves derivatives.
+- **New: image sources are audited.** 10,110 files measured; 19 flagged in `IMAGE-SUSPECTS.txt`,
+  including two corrupt PNGs. **One of those is the only image of an ACTIVE product** (Huda
+  Beauty Lip Contour Lip Stain) — a replacement photograph is content, so it joins BLOCKED.
+- **New: checkout renders a stripped shell.** The full header, the fifteen-link footer and the
+  fixed bottom nav are gone from `/checkout`. Confirm or revert — DECISIONS.md §4.
+- **Not re-verified against the live catalogue.** Neon was unreachable for most of the day, so
+  today's storefront screenshots came from a fixture harness built on the real Dali catalogue.
+  Honest, but not the same as the database. Worth one re-run before trusting them fully.
+
+### BLOCKED gains one
+
+10. **A replacement photograph for Huda Beauty Lip Contour Lip Stain For 12-Hour Wear.** Its
+    only image file is a corrupt PNG that cannot be decoded, so the product currently renders as
+    the house glyph. The product is `active`.

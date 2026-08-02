@@ -143,6 +143,9 @@ export function fixtureFor(pathname, search) {
       newArrivals: products.filter((p) => p.isNew).concat(products.slice(0, 6)).slice(0, 8),
       bestSellers: products.filter((p) => p.isBestSeller).concat(products.slice(6, 12)).slice(0, 8),
       categories: site.categories,
+      // The real endpoint sends these; omitting one is how the homepage crash was found.
+      reviews: [],
+      trust: site.trust,
     };
   }
   if (pathname === "/api/brands") return { brands: site.featuredBrands };
