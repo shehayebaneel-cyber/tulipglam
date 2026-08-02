@@ -115,3 +115,25 @@ confirms the ceiling and the accommodations go — it just needs a box that can 
 exists by definition.
 
 I did not fake it with Neon, and I did not report a verdict I could not reach.
+
+### But the theory got strong evidence tonight, by accident
+
+I left a second server running while measuring performance — two Node processes plus 17 test
+suites, all holding Prisma pools against Neon. The result:
+
+| | |
+|---|---|
+| With the extra server running | **13 of 17 suites died before printing a summary**, 78 failed checks, one crashing with a Windows stack-overrun code |
+| Extra server killed, nothing else changed | **17 suites, 954 checks, all pass** |
+
+Same commit, same database, same command, minutes apart. The only variable was how many
+connection pools were open.
+
+That is not the verdict — the verdict needs the controlled 20-run experiment on local Postgres,
+and I am not substituting an accident for it. But it is the clearest signal yet that the
+`test-redemption` flake is **connection exhaustion rather than a bug in the redemption path**,
+and it raises my confidence that `BATCH = 40` and the sequential `materialise` loop are
+accommodations for Neon's free tier and will be safe to delete once Postgres is local.
+
+It also means: **do not run the full suite while anything else is holding a pool.** Worth
+knowing before someone reads 78 failures as a broken build.

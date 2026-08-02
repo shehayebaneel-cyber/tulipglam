@@ -42,8 +42,10 @@ Consequences, honestly:
 - **The design work was verified against fixtures, not against the live catalogue.** I built a
   harness that answers `/api/*` from the real Dali catalogue on disk — real names, real prices,
   real photographs — and intercepts at the *browser*, so no mock code exists in the app or could
-  ever ship. It is honest but it is not the same as the real database, and I am flagging that
-  rather than presenting the screenshots as fully verified.
+  ever ship.
+  **Since resolved.** Neon came back and everything was re-verified against the real 9,672-product
+  catalogue — `shots/after-real/`. The suite passes **954 checks across 17 suites** against the
+  live database, and production was watched through the deploy.
 
 ### Three bugs in my own tooling, all caught by looking rather than by counts
 
@@ -191,9 +193,28 @@ Measured on the real files, not estimated:
 The old page also downloaded one file per product regardless of screen; now a phone gets the 1×
 file and only a dense screen pays for 2×.
 
-**I could not re-run the full CDP performance measurement** — that needs the real site with the
-real catalogue, so it waits for the database. The numbers above are file-level and honest, but
-they are not the same as a measured first-contentful-paint.
+### Measured, after the database came back
+
+Production build, 390px, 4× CPU throttle, 1.6 Mbps / 150 ms RTT, cold cache, 3 runs each — the
+same script and the same conditions as the overnight baseline, so these compare directly.
+
+| | overnight baseline | tonight |
+|---|---|---|
+| Homepage FCP | 3,520 ms | **3,464–3,512 ms** |
+| Homepage transferred | 695 KB | 697–749 KB |
+| Category page FCP | — | 3,432–3,512 ms |
+| Category page transferred | — | 729–813 KB, of which **images 84–128 KB** |
+
+**First contentful paint did not move, and that is the honest result.** It is dominated by the
+**438 KB JavaScript bundle**, not by images — the page cannot paint until React has parsed and
+run, and images arrive after that. Nothing got slower, which was the bar ("prettier and slower
+failed the day"), and the image payload fell by 95%, which is real and shows on every scroll and
+every subsequent page. But the headline number is bounded by something I did not touch.
+
+**So the next performance win is the bundle, not the images.** 438 KB of script to render a
+product grid is the thing standing between this store and a fast first paint on Lebanese mobile
+data. That is a real piece of work and I am naming it rather than implying today's numbers
+covered it.
 
 ---
 
@@ -225,3 +246,44 @@ The two centerpieces are done and I would rather have finished them well than to
 **One thing to watch:** the harness flagged the homepage as scrolling sideways at 390px on one
 run and not on the next, which makes it a transient during load rather than a static layout bug.
 I did not chase a ghost, but the check is in the harness now and will catch it if it is real.
+
+---
+
+# Verified after the network returned
+
+Everything below happened after the connectivity came back, against the real database.
+
+| | |
+|---|---|
+| Pushed | **5 commits**, all live |
+| Test suite | **17 suites, 954 checks, all pass** against the live Neon database |
+| Screenshots re-taken against the real 9,672-product catalogue | `shots/after-real/` |
+| Desktop checked at 1280 | `shots/desktop/` |
+| Production through the deploy | 503 during the build, then **200 serving the coming-soon page**. Gate holding, store dark. |
+
+### One more of my own bugs, and the reason to keep looking
+
+The re-run against the real catalogue photographed the shop grid as **skeleton cards** — because
+the settle detector watches for spinners, and I had *replaced the spinner with skeletons* earlier
+in the same session. A skeleton is DOM-stable while it waits, so the check declared the page
+finished. **The improvement broke its own verification.** Fixed; the detector now treats
+`.skeleton` as loading.
+
+That is three separate times today that a green measurement was measuring the wrong thing. The
+pattern is consistent enough to be worth naming: every one was caught by opening the artifact,
+and none by reading the number.
+
+### An accident that is evidence
+
+While measuring performance I left a second server running. With it up, **13 of 17 suites died
+before printing a summary** — 78 failures. With it killed and nothing else changed, **all 954
+passed**. Same commit, same database, minutes apart; the only variable was how many connection
+pools were open against Neon's free tier.
+
+Not the flake verdict — that still needs the controlled 20-run experiment on local Postgres, and
+I am not substituting an accident for it. But it is the strongest signal yet that the
+`test-redemption` flake is connection exhaustion rather than a bug in the redemption path.
+Written up in DECISIONS.md §5.
+
+**Practical note: do not run the full suite while anything else holds a database pool**, or you
+will read 78 failures as a broken build.

@@ -197,7 +197,11 @@ try {
     while (Date.now() < deadline) {
       await sleep(400);
       const probe = await evaluate(`(() => {
-        const spinning = !!document.querySelector('.animate-spin, [role="status"]');
+        // Skeletons count as loading, not just spinners. The shop grid's loading state became
+        // skeleton cards during this session's design work, and a skeleton is DOM-stable while
+        // it waits, so the settle check declared the page finished and photographed the
+        // placeholder. The improvement broke its own verification.
+        const spinning = !!document.querySelector('.animate-spin, [role="status"], .skeleton');
         return JSON.stringify({ spinning, h: document.documentElement.scrollHeight, n: document.body.innerHTML.length });
       })()`);
       const v = probe.result?.value ?? "";
