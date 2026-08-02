@@ -314,7 +314,23 @@ export function Home() {
       {!!featured.length && (
         <section className="wrap mt-14">
           <SectionHead eyebrow="Featured" title="Brands we love" to="/brands" />
-          <div className="grid grid-cols-2 gap-px overflow-hidden rounded-2xl border border-line bg-line sm:grid-cols-4">
+          {/*
+            Same orphan bug as the trust bar, and I fixed that one first without looking for
+            the others: a fixed 4-up grid drawn with `gap-px` over `bg-line`, holding however
+            many brands admin has curated. With two, the remaining cells rendered as a wide
+            grey panel — which on the desktop homepage read as a broken image slot rather than
+            as empty space.
+
+            Columns follow the count. Admin curates this list, so it can legitimately hold two.
+          */}
+          <div
+            className={`grid gap-px overflow-hidden rounded-2xl border border-line bg-line ${
+              featured.length >= 4 ? "grid-cols-2 sm:grid-cols-4"
+                : featured.length === 3 ? "grid-cols-3"
+                : featured.length === 2 ? "grid-cols-2"
+                : "grid-cols-1"
+            }`}
+          >
             {featured.map((b) => (
               <Link key={b.slug} to={`/shop?brand=${b.slug}`} className="grid place-items-center bg-surface px-4 py-8 transition-colors hover:bg-soft">
                 <span className="serif text-lg font-medium tracking-tight text-ink/85">{b.name}</span>

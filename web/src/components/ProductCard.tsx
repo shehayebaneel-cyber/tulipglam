@@ -16,7 +16,7 @@ export function ProductCard({ p }: { p: Card }) {
   const hasVariants = false; // cards add the base product; variant choice happens on the product page
 
   return (
-    <Link to={`/product/${p.slug}`} className="group flex flex-col">
+    <Link to={`/product/${p.slug}`} className="group flex h-full flex-col">
       {/*
         The shelf.
 
@@ -81,11 +81,19 @@ export function ProductCard({ p }: { p: Card }) {
           <span className="serif text-[17px] font-medium text-ink tabular">{usd(priceOf(p))}</span>
           {p.onSale && <span className="serif text-[13px] text-muted line-through tabular">{usd(p.priceCents)}</span>}
         </div>
+        {/*
+          `mt-auto` pushes the button to the bottom of the card.
+
+          Product names are one line or two depending on the product, so in a row of four the
+          buttons sat at four different heights — the shelf read as uneven even though every
+          tile was identical, which is the same complaint the square image bed was fixing one
+          level up. The image aligns the tops; this aligns the bottoms.
+        */}
         <button
           type="button"
           disabled={soldOut}
           onClick={(e) => { e.preventDefault(); if (!hasVariants) addToCart(lineFromCard(p)); }}
-          className="btn btn-ghost mt-3 w-full py-2.5 text-[12px] disabled:cursor-not-allowed disabled:opacity-45"
+          className="btn btn-ghost mt-auto w-full py-2.5 text-[12px] disabled:cursor-not-allowed disabled:opacity-45"
         >
           {soldOut ? "Unavailable" : "Add to bag"}
         </button>
