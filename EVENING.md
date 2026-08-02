@@ -36,7 +36,8 @@ for two hours.
 
 Consequences, honestly:
 
-- **Nothing is pushed or deployed.** Two commits sit locally.
+- **Nothing could be pushed or deployed for most of the day.** Resolved — all six commits are
+  live, and production was watched through the deploy.
 - **The flake verdict did not run.** It needs local Postgres, this machine has none, and
   installing one needs a download the network would not carry. Detail in DECISIONS.md §5.
 - **The design work was verified against fixtures, not against the live catalogue.** I built a
