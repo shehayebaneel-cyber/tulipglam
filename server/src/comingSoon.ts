@@ -143,6 +143,52 @@ export function sameSecret(a: string, b: string): boolean {
 }
 
 /**
+ * Does this request already hold a valid preview cookie?
+ *
+ * Exported so the SPA catch-all can ask the same question the gate asks. It must be the same
+ * question: two implementations of "is this person allowed to see the real site" is exactly the
+ * kind of pair that drifts, and the consequence of drift here is the shop being visible when it
+ * is supposed to be dark.
+ */
+export function hasPreviewAccess(req: Request): boolean {
+  const key = (process.env.PREVIEW_KEY ?? "").trim();
+  if (!key) return false;
+  const cookie = readCookie(req.headers.cookie, COOKIE_NAME);
+  return !!cookie && sameSecret(cookie, derive(key));
+}
+
+/**
+ * What the gate would have answered, for a request that slipped past it.
+ *
+ * The allowlist lets specific ENDPOINTS through. A request that matched no endpoint and reached
+ * the catch-all was never meant to be allowed — it just shared a prefix with something that was.
+ * This gives it the same answer the gate gives everything else: the placeholder for a document,
+ * a bare uncacheable 404 for anything that is not.
+ */
+export function comingSoonFallback(req: Request, res: Parameters<RequestHandler>[1]): void {
+  /**
+   * `/.well-known/` is a MACHINE namespace, so it never gets the placeholder.
+   *
+   * Its whole purpose is that an external tool drops a file there and something fetches it
+   * verbatim — an ACME challenge, a security.txt. If the file exists, express.static has
+   * already served it and we never reach here; if it does not, the honest answer is a bare
+   * 404. Handing a certificate authority a marketing page with a 200-shaped body in it is
+   * worse than useless, and it is the kind of thing that breaks a renewal at 4am.
+   */
+  if (req.path.startsWith("/.well-known/")) return sendGateNotFound(res);
+
+  if (!isDocumentRequest(req)) return sendGateNotFound(res);
+
+  const file = resolvePage();
+  if (!file) return sendGateNotFound(res);
+  res.status(404); // it genuinely was not found; the BODY is the placeholder, not the shop
+  res.setHeader("Content-Type", "text/html; charset=utf-8");
+  res.setHeader("Cache-Control", "public, max-age=0, must-revalidate");
+  res.setHeader("Vary", VARY);
+  res.send(fs.readFileSync(file, "utf8"));
+}
+
+/**
  * The gate's own reply to a non-document request it will not serve: bare 404, nothing cacheable.
  *
  * Exported so an allowlisted endpoint can be BYTE-IDENTICAL to it when its secret is wrong or

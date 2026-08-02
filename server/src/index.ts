@@ -16,7 +16,7 @@ import { sendMail, mailConfigured, orderConfirmationEmail, statusUpdateEmail, pa
 import { DEV_ADMIN_KEY, validateSettings, setupChecks } from "./setup.js";
 import { resolvePromo } from "./promo.js";
 import { metaForPath, renderHead, injectHead, robotsTxt, sitemapXml } from "./seo.js";
-import { COMING_SOON, comingSoonGate, assertComingSoonConfig, sameSecret, sendGateNotFound } from "./comingSoon.js";
+import { COMING_SOON, comingSoonGate, assertComingSoonConfig, sameSecret, sendGateNotFound, hasPreviewAccess, comingSoonFallback } from "./comingSoon.js";
 import {
   safely, onOrderPlaced, onOrderStatusChanged, tierDeliveryCents,
   assertLoyaltyConfig, LOYALTY_SWEEP_SECRET,
@@ -2371,6 +2371,28 @@ if (fs.existsSync(WEB_DIST)) {
    */
   const template = fs.readFileSync(path.join(WEB_DIST, "index.html"), "utf8");
   app.get("*", asyncH(async (req, res) => {
+    /**
+     * THE GATE HAS TO BE RE-CHECKED HERE, and this is not belt-and-braces.
+     *
+     * `comingSoonGate` runs before the routes and calls next() for anything on its allowlist —
+     * `/api/admin/`, `/api/auth/`, `/api/internal/`, `/api/launch-signup`. An allowlisted path
+     * that matches NO route then falls all the way through to this catch-all, which serves the
+     * real storefront shell. Four paths did exactly that:
+     *
+     *     GET /api/launch-signup          (allowlisted exact path; only POST has a route)
+     *     GET /api/auth/does-not-exist
+     *     GET /api/internal/anything
+     *     GET /api/auth/..%2findex.html
+     *
+     * Each answered 404 with the full real index.html in the body — enough for a browser to
+     * boot the SPA. The store is supposed to be invisible while COMING_SOON is on, and it was
+     * one guessable URL away from not being.
+     *
+     * The allowlist is about letting specific ENDPOINTS through, never about letting the site
+     * through. A request that reached here matched no endpoint, so it gets the gate's answer.
+     */
+    if (COMING_SOON && !hasPreviewAccess(req)) return comingSoonFallback(req, res);
+
     const ctx = await seoContext(req);
     const meta = await metaForPath(req.path, ctx);
     const html = injectHead(template, renderHead(meta, ctx.settings.storeName || "TulipGlam"));
