@@ -1,0 +1,189 @@
+TULIPGLAM — POLICY TEXT, FOR YOUR SIGNATURE
+Plain text. Read it on your phone. Nothing here is live.
+
+Five things need your answer. They are all in section 0. Everything after that is
+the actual wording that goes on the site, written so it is true the moment you fill
+those five in. Where I could not write a sentence without inventing a fact about
+your business, there is a [ ] and a note saying what it needs.
+
+The pages are settings-driven. Once you answer, they go live the same day with no
+deploy.
+
+
+===============================================================================
+0. THE FIVE ANSWERS
+===============================================================================
+
+1) RETURNS WINDOW — 7 days or 14?
+
+   This one has code behind it. The loyalty programme already assumes seven:
+   points confirm 7 days after delivery, and the whole reason for that hold is
+   that a cash-on-delivery order can come back.
+
+   If you say 14, a customer can return on day 10 having already spent the points
+   that order earned. I would then change the hold to 14 to match, which means
+   everyone waits two weeks to spend points.
+
+   7 is the safer launch number. You can extend it later; shortening a returns
+   window after launch is the move that upsets people.
+
+   MY RECOMMENDATION: 7.
+
+
+2) ARE OPENED COSMETICS RETURNABLE?
+
+   MY RECOMMENDATION: no, on hygiene grounds, WITH an exception if the fault is
+   ours — damaged, faulty, or not what was ordered. Without that exception
+   written down, whoever answers the WhatsApp will improvise it differently
+   every time, and the second customer will hear about the first one's outcome.
+
+
+3) DELIVERY TIMES — Beirut, and outside Beirut?
+
+   The one number a customer most wants and the one I cannot measure for you.
+   The site used to say "2-5 working days"; that was removed because nothing
+   backed it, and I will not put it back as a guess.
+
+   How long does it actually take you to source an item and get it to a door?
+   Give me a range for Beirut and a range for elsewhere.
+
+
+4) THE NAME THAT RUNS THE BUSINESS
+
+   A privacy policy needs someone accountable. "TulipGlam" as a trading name is
+   fine if that is what it is. If there is a registered company, that name goes
+   here instead.
+
+
+5) PRIVACY CONTACT — WhatsApp only, or an email too?
+
+   WhatsApp is what your customers actually use. It is also unusual on a privacy
+   page, and a minority of people will not trust a policy with no email address
+   on it. supportEmail is currently unset.
+
+
+===============================================================================
+1. RETURNS
+===============================================================================
+
+   Returns
+
+   If something isn't right, tell us within [7 / 14] days of delivery and we'll
+   put it right.
+
+   Because we sell cosmetics and personal care, we can only accept items back
+   unopened and unused, with their seal intact. That is a hygiene rule, not a
+   technicality — we cannot resell an opened product, and neither would you want
+   us to.
+
+   This does not apply if we got it wrong. If an item arrives damaged, faulty,
+   or isn't what you ordered, we replace or refund it whether it is opened or
+   not. Message us on WhatsApp with your order number and a photo and we'll sort
+   it out.
+
+   Refunds are made in cash, by the same route the order was delivered, or as
+   store credit if you prefer. Since orders are paid on delivery, there is no
+   card to refund to.
+
+   Points earned on a returned order are removed with it.
+
+   ---
+   Note: that last line is already true in the code — a reversal claws the
+   points back and removes the order from tier progress. It is written here so a
+   customer meets it in the policy rather than in an argument.
+
+
+===============================================================================
+2. DELIVERY
+===============================================================================
+
+   Delivery
+
+   We deliver across Lebanon. The delivery fee and the free-delivery threshold
+   are set in your Settings and are already live on the site, so this paragraph
+   fills itself in.
+
+   Because we source each order rather than holding stock, we confirm every item
+   with you on WhatsApp before it goes out. Most orders reach you within
+   [ ] — needs your real range, e.g. "2-4 days in Beirut, 3-6 days elsewhere".
+
+   Pay when it arrives. Cash on delivery, in US dollars. Please have the amount
+   ready — the driver may not carry change.
+
+   If an item turns out to be unavailable, we contact you before dispatching
+   anything. You can swap it, drop it, or cancel the whole order.
+
+   ---
+   Note: keep the line about change. It is the single most common friction in
+   cash-on-delivery, and saying it up front prevents an argument at a door —
+   which now means your own door-step, since you are delivering these yourself.
+
+
+===============================================================================
+3. PRIVACY
+===============================================================================
+
+   Privacy
+
+   [ ] runs TulipGlam — needs your legal or trading name.
+
+   If you want to know what we hold about you, or want it deleted, message us on
+   WhatsApp at [your number] [or email — only if you want one] and we'll deal
+   with it.
+
+   What we keep, and why
+
+   When you order we keep your name, phone number, delivery address and — if you
+   give one — your email, because we cannot deliver an order or tell you it has
+   shipped without them. If you make an account we also keep your password,
+   stored scrambled in a way that cannot be reversed, and your order history.
+
+   If you join TulipGlam Rewards we keep your phone number as the thing your
+   points attach to, and your birth month if you give it — the month only, never
+   the date, because a birthday perk needs to know when, not how old.
+
+   If you left your email on our coming-soon page, we keep it to tell you when
+   we open. Nothing else. Reply to any message and we'll remove you.
+
+   What we don't do
+
+   We don't sell or share your details. There is no advertising or analytics
+   service on this site — no tracking pixel, no third-party script, and nothing
+   loaded from another company's servers. When you browse TulipGlam, your
+   browser talks to us and to nobody else.
+
+   We keep order records because we have to: they are the receipt if something
+   goes wrong. Everything else we will delete if you ask.
+
+   ---
+   Note: that last section is unusually strong and it is entirely true today —
+   including the fonts, which are self-hosted, so no visitor's IP reaches Google
+   in order to read your shop's name. If analytics is ever added, that paragraph
+   has to change in the same commit that adds it.
+
+   Note: the coming-soon email capture is LIVE. People are being asked for an
+   address right now, which is why that paragraph is in the draft rather than
+   waiting for launch.
+
+
+===============================================================================
+4. THREE SMALLER ONES, NOT YET DRAFTED
+===============================================================================
+
+ORDER CONFIRMATION EMAIL COPY
+   The templates exist and the outbox is queuing messages that will send the day
+   SMTP is configured. Nobody has read the wording. Ten minutes, before it starts
+   reaching customers.
+
+GIFT CARD TERMS
+   The page exists and is generic. It should say whether cards expire, whether
+   they are refundable, and what happens to a balance after a partial spend.
+   The code keeps a remaining balance indefinitely and never expires it. If the
+   page says otherwise, the page is wrong, not the code.
+
+REWARDS TERMS
+   The rewards page states the three rules that matter: points confirm after
+   7 days, the rate is locked at checkout, a new tier applies from the next
+   order. It does NOT say that points expire after 12 months without a confirmed
+   order, or that the shop can adjust a balance. Both are true in the code. Both
+   should be visible before anyone has a balance worth arguing about.

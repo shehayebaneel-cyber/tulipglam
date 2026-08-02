@@ -594,7 +594,15 @@ visitor's traffic rate-limits the entire country. Get it too high and a client c
 `X-Forwarded-For` and never be limited. **Neither fails loudly.** Verify after the move by
 logging `req.ip` from two different networks and confirming they differ.
 
-### The decision that actually matters: where Postgres lives
+### DECIDED: Postgres runs on the box. See MIGRATION.md
+
+Neon is withdrawn — the constraint is **two vendors, total**: Cloudflare and Hetzner. The
+un-delete property Neon was providing is now ours to build, and it is a CONDITION of cutover:
+hourly `pg_dump` to R2, a 60-minute maximum data-loss window, backup age surfaced on
+`/admin/pulse` and red past 2 hours, and the restore drill green against real `pg_restore`
+before anything is pointed at the box.
+
+### Superseded — kept only for why the region mattered
 Neon is **us-east-2 (Ohio)**. Hetzner is Germany or Finland. Keeping both means every query
 crosses the Atlantic, and several run per page — that is a straight regression for Lebanese
 customers who are currently much closer to Ohio than the app would be. Two honest options:

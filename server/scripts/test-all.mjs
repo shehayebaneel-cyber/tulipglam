@@ -109,7 +109,25 @@ for (const s of SUITES) {
   totalFailed += failed;
   ran++;
   rows.push([s.file, String(passed), failed ? `${failed} FAILED` : code === 0 ? "" : `exit ${code}`]);
-  if (failed || code !== 0) console.log(`\n── ${s.file} ──\n${out.trim().split("\n").slice(-20).join("\n")}\n`);
+
+  /**
+   * On failure, print the FAILING LINES — not the tail.
+   *
+   * The first version printed the last 20 lines, which for a suite that fails early is just the
+   * summary: "3 FAILED, 7 passed" and no clue which three. That is a report you cannot act on,
+   * and it matters more than usual here: `test-redemption.mjs` flakes, the standing theory is
+   * Neon's connection ceiling, and that theory only becomes testable after the move to a local
+   * Postgres. If a flake produces a count instead of a cause, the theory can never be confirmed
+   * — and confirming it is what licenses deleting the accommodations built around it
+   * (`BATCH = 40`, sequential materialisation).
+   */
+  if (failed || code !== 0) {
+    const lines = out.split("\n");
+    const failures = lines.filter((l) => /FAIL|Error|error:/.test(l));
+    console.log(`\n── ${s.file} ──`);
+    console.log(failures.length ? failures.join("\n") : lines.slice(-20).join("\n"));
+    console.log("");
+  }
 }
 
 const w = Math.max(...rows.map((r) => r[0].length));
