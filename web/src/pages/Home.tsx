@@ -201,9 +201,31 @@ export function Home() {
           timeline updated by hand — and "100% authentic", which nothing in the data evidences. */}
       {trust.length > 0 && (
         <section className="wrap mt-4" aria-label="What to expect">
-          <div className="grid grid-cols-2 gap-px overflow-hidden rounded-2xl border border-line bg-line text-center sm:grid-cols-4">
-            {trust.map((t) => (
-              <div key={t.title} className="bg-surface px-3 py-4">
+          {/*
+            The column count follows the ITEM count, and an odd last item spans the row.
+
+            This was a fixed `grid-cols-2 sm:grid-cols-4` holding three settings-driven items,
+            so the third sat alone beside an empty cell — and because the grid draws its
+            hairlines with `gap-px` over a `bg-line` background, the empty cell rendered as a
+            visible grey box rather than as nothing. Three claims about the shop, one blank
+            panel, first thing under the hero.
+
+            The list is editable in Settings and can be two, three or four long, so the fix has
+            to hold for any of them rather than for three.
+          */}
+          <div
+            className={`grid grid-cols-2 gap-px overflow-hidden rounded-2xl border border-line bg-line text-center ${
+              trust.length >= 4 ? "sm:grid-cols-4" : trust.length === 3 ? "sm:grid-cols-3" : "sm:grid-cols-2"
+            }`}
+          >
+            {trust.map((t, i) => (
+              <div
+                key={t.title}
+                className={`bg-surface px-3 py-4 ${
+                  // Only at the two-column width, and only when an odd count would strand it.
+                  trust.length % 2 === 1 && i === trust.length - 1 ? "max-sm:col-span-2" : ""
+                }`}
+              >
                 <p className="text-[13px] font-semibold text-ink">{t.title}</p>
                 {t.body && <p className="mt-0.5 text-[11px] text-muted">{t.body}</p>}
               </div>
