@@ -578,7 +578,48 @@ production down over something switched off. The first one is not, because auth 
 Automated WhatsApp Business API notifications, richer promo/hero management UI (multiple banners),
 per-product New-Arrivals date overrides, product bundles.
 
-## Deploy (NOT done — ask first)
-Single Render web service like the other stores (server serves `web/dist` — fallthrough already in
-`src/index.ts`). Before launch: switch Prisma to Postgres/Neon, self-host the Google Fonts, set a strong
-ADMIN_KEY, real whatsappNumber/instagramUrl in Settings.
+## Hosting — currently Render, MOVING TO HETZNER BEFORE LAUNCH
+
+Owner's decision (Aug 2026). The migration happens **before the gate comes down**, so treat
+Render specifics as temporary and do not add more of them.
+
+### The one that will silently break security: `trust proxy`
+`index.ts` sets `app.set("trust proxy", 1)` — correct for Render, which puts **exactly one**
+proxy in front. `req.ip` is what the whole rate limiter keys on (`rateLimit.ts`), and that
+limiter was built CGNAT-aware because a large share of Lebanese mobile traffic shares egress IPs.
+
+On Hetzner the count changes with the stack: **1** behind a single Caddy/nginx, **2** behind
+Cloudflare *and* nginx. Get it too low and every request reports the proxy's own IP, so one
+visitor's traffic rate-limits the entire country. Get it too high and a client can spoof
+`X-Forwarded-For` and never be limited. **Neither fails loudly.** Verify after the move by
+logging `req.ip` from two different networks and confirming they differ.
+
+### The decision that actually matters: where Postgres lives
+Neon is **us-east-2 (Ohio)**. Hetzner is Germany or Finland. Keeping both means every query
+crosses the Atlantic, and several run per page — that is a straight regression for Lebanese
+customers who are currently much closer to Ohio than the app would be. Two honest options:
+
+- **Neon, EU region (Frankfurt)** — a connection-string change, keeps managed backups and PITR,
+  and is *closer to Lebanon than Ohio is*. Lower risk. Recommended unless cost forces the other.
+- **Postgres on the Hetzner box** — cheapest and fastest, and it removes the free-tier connection
+  ceiling that is behind three separate accommodations in this codebase: the sweep's `BATCH = 40`,
+  `runSweep` materialising sequentially rather than in parallel, and the `test-redemption.mjs`
+  flake. But backups become yours, and `BACKUP.md` currently assumes Neon.
+
+### What gets easier — remove the workaround, don't keep it
+- **No spin-down.** The sweep becomes a real cron/systemd timer hitting `127.0.0.1`, so the
+  shared secret stops crossing the network and the cold-start timeout advice becomes noise.
+- **The disk persists.** `server/uploads/` is ephemeral on Render, which is why product images
+  live in `web/public/`. `UPLOAD_DIR` is already env-driven, so this needs no code change.
+- **`pg_dump` exists.** `BACKUP.md`'s JSON path was written because it wasn't available, and the
+  two bugs the restore drill caught — JSON has no date type, and a column parser splitting
+  `numeric(4,2)` on the comma — both stop mattering with a real dump.
+
+### Expect the boot guards to stop you, and let them
+`JWT_SECRET`, `PREVIEW_KEY`, `LOYALTY_SWEEP_SECRET` and `ADMIN_KEY` all refuse to boot when
+missing or weak. Moving from Render's Environment tab to a unit file or a `0600` `.env` is
+exactly where one gets dropped, and the server refusing to start is the migration working.
+
+Also still open from the original plan: self-host the Google Fonts (done), set a strong
+`ADMIN_KEY`, real `whatsappNumber`/`instagramUrl` in Settings, and a deploy mechanism to replace
+`git push` → Render auto-deploy.
