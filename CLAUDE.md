@@ -455,8 +455,13 @@ A points programme built around two constraints that kill the usual architecture
 refused at the door), and **Render's free tier spins down** (so there is no reliable cron).
 
 **Off by default.** `LOYALTY_ENABLED` and `LOYALTY_REDEMPTION_ENABLED` are separate flags.
-Redemption stays off until the courier can be told the discounted amount at the door — today
-the only place a total reaches a human is a WhatsApp message the *customer* composes.
+
+**Delivery is the owner and their family — no third-party courier** (decided Aug 2026). That
+settles what `dispatch.ts` was blocking on: the adopted process is the **printed run** from
+`/admin/dispatch`, carried on a phone at the door. So the run is built for a phone first —
+cards below 640px with the amount set large, table on desktop and paper. Redemption is safe to
+enable once `TURNING-ON-POINTS.md` has been walked through; that file is the flip procedure and
+names what it does not prove.
 
 ### The one rule that shapes everything
 **`rules.ts` decides; `ledger.ts` writes.** `computeState` returns the state *and a plan* —
@@ -520,12 +525,36 @@ node --import tsx scripts/test-loyalty-phone.mjs           #  76
 node --import tsx scripts/test-loyalty-admin.mjs --write    #  70
 node --import tsx scripts/test-loyalty-hooks.mjs --write    #  63
 node --import tsx scripts/test-security.mjs --write         #  39
+node --import tsx scripts/test-verdicts.mjs --write         #  46
 ```
 
+`test-verdicts.mjs` covers the seven findings an adversarial review raised and could not
+verify — all seven were real. Each section quotes the sentence stating the requirement, above
+the assertion checking it. Two of them I first marked *clean* with a regex that matched the
+word "claim" in a comment and a `.slice(0, 6)` in unrelated code; reading the code settled all
+seven. **A check written to confirm what you already believe will confirm it.**
+
+### The order transaction retries, and never loses the sale
+`withSerialisationRetry` (in `ledger.ts`, exported and tested) wraps the checkout transaction:
+three attempts on a serialisation conflict, then **the order is placed again with points
+switched off**. A missing points entry is recoverable from the admin ledger in seconds; a lost
+checkout is not recoverable at all. A non-conflict error is rethrown immediately — a retry loop
+that swallows real errors turns one loud failure into several quiet ones. It lives in `ledger.ts`
+rather than inline in the handler because the original omission survived review precisely by
+being five lines in a 2,400-line file with no way to exercise them.
+
+### Every email goes through the outbox
+`index.ts` does **not** import `sendMail`, and that absence is the guard. Password reset was the
+last direct caller — the one message that cannot be re-sent was the only one leaving no record.
+Rows are **claimed** with a conditional update before sending (two flushes used to both send),
+and attempts are capped at 5 so one permanently failing message cannot hold the head of an
+oldest-first queue forever.
+
 ### Still open
-- **Redemption has no UI and no route.** The ledger supports it; the process does not.
 - Registration still answers 200/400 by whether an email exists — the cheap paths are closed
   and the endpoint is rate-limited, but the full fix needs SMTP. Flagged in the test output.
+- A real 7-day earn has never been exercised end-to-end on the live site, because it takes a
+  week. Everything else about redemption has.
 
 ## Boot guards — the server refuses to start when
 - `JWT_SECRET` is missing, under 24 chars, equal to `ADMIN_KEY`, or the old repo constant.
