@@ -12,17 +12,17 @@
 > entire homepage is a blast radius worth closing, and it is closed. Home now renders at
 > 3,996px on a phone and 3,102px at desktop, and **I looked at both**.
 >
-> Everything is pushed. Four commits. Production verified through the deploy: gate holding,
+> Everything is pushed. Production verified through the deploy: gate holding,
 > coming-soon page, store dark.
 
 **Read `DECISIONS.md` first.** Five things need you; four of them are one word each.
 
-Two commits, **neither pushed**. The machine lost its route to GitHub and to Neon partway
-through the day and never got it back. Everything below is committed locally and ready to push
-the moment the network returns — `git push` is the entire remaining action.
+**Six commits, all pushed and deployed.** The machine lost its route to GitHub and Neon for
+several hours in the middle of the day, which shaped everything below; it returned near the end
+and I used the time to verify properly rather than to start something new.
 
-**Production is untouched and I verified it: 200, serving the coming-soon page.** A stranger
-without the preview key sees the placeholder, exactly as this morning.
+**Production verified through the deploy: 200, serving the coming-soon page.** A stranger without
+the preview key sees the placeholder, exactly as this morning.
 
 ---
 
