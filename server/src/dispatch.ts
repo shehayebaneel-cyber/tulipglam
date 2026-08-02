@@ -55,6 +55,9 @@ export type DispatchLine = {
   address: string;
   notes: string;
   itemCount: number;
+  /** What the goods in the bag are worth at their own prices — used only to decide whether the
+   *  collect amount needs explaining. Never shown to the driver. */
+  itemsFaceValueCents: number;
   /** THE figure. Straight from the order, never recomputed. */
   collectCents: number;
   collectLabel: string;
@@ -73,7 +76,11 @@ export type DispatchLine = {
  */
 function whyDifferent(o: { subtotalCents: number; discountCents: number; pointsDiscountCents: number; giftCardCents: number; deliveryCents: number; couponCode: string }): string {
   const parts: string[] = [];
-  if (o.discountCents > 0) parts.push(`${money(o.discountCents)} coupon${o.couponCode ? ` (${o.couponCode})` : ""}`);
+  // The coupon CODE is deliberately not here. This line is printed on a sheet handed to a
+  // driver and, through courierMessage, sent to whoever is delivering — a working discount
+  // code is not something to put in their hands. The amount is what they need; the code is
+  // the shop's business.
+  if (o.discountCents > 0) parts.push(`${money(o.discountCents)} coupon`);
   if (o.pointsDiscountCents > 0) parts.push(`${money(o.pointsDiscountCents)} paid with points`);
   if (o.giftCardCents > 0) parts.push(`${money(o.giftCardCents)} paid by gift card`);
   if (o.deliveryCents === 0) parts.push("free delivery");
@@ -98,6 +105,7 @@ const shape = (o: Parameters<typeof whyDifferent>[0] & {
   address: o.address,
   notes: o.notes,
   itemCount: o.items.reduce((n, i) => n + i.qty, 0),
+  itemsFaceValueCents: o.items.reduce((n, i) => n + i.priceCents * i.qty, 0),
   collectCents: o.totalCents,
   collectLabel: money(o.totalCents),
   whyDifferent: whyDifferent(o),
@@ -132,7 +140,10 @@ export type Manifest = {
  */
 export async function manifest(db: PrismaClient, now = new Date()): Promise<Manifest> {
   const [out, prep] = await Promise.all([
-    db.order.findMany({ where: { status: { in: [...DISPATCHABLE] } }, select: SELECT, orderBy: { createdAt: "asc" }, take: 500 }),
+    // NEWEST first, not oldest. With oldest-first and a cap, a backlog of stale packed orders
+    // would push today's actual run off the end of the list — the driver would be handed a
+    // sheet that omitted the parcels in the van.
+    db.order.findMany({ where: { status: { in: [...DISPATCHABLE] } }, select: SELECT, orderBy: { createdAt: "desc" }, take: 500 }),
     db.order.findMany({ where: { status: { in: [...PREPARING] } }, select: SELECT, orderBy: { createdAt: "asc" }, take: 500 }),
   ]);
 
@@ -163,9 +174,15 @@ export async function dispatchLine(db: PrismaClient, orderId: number): Promise<D
  * business; what to collect is theirs.
  */
 export function courierMessage(line: DispatchLine): string {
+  // Anything that reduces the amount below the face value of the bag is stated. Without it the
+  // message says "collect $43" for a parcel visibly worth $60 and the driver assumes a mistake
+  // — which is the exact failure this whole module exists to prevent. It was built into the
+  // printed sheet and left out of the message, which is the artefact most likely to be read.
+  const reduced = line.collectCents < line.itemsFaceValueCents;
   return [
     `TulipGlam ${line.number}`,
     `COLLECT: ${line.collectLabel} cash`,
+    reduced ? `(${line.whyDifferent})` : "",
     ``,
     `${line.fullName} — ${line.phone}`,
     [line.address, line.city, line.area].filter(Boolean).join(", "),

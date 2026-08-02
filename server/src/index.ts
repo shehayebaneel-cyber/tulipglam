@@ -1839,7 +1839,33 @@ admin.post("/orders/:id/resolve", asyncH(async (req, res) => {
 
     // Re-evaluate the stored coupon against the smaller subtotal — it may no longer qualify.
     const { discount } = await evalCoupon(order.couponCode, subtotal);
-    const afterDiscount = subtotal - discount + delivery;
+
+    /**
+     * The tier free-delivery perk, re-applied.
+     *
+     * This block recomputes delivery from the store-wide threshold only, so removing an item
+     * used to silently re-charge a Bloom or Bouquet customer the delivery fee their tier had
+     * already earned them. Lower of the two, same as checkout.
+     */
+    const perk = await safely("tier delivery perk (resolve)", () =>
+      tierDeliveryCents(db, { phone: order.phone, whatsapp: order.whatsapp, merchandiseCents: subtotal }));
+    if (perk && perk.cents < delivery) delivery = perk.cents;
+
+    /**
+     * POINTS ALREADY SPENT STAY SPENT.
+     *
+     * This recompute wrote subtotal, discount, delivery, gift card and total — and NOT
+     * pointsDiscountCents. The row kept the old value while the total silently stopped
+     * subtracting it, so a customer who had spent 300 points on an order would have been asked
+     * for those $9 back at the door, with the ledger still showing the points as gone.
+     *
+     * The ledger entry already exists and the customer already paid for it with their balance,
+     * so the discount is carried through untouched. It is capped at what is left of the goods
+     * only so the order cannot go negative — see the note in the morning document about the
+     * case where removing an item leaves less merchandise than the points already covered.
+     */
+    const pointsDiscount = Math.min(order.pointsDiscountCents, Math.max(0, subtotal - discount));
+    const afterDiscount = subtotal - discount - pointsDiscount + delivery;
     // The gift card was already debited at checkout; never charge more of it than the new
     // total needs, and never refund it here — that is a manual decision.
     const giftUsed = Math.min(order.giftCardCents, Math.max(0, afterDiscount));
@@ -1852,6 +1878,7 @@ admin.post("/orders/:id/resolve", asyncH(async (req, res) => {
         data: {
           status: "confirmed", ...clear,
           subtotalCents: subtotal, discountCents: discount, giftCardCents: giftUsed,
+          pointsDiscountCents: pointsDiscount,
           deliveryCents: delivery, totalCents: total,
           events: { create: { status: "confirmed", note: note || `Removed “${item.name}” at the customer's request. Total recalculated.` } },
         },
@@ -1860,7 +1887,7 @@ admin.post("/orders/:id/resolve", asyncH(async (req, res) => {
     // The basket shrank, so the pending earn is now for goods the customer is not getting.
     // Re-priced from the same figure the money was recomputed from, not from a second sum.
     await safely(`reprice earn for order ${id}`, () =>
-      repricePendingEarn(db, id, merchandiseCentsOf({ subtotalCents: subtotal, discountCents: discount, pointsDiscountCents: order.pointsDiscountCents })));
+      repricePendingEarn(db, id, merchandiseCentsOf({ subtotalCents: subtotal, discountCents: discount, pointsDiscountCents: pointsDiscount })));
     return res.json({ ok: true });
   }
 
