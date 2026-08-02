@@ -406,10 +406,12 @@ hidden.
 storefront pages eagerly imported — they are the critical path.
 
 ### Tests (all dry-run by default; `--write` creates only its own rows and deletes them)
+Listed for what they COVER. Counts are not written down anywhere by hand any more — run
+`npm run test:all -- --write` and read the table.
 ```
-node scripts/test-checkout-money.mjs --write   # 17: delivery boundary, coupons, gift cards, races
-node scripts/test-password-reset.mjs --write   # 13: token lifecycle, no account enumeration
-node scripts/test-seo.mjs                      # 32: head, SKU privacy, 404s, robots, sitemap
+node scripts/test-checkout-money.mjs --write   # delivery boundary, coupons, gift cards, races
+node scripts/test-password-reset.mjs --write   # token lifecycle, no account enumeration
+node scripts/test-seo.mjs                      # head, SKU privacy, 404s, robots, sitemap
 ```
 `test-seo.mjs` needs `web/dist` — in dev Vite serves index.html and no injection runs.
 
@@ -517,16 +519,22 @@ nothing is advertised while the programme is off.
 **The sweep is a cache refresh, not a cron.** Skip it forever and every customer-visible number
 stays correct — `sweepChangesNothing` asserts exactly that against the database.
 
-### Tests
-```
-node --import tsx scripts/test-loyalty-ledger.mjs --write   # 240
-node --import tsx scripts/test-loyalty-rewards.mjs --write  #  97
-node --import tsx scripts/test-loyalty-phone.mjs           #  76
-node --import tsx scripts/test-loyalty-admin.mjs --write    #  70
-node --import tsx scripts/test-loyalty-hooks.mjs --write    #  63
-node --import tsx scripts/test-security.mjs --write         #  39
-node --import tsx scripts/test-verdicts.mjs --write         #  46
-```
+### Tests — `npm run test:all -- --write`
+**17 suites, 954 checks.** Do not copy counts out of this file into a commit message; run the
+command and read the table. Three of the counts written here by hand had drifted at once (one
+suite had grown by twelve, one by one, one had shrunk), and a wrong number in the source of
+truth is how the next session learns to discount a green suite — at which point a suite that has
+quietly stopped running looks exactly like one that has. `scripts/test-all.mjs` shells out to the
+same standalone scripts, counts from each suite's own summary line, and treats *no summary* as a
+failure rather than a zero.
+
+Suites needing `--write` are **skipped, not silently reduced**, and `test-seo.mjs` is skipped
+unless `web/dist` exists — without a build it reads a page production never serves.
+
+**`test-redemption.mjs` is flaky back-to-back.** It failed 3 checks on one full run and passed
+27 on the next, and passes standalone every time. Suspected cause is Neon's free-tier connection
+ceiling under sequential suites, not the code under test. **A single failing run of that suite is
+not yet evidence of a bug — re-run it alone before chasing it.** Nothing else has ever flaked.
 
 `test-verdicts.mjs` covers the seven findings an adversarial review raised and could not
 verify — all seven were real. Each section quotes the sentence stating the requirement, above
