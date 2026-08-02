@@ -137,3 +137,101 @@ accommodations for Neon's free tier and will be safe to delete once Postgres is 
 
 It also means: **do not run the full suite while anything else is holding a pool.** Worth
 knowing before someone reads 78 failures as a broken build.
+
+---
+---
+
+# DECIDED — 2 August 2026
+
+Owner's answers. §1 is the only one still open.
+
+### §1 Framing normalisation — WAITS ON YOUR EYES
+
+Sample gallery: **`shots/gallery/`**
+
+| file | what it is |
+|---|---|
+| **`normalise-proposal.png`** | **the decision** — twelve products, today's version on top, proposal beneath. Tightest four, middle four, loosest four of 90 sampled. |
+| `sample-feel22.png` | 24 of 9,365 ordinary card derivatives |
+| `sample-beesline.png` | 24 of 555 |
+| `sample-dali.png` | 24 of 182 |
+| `suspects.png` | all 19 flagged images together, at size |
+
+Full path: `c:\Users\sheha\OneDrive\Desktop\projects website\tulipglam\shots\gallery\`
+
+### §2 AI images — RESOLVED, both ways
+
+**The hero → decorative. Stays.** No change made.
+
+**The Beesline image → a product stand-in.** `Proactive Strength Duo`, `hidden`, and that
+photograph was its only one. Two things worth knowing:
+
+1. **The supplier generated it, not us.** Its `src` in the catalogue is a Shopify CDN URL on
+   Beesline's own store. This is a property of a feed we re-import, not a one-off in our data.
+2. **Deleting the row would not have held.** `npm run import:beesline` recreates
+   importer-owned rows — the lesson this codebase already learned.
+
+So the rule went into code: `prisma/generated-images.ts`, wired into **all three importers**.
+The catalogue JSON is deliberately left alone — it should stay an honest record of what the
+supplier published. The live row was also removed so the database matches what a fresh import
+now produces; product status untouched at `hidden`, because availability is your call.
+Verified: 0 AI-named images remain, and ordinary supplier and swatch filenames do not match.
+
+### §3 Image sources at deploy — ADOPTED AS YOU FRAMED IT
+
+Nothing changes before the migration. **My option (a) — moving sources within the repo — was
+exactly the Render-shaped interim you are rejecting, and I withdraw it.** It would have cost a
+724 MB git operation to save deploy weight on a host we are leaving.
+
+After the move: box disk is the working copy, R2 is the durable home beside the backups, and the
+repo carries code.
+
+**One consequence to plan for:** the build currently generates derivatives *from sources in the
+repo*. Take the sources out and the build cannot rebuild them, so post-migration the derivative
+directory has to persist on the box (cheap and natural there) or be restored from R2 at deploy.
+That is a Stage B decision, not a today decision — flagging it so it does not surprise us.
+
+### §4 Checkout navigation — APPROVED, stripped stays
+
+No further action. Desktop holds at 1,192px.
+
+### §5 The flake — signal, not verdict
+
+Twenty controlled runs on local Postgres at the next quiet stretch. **Deletions execute on the
+verdict only**: zero failures confirms the ceiling and `BATCH = 40` plus the sequential
+`materialise` loop go; any failure keeps them and we have a reproduction.
+
+---
+
+# The 438 KB bundle — where the weight actually lives
+
+Recorded so the next brief starts informed rather than re-deriving it.
+
+**First contentful paint is owned by JavaScript, not images.** Measured on the production build
+at 390px / 4x CPU / 1.6 Mbps: homepage FCP 3,464-3,512 ms, category page 3,432-3,512 ms. The
+image work cut payload by 95% and moved FCP by nothing, because the page cannot paint until
+React has parsed and executed — images arrive after that moment, not before it.
+
+| | |
+|---|---|
+| **Script** | **438 KB** — the whole story |
+| Font | 100 KB (self-hosted, 2 files, a variable weight range) |
+| Image, above the fold | 84-128 KB (was ~450 KB for the same cards) |
+
+What is already done and is *not* the remaining win: admin is code-split out (556 -> 433 KB),
+`/api/site` no longer ships 405 brands, fonts are self-hosted and deduped to a weight range.
+
+**What is left, in the order I would attack it:**
+
+1. **Storefront pages are all eagerly imported** — deliberately, so a first visit does not
+   render a spinner. That decision is worth revisiting *per route*: Track, Info, Rewards,
+   Account and Password are not on the critical path and none of them is what a first-time
+   visitor lands on.
+2. **React Router + React 19 are the floor.** Whatever else goes, that floor stays, so measure
+   it before promising a number.
+3. **Measure before cutting.** There is no bundle analyser wired up in this repo, so the 438 KB
+   is currently one opaque figure. The first task is a per-module breakdown, not a deletion —
+   the image work only went well because it was measured first, and the same applies here.
+
+**Do not treat this as an optimisation ticket.** It is the difference between a store that
+paints in 3.5 s and one that paints in under 2 on the connection your customers actually have.

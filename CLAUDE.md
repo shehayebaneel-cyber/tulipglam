@@ -631,3 +631,38 @@ exactly where one gets dropped, and the server refusing to start is the migratio
 Also still open from the original plan: self-host the Google Fonts (done), set a strong
 `ADMIN_KEY`, real `whatsappNumber`/`instagramUrl` in Settings, and a deploy mechanism to replace
 `git push` → Render auto-deploy.
+
+## Sibling-hunt: a fix is not done until you have looked for the same shape elsewhere
+
+**Owner's standing rule, 2 Aug 2026.** Every fixed bug ends with a search for the same shape in
+the rest of the codebase, and the result of that search goes in the report — including "none
+found", which is information.
+
+Learned twice, the same way:
+
+- **`earnOrderId`** got a check-then-act guard while five other mutations kept the identical
+  hole.
+- **The orphan grid.** A fixed-column grid drawn with `gap-px` over a `bg-line` background
+  renders its empty cells as visible grey panels. Fixed it in the homepage trust bar, did not
+  look further, and featured brands had exactly the same flaw — found a day later by opening a
+  desktop screenshot.
+
+The hunt is a real search, not a glance. For the orphan grid it meant separating the two
+conditions that produce the defect — shared-hairline styling **and** a variable-length list —
+because grids that satisfy only one are fine: an orphan in a product grid is just a list
+continuing, and a row of self-bordered cards leaves whitespace rather than a grey box. That
+distinction is what made "no further instances" a finding instead of a shrug.
+
+### The same discipline, applied to data
+
+`Proactive Strength Duo`'s only photograph was AI-generated. Deleting the row would have been
+undone by the next `npm run import:beesline` — the importer-owned-rows lesson this file already
+records. The durable fix was `prisma/generated-images.ts`, wired into **all three** importers at
+once, so the rule survives every re-import and catches the next supplier's generated image
+automatically.
+
+**An AI image must never stand in for a real product a customer will physically receive.** This
+is cash on delivery; the doorstep is where an invented photograph surfaces, with the goods in
+the buyer's hand. Decorative art — the hero, category headers — is a different thing and is
+fine. The catalogue JSON is left untouched on purpose: it is an honest record of what the
+supplier published, and the filtering belongs in code.

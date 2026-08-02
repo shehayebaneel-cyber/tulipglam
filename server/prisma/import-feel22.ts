@@ -30,6 +30,7 @@
 //          Nothing is deleted; the Feel22 row is simply never created.
 
 import { PrismaClient } from "@prisma/client";
+import { stripGeneratedImages } from "./generated-images.js";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -246,6 +247,11 @@ const isBundle = (s: string) => /[A-Za-z)]\s+\+\s+[A-Za-z]/.test(s.replace(/\(\s
 
 async function main() {
   const products: F2Product[] = JSON.parse(fs.readFileSync(CATALOG, "utf8").replace(/^\uFEFF/, ""));
+
+  // Before ANY validation walks p.images: an AI photograph must never stand in for a product
+  // a customer receives at their door. Filtering here rather than in the catalogue JSON keeps
+  // that file an honest record of what the supplier published. See prisma/generated-images.ts.
+  stripGeneratedImages(products as never);
   console.log(`Loaded ${products.length} Feel22 products.`);
 
   // -- validate -------------------------------------------------------------
