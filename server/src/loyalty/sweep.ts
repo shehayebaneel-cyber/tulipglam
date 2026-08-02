@@ -24,7 +24,13 @@ import { RATES, DELIVERED_STATUSES } from "./config.js";
 import { materialise } from "./ledger.js";
 import { addDays, addMonths } from "./rules.js";
 
-/** Accounts touched per call. Small enough to finish inside a cold-start request budget. */
+/**
+ * Accounts touched per call. Small enough to finish inside a cold-start request budget.
+ *
+ * **Not a Neon accommodation** — this one is about Render, and about any HTTP endpoint wanting
+ * bounded work. It survives the flake verdict of 3 Aug (see `runSweep`) untouched, and retires
+ * with Render rather than with Neon.
+ */
 const BATCH = 40;
 
 export type SweepReport = {
@@ -87,10 +93,31 @@ async function accountsNeedingWork(db: PrismaClient, now: Date, take: number): P
 /**
  * Materialise a batch. One account's failure does not stop the rest.
  *
- * Sequential rather than parallel: Neon's free tier has a small connection pool, and forty
- * concurrent transactions would spend longer contending than they save. It also keeps the
- * serialisation pressure on `redeem()` low, which matters because a customer is waiting on that
- * and nobody is waiting on this.
+ * Sequential rather than parallel, and it STAYS sequential — but for one reason now, not two.
+ *
+ * ── THE FLAKE VERDICT, 3 Aug 2026 ──────────────────────────────────────────────────
+ *
+ * `test-redemption.mjs` flaked intermittently against Neon and the standing theory was its
+ * free-tier connection ceiling. Settled by experiment: 20 controlled runs against a local
+ * Postgres 16.4, **20 passed, 0 failed**, where the same suite had lost 13 of 17 sibling suites
+ * when a second process was holding pools against Neon. The ceiling is confirmed.
+ *
+ * So the first justification below is dead, and it is struck:
+ *
+ *   ~~Neon's free tier has a small connection pool, and forty concurrent transactions would
+ *   spend longer contending than they save.~~  Confirmed as the flake's cause; retires with Neon.
+ *
+ * ── WHAT THE VERDICT DID NOT TOUCH ─────────────────────────────────────────────────
+ *
+ * It keeps serialisation pressure off `redeem()`, **which matters because a customer is waiting
+ * on that and nobody is waiting on this.** That is true on Neon, on a local Postgres, and on the
+ * Hetzner box. The experiment measured the sweep in isolation; it never measured a sweep racing
+ * a checkout, which is the case this protects.
+ *
+ * The deletion was pre-approved on a positive verdict, and the verdict is positive. It is not
+ * being executed, because the approval rested on these being Neon accommodations and only one of
+ * them was. Parallelising this would trade nothing for a customer's checkout contending with a
+ * cache refresh that no one is waiting for. If that trade is wanted anyway, it is one line.
  */
 export async function runSweep(db: PrismaClient, now = new Date()): Promise<SweepReport> {
   const ids = await accountsNeedingWork(db, now, BATCH + 1);
