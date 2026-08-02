@@ -31,6 +31,7 @@
 
 import { PrismaClient } from "@prisma/client";
 import { stripGeneratedImages } from "./generated-images.js";
+import { reviewImportedImages } from "./image-review.js";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -488,6 +489,10 @@ async function main() {
     console.log(`  ${(s.source || "(manual)").padEnd(11)} ${s._count._all}`);
   }
   console.log(`  ${"TOTAL".padEnd(11)} ${await db.product.count()}`);
+
+  // Supplier content just walked in. Put whatever is new or changed on a sheet the owner
+  // can flick through — the filename filter catches a family, not invention in general.
+  reviewImportedImages("feel22");
 }
 
 main()

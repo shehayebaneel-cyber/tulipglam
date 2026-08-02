@@ -28,6 +28,7 @@
 
 import { PrismaClient } from "@prisma/client";
 import { stripGeneratedImages } from "./generated-images.js";
+import { reviewImportedImages } from "./image-review.js";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -320,6 +321,10 @@ async function main() {
   for (const [s, c] of Object.entries(byStatus).sort((a, b) => b[1] - a[1])) console.log(`  ${s.padEnd(14)} ${c}`);
   console.log("\nBy category:");
   for (const [s, c] of Object.entries(byCat).sort((a, b) => b[1] - a[1])) console.log(`  ${s.padEnd(16)} ${c}`);
+
+  // Supplier content just walked in. Put whatever is new or changed on a sheet the owner
+  // can flick through — the filename filter catches a family, not invention in general.
+  reviewImportedImages("beesline");
 }
 
 main()
