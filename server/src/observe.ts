@@ -80,13 +80,32 @@ export async function recordError(
  * second question and cost a database write on every page view, which is the wrong trade for a
  * store this size.
  */
-const traffic = { since: new Date(), pageViews: 0, apiCalls: 0, byPath: new Map<string, number>() };
+/** Distinct route shapes counted. Well past the real number of routes; a cap, not a budget. */
+const MAX_TRACKED_PATHS = 200;
+
+const traffic = {
+  since: new Date(), pageViews: 0, apiCalls: 0,
+  byPath: new Map<string, number>(),
+  /** Requests to shapes beyond the cap — usually somebody probing for files. */
+  untrackedPaths: 0,
+};
 
 export function countRequest(path: string): void {
   if (path.startsWith("/api/")) {
     traffic.apiCalls++;
     const shape = routeShape(path);
-    traffic.byPath.set(shape, (traffic.byPath.get(shape) ?? 0) + 1);
+    /**
+     * Bounded. routeShape collapses ids, but a caller can still mint unlimited DISTINCT shapes
+     * — /api/aaa, /api/aab, and so on — and every one of them would be a Map entry held for the
+     * life of the process. Once the map is full, only paths already being counted keep counting;
+     * the panel only ever shows the top six, so nothing a real customer does is lost.
+     */
+    const known = traffic.byPath.has(shape);
+    if (known || traffic.byPath.size < MAX_TRACKED_PATHS) {
+      traffic.byPath.set(shape, (traffic.byPath.get(shape) ?? 0) + 1);
+    } else {
+      traffic.untrackedPaths++;
+    }
   } else if (!path.includes(".")) {
     // A path with no extension is a page; /assets/x.js and /products/y.webp are not.
     traffic.pageViews++;
@@ -102,7 +121,7 @@ export type Pulse = {
   openErrors: number;
   newestError: { message: string; path: string; count: number; lastSeen: Date } | null;
   outboxWaiting: number;
-  traffic: { since: Date; pageViews: number; apiCalls: number; topPaths: { path: string; hits: number }[] };
+  traffic: { since: Date; pageViews: number; apiCalls: number; untrackedPaths: number; topPaths: { path: string; hits: number }[] };
 };
 
 /**
@@ -145,7 +164,7 @@ export async function pulse(db: PrismaClient, now = new Date()): Promise<Pulse> 
     signupsToday: n(r.signups_today), signupsTotal: n(r.signups_total),
     openErrors: n(r.open_errors), newestError: newest,
     outboxWaiting: n(r.outbox_waiting),
-    traffic: { since: traffic.since, pageViews: traffic.pageViews, apiCalls: traffic.apiCalls, topPaths },
+    traffic: { since: traffic.since, pageViews: traffic.pageViews, apiCalls: traffic.apiCalls, untrackedPaths: traffic.untrackedPaths, topPaths },
   };
 }
 

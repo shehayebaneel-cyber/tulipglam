@@ -23,6 +23,15 @@
 import type { PrismaClient } from "@prisma/client";
 import { sendMail, mailConfigured, type MailSettings } from "./mailer.js";
 
+/**
+ * How many times a message is tried before it is left alone.
+ *
+ * Five, because the failures worth retrying are transient — a dropped connection, a provider
+ * hiccup — and the ones that are not (a malformed address, a rejected sender) fail identically
+ * every time. Past this it is retired rather than allowed to hold the head of the queue.
+ */
+const MAX_ATTEMPTS = 5;
+
 const MINUTE = 60 * 1000;
 const DAY = 24 * 60 * MINUTE;
 
@@ -121,6 +130,10 @@ export type FlushReport = {
   sent: number;
   failed: number;
   expired: number;
+  /** Claimed by another flush running at the same time. Not an error. */
+  skipped: number;
+  /** Tried MAX_ATTEMPTS times and given up on — visible rather than silently stuck. */
+  givenUp: number;
   remaining: number;
 };
 
@@ -143,7 +156,7 @@ export async function flushOutbox(
   const remainingOf = () => db.outboxEmail.count({ where: { sentAt: null, lastError: { not: { startsWith: "expired:" } } } });
 
   if (!configured) {
-    return { configured: false, sent: 0, failed: 0, expired: 0, remaining: await remainingOf() };
+    return { configured: false, sent: 0, failed: 0, expired: 0, skipped: 0, givenUp: 0, remaining: await remainingOf() };
   }
 
   // Retire the stale ones first, so they never consume a send slot.
@@ -152,9 +165,23 @@ export async function flushOutbox(
     data: { lastError: `expired: not worth sending after ${now.toISOString()}` },
   });
 
+  /**
+   * Candidates, then CLAIMED one at a time before sending.
+   *
+   * Selecting a batch and sending it is a read-then-write: two flushes running together — a
+   * cron and an admin pressing the button — both select the same rows and both send, so the
+   * customer gets two identical emails. The claim below is a conditional update that only
+   * matches a row still unsent, so exactly one flush wins each message.
+   *
+   * `attempts` is capped. Without a ceiling, one message that always throws sits at the head
+   * of an oldest-first queue and is re-selected on every flush forever, holding a slot that
+   * everything behind it needs. After MAX_ATTEMPTS it is retired with its reason kept — the
+   * admin panel shows it as failed rather than it silently blocking the queue.
+   */
   const pending = await db.outboxEmail.findMany({
     where: {
       sentAt: null,
+      attempts: { lt: MAX_ATTEMPTS },
       lastError: { not: { startsWith: "expired:" } },
       OR: [{ expiresAt: null }, { expiresAt: { gte: now } }],
     },
@@ -162,27 +189,35 @@ export async function flushOutbox(
     take: limit,
   });
 
-  let sent = 0, failed = 0;
+  let sent = 0, failed = 0, skipped = 0;
   for (const m of pending) {
+    // Claim it. A racing flush finds nothing and moves on.
+    const claimed = await db.outboxEmail.updateMany({
+      where: { id: m.id, sentAt: null, attempts: m.attempts },
+      data: { attempts: { increment: 1 } },
+    });
+    if (claimed.count === 0) { skipped++; continue; }
+
     try {
       const ok = await sendMail(settings, m.to, m.subject, m.html);
       if (ok) {
-        await db.outboxEmail.update({ where: { id: m.id }, data: { sentAt: new Date(), attempts: { increment: 1 } } });
+        await db.outboxEmail.update({ where: { id: m.id }, data: { sentAt: new Date() } });
         sent++;
       } else {
-        await db.outboxEmail.update({ where: { id: m.id }, data: { attempts: { increment: 1 }, lastError: "transport returned false" } });
+        await db.outboxEmail.update({ where: { id: m.id }, data: { lastError: "transport returned false" } });
         failed++;
       }
     } catch (e) {
       await db.outboxEmail.update({
         where: { id: m.id },
-        data: { attempts: { increment: 1 }, lastError: (e instanceof Error ? e.message : String(e)).slice(0, 400) },
+        data: { lastError: (e instanceof Error ? e.message : String(e)).slice(0, 400) },
       });
       failed++;
     }
   }
 
-  return { configured: true, sent, failed, expired: stale.count, remaining: await remainingOf() };
+  const givenUp = await db.outboxEmail.count({ where: { sentAt: null, attempts: { gte: MAX_ATTEMPTS } } });
+  return { configured: true, sent, failed, expired: stale.count, skipped, givenUp, remaining: await remainingOf() };
 }
 
 export type OutboxStatus = {

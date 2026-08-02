@@ -75,17 +75,31 @@ export type DispatchLine = {
  * the order actually recorded rather than from a template.
  */
 function whyDifferent(o: { subtotalCents: number; discountCents: number; pointsDiscountCents: number; giftCardCents: number; deliveryCents: number; couponCode: string }): string {
-  const parts: string[] = [];
   // The coupon CODE is deliberately not here. This line is printed on a sheet handed to a
   // driver and, through courierMessage, sent to whoever is delivering — a working discount
   // code is not something to put in their hands. The amount is what they need; the code is
   // the shop's business.
-  if (o.discountCents > 0) parts.push(`${money(o.discountCents)} coupon`);
-  if (o.pointsDiscountCents > 0) parts.push(`${money(o.pointsDiscountCents)} paid with points`);
-  if (o.giftCardCents > 0) parts.push(`${money(o.giftCardCents)} paid by gift card`);
-  if (o.deliveryCents === 0) parts.push("free delivery");
-  else parts.push(`${money(o.deliveryCents)} delivery`);
-  return parts.join(" · ");
+  const reductions: string[] = [];
+  if (o.discountCents > 0) reductions.push(`${money(o.discountCents)} coupon`);
+  if (o.pointsDiscountCents > 0) reductions.push(`${money(o.pointsDiscountCents)} paid with points`);
+  if (o.giftCardCents > 0) reductions.push(`${money(o.giftCardCents)} paid by gift card`);
+
+  /**
+   * EMPTY when nothing reduced the amount — which is every order today.
+   *
+   * This used to always return a line, so an ordinary order printed "$3.00 delivery" in a
+   * column headed *why this is not the price of the goods*. Nothing was different about it;
+   * goods plus delivery is what a total normally is. A sheet where every row carries an
+   * explanation trains the reader to stop reading them, and the one row that genuinely needs
+   * explaining — the points order, the whole reason this module exists — is the one that then
+   * gets skipped. The blank rows are what make the filled one visible.
+   */
+  if (reductions.length === 0) return "";
+
+  // Delivery is named only alongside a reduction, so the arithmetic on the sheet reads whole:
+  // the driver can see goods, minus this, plus delivery, equals the figure they are asking for.
+  reductions.push(o.deliveryCents === 0 ? "free delivery" : `${money(o.deliveryCents)} delivery`);
+  return reductions.join(" · ");
 }
 
 const shape = (o: Parameters<typeof whyDifferent>[0] & {
@@ -189,4 +203,153 @@ export function courierMessage(line: DispatchLine): string {
     line.notes ? `Note: ${line.notes}` : "",
     `${line.itemCount} item${line.itemCount === 1 ? "" : "s"}`,
   ].filter(Boolean).join("\n");
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════════════════
+ *  RECONCILING A RUN — counting the money after the van comes back
+ * ══════════════════════════════════════════════════════════════════════════════════════════
+ *
+ * `manifest()` answers "what should I collect today". It is a forecast, and it assumes every
+ * parcel is accepted. Real rounds are not like that: some are paid, some are refused at the
+ * door, some were paid partly in points before the driver ever left.
+ *
+ * This answers the question that actually gets asked at the end of the day, standing over a
+ * pile of notes: **does what is in my hand match what happened?** It has to hold for a mixed
+ * round or it is worse than useless, because a total that is nearly right is a total that gets
+ * trusted and then quietly absorbs a missing $20.
+ *
+ * The identity it is built on:
+ *
+ *     cash in hand  =  Σ totalCents of everything DELIVERED
+ *
+ * and nothing else. Not the subtotal, not the goods in the van, not the forecast.
+ *
+ *   · A refused parcel contributes ZERO. The goods came back; no money changed hands. It is
+ *     not a shortfall to be explained, it is simply not part of the sum — but it IS listed,
+ *     with the amount that did not arrive, because "the total is lower than this morning" is a
+ *     question that will be asked and must have an answer on the same sheet.
+ *   · A points-discounted order contributes its DISCOUNTED total, because that is the cash the
+ *     customer handed over. The points were spent when the order was placed; expecting the full
+ *     price back is double-counting the same money.
+ *   · A gift-card order is the same case for the same reason.
+ *   · Anything still out contributes zero and is listed separately, so a driver still holding
+ *     three parcels does not read as three missing payments.
+ *
+ * Which gives the line the owner can check in ten seconds:
+ *
+ *     collected + refused + stillOut  =  the run that went out
+ */
+export type Reconciliation = {
+  since: Date;
+  until: Date;
+  /** THE number: what should be in hand. Nothing else in this object is money you have. */
+  collectedCents: number;
+  collectedLabel: string;
+  delivered: { number: string; name: string; collectedCents: number; collectedLabel: string; paidWithPointsCents: number }[];
+  /** Came back. Zero cash, and that is correct, not a discrepancy. */
+  refused: { number: string; name: string; wouldHaveBeenCents: number; wouldHaveBeenLabel: string; status: string }[];
+  refusedCents: number;
+  refusedLabel: string;
+  /** Not resolved yet — still out with the driver. */
+  stillOutCents: number;
+  stillOutLabel: string;
+  stillOutCount: number;
+  /** collected + refused + stillOut. Compare against the morning's manifest. */
+  accountedForCents: number;
+  accountedForLabel: string;
+  /** How much of the collected figure was settled in points rather than cash at the door. */
+  paidWithPointsCents: number;
+  paidWithPointsLabel: string;
+};
+
+/** Ended in cash. */
+const SETTLED = ["delivered", "completed"] as const;
+/** Ended without cash after the parcel had already gone out. */
+const RETURNED = ["refused", "cancelled"] as const;
+
+export async function reconcile(db: PrismaClient, since: Date, until = new Date()): Promise<Reconciliation> {
+  /**
+   * The window is taken from the ORDER EVENT, not from `updatedAt`.
+   *
+   * `updatedAt` moves whenever anything on the row is touched — an admin fixing a typo in an
+   * address next week would pull a week-old order into today's reconciliation and inflate the
+   * total by an amount that was collected on a different day. The event table records when the
+   * status actually changed, which is the thing being counted.
+   */
+  const events = await db.orderEvent.findMany({
+    where: { status: { in: [...SETTLED, ...RETURNED] }, createdAt: { gte: since, lte: until } },
+    select: { orderId: true, status: true, createdAt: true },
+    orderBy: { createdAt: "asc" },
+  });
+
+  // Latest event per order wins: an order that went delivered then cancelled is a cancellation,
+  // and one cancelled then re-entered is not a refusal. Ascending order means the last write
+  // for each id is the newest.
+  const latest = new Map<number, string>();
+  for (const e of events) latest.set(e.orderId, e.status);
+
+  /**
+   * The still-out figure is read UNCONDITIONALLY, before any early exit.
+   *
+   * An earlier version returned a block of zeroes as soon as nothing had settled yet — which is
+   * the state of every morning, with the van loaded and on the road. It reported "still out: 0"
+   * while three parcels were out, so the panel said nothing was owed at the exact moment the
+   * most money was in transit. Caught by looking at the screen, not by the tests, all of which
+   * happened to seed a settled order first.
+   */
+  const stillOutRows = await db.order.findMany({
+    where: { status: { in: [...DISPATCHABLE] } },
+    select: { totalCents: true },
+  });
+  const stillOutCents = stillOutRows.reduce((n, o) => n + o.totalCents, 0);
+
+  if (latest.size === 0) {
+    const zero = money(0);
+    return {
+      since, until,
+      collectedCents: 0, collectedLabel: zero, delivered: [],
+      refused: [], refusedCents: 0, refusedLabel: zero,
+      stillOutCents, stillOutLabel: money(stillOutCents), stillOutCount: stillOutRows.length,
+      accountedForCents: stillOutCents, accountedForLabel: money(stillOutCents),
+      paidWithPointsCents: 0, paidWithPointsLabel: zero,
+    };
+  }
+
+  const orders = await db.order.findMany({
+    where: { id: { in: [...latest.keys()] } },
+    select: { id: true, number: true, fullName: true, totalCents: true, pointsDiscountCents: true, status: true },
+  });
+
+  const delivered: Reconciliation["delivered"] = [];
+  const refused: Reconciliation["refused"] = [];
+  for (const o of orders) {
+    const ended = latest.get(o.id)!;
+    if ((SETTLED as readonly string[]).includes(ended)) {
+      delivered.push({
+        number: o.number, name: o.fullName,
+        collectedCents: o.totalCents, collectedLabel: money(o.totalCents),
+        paidWithPointsCents: o.pointsDiscountCents,
+      });
+    } else {
+      refused.push({
+        number: o.number, name: o.fullName,
+        wouldHaveBeenCents: o.totalCents, wouldHaveBeenLabel: money(o.totalCents),
+        status: statusMeta(ended).label,
+      });
+    }
+  }
+
+  const collectedCents = delivered.reduce((n, d) => n + d.collectedCents, 0);
+  const refusedCents = refused.reduce((n, r) => n + r.wouldHaveBeenCents, 0);
+  const paidWithPointsCents = delivered.reduce((n, d) => n + d.paidWithPointsCents, 0);
+
+  return {
+    since, until,
+    collectedCents, collectedLabel: money(collectedCents), delivered,
+    refused, refusedCents, refusedLabel: money(refusedCents),
+    stillOutCents, stillOutLabel: money(stillOutCents), stillOutCount: stillOutRows.length,
+    accountedForCents: collectedCents + refusedCents + stillOutCents,
+    accountedForLabel: money(collectedCents + refusedCents + stillOutCents),
+    paidWithPointsCents, paidWithPointsLabel: money(paidWithPointsCents),
+  };
 }

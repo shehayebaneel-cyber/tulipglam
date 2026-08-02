@@ -836,7 +836,7 @@ const REDEEM_ATTEMPTS = 3;
  * because it arrives that way through some driver paths, and a conflict misread as a real error
  * would be shown to the customer as a permanent failure when a retry would have worked.
  */
-function isSerialisationFailure(e: unknown): boolean {
+export function isSerialisationFailure(e: unknown): boolean {
   if (e instanceof Prisma.PrismaClientKnownRequestError) {
     if (e.code === "P2034") return true;
     const meta = e.meta as { code?: string } | undefined;
@@ -1061,3 +1061,41 @@ export async function ledgerSum(db: Db, accountId: number): Promise<number> {
 
 export type { AccountState, LoadedAccount };
 export { LOYALTY_ENABLED, LOYALTY_REDEMPTION_ENABLED };
+
+/**
+ * Run `attempt` until it succeeds or stops failing for a reason worth retrying.
+ *
+ * Returns the value, or `null` if every attempt hit a serialisation conflict. Anything that is
+ * not a conflict is rethrown immediately — a retry loop that swallows real errors is worse than
+ * no retry loop, because it turns one loud failure into several quiet ones.
+ *
+ * This lives here, exported and tested, rather than inline in the checkout handler where it
+ * started. The bug it fixes — a Serializable transaction with no retry, so a conflict that is
+ * nobody's fault loses the whole order — survived review precisely because it was five lines
+ * buried in a two-thousand-line file with no way to exercise them.
+ *
+ * The caller decides what `null` means. Checkout retries once more with points switched off,
+ * because an order at full price beats no order; the sweep just gives up, because it runs again.
+ */
+export async function withSerialisationRetry<T>(
+  attempt: () => Promise<T>,
+  opts: { attempts?: number; delayMs?: (n: number) => number } = {},
+): Promise<{ value: T; conflicts: number } | { value: null; conflicts: number; lastError: unknown }> {
+  const attempts = opts.attempts ?? REDEEM_ATTEMPTS;
+  // Exponential with jitter. Without the jitter two transactions that collided once back off by
+  // the same amount and collide again on the same schedule.
+  const delayFor = opts.delayMs ?? ((n: number) => 25 * 2 ** n + Math.floor(Math.random() * 50));
+
+  let lastError: unknown = null;
+  for (let n = 0; n < attempts; n++) {
+    try {
+      return { value: await attempt(), conflicts: n };
+    } catch (e) {
+      if (!isSerialisationFailure(e)) throw e;
+      lastError = e;
+      // No sleep after the final attempt — nothing is waiting for it.
+      if (n < attempts - 1) await new Promise((r) => setTimeout(r, delayFor(n)));
+    }
+  }
+  return { value: null, conflicts: attempts, lastError };
+}

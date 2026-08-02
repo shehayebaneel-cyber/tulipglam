@@ -110,6 +110,22 @@ export type Manifest = {
   discountedCount: number;
 };
 
+/**
+ * What is actually in the till, after the round — as distinct from the manifest, which is a
+ * forecast made before anyone left. Keeping them apart is what stops a refused parcel reading
+ * as missing money.
+ */
+export type Reconciliation = {
+  since: string; until: string;
+  collectedCents: number; collectedLabel: string;
+  delivered: { number: string; name: string; collectedCents: number; collectedLabel: string; paidWithPointsCents: number }[];
+  refused: { number: string; name: string; wouldHaveBeenCents: number; wouldHaveBeenLabel: string; status: string }[];
+  refusedCents: number; refusedLabel: string;
+  stillOutCents: number; stillOutLabel: string; stillOutCount: number;
+  accountedForCents: number; accountedForLabel: string;
+  paidWithPointsCents: number; paidWithPointsLabel: string;
+};
+
 /** The launch list, for the coming-soon email capture. */
 export type LaunchList = {
   total: number; subscribed: number; unsubscribed: number; notified: number;
@@ -163,6 +179,7 @@ export const adminApi = {
   // dispatch — what the driver collects
   dispatch: () => req<Manifest>("/dispatch"),
   dispatchOne: (id: number) => req<DispatchLine & { courierMessage: string }>(`/dispatch/${id}`),
+  dispatchReconcile: () => req<Reconciliation>("/dispatch/reconcile"),
   // launch list
   launchList: () => req<LaunchList>("/launch-signups"),
   // loyalty — behind the same x-admin-key gate as everything else here

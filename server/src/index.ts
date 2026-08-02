@@ -9,10 +9,14 @@ import { ORDER_STATUSES, STATUS_KEYS, statusMeta, nextStatuses, canTransition } 
 import { hashPassword, checkPassword, signToken, withCustomer, requireCustomer, assertAuthConfig } from "./auth.js";
 import { rateLimit, LIMITS } from "./rateLimit.js";
 import { recordSignup, launchListStats, launchListCsv } from "./launchList.js";
-import { manifest, dispatchLine, courierMessage } from "./dispatch.js";
+import { manifest, dispatchLine, courierMessage, reconcile } from "./dispatch.js";
 import { queueMail, flushOutbox, outboxStatus } from "./outbox.js";
 import { recordError, countRequest, pulse, recentErrors, resolveError } from "./observe.js";
-import { sendMail, mailConfigured, orderConfirmationEmail, statusUpdateEmail, passwordResetEmail } from "./mailer.js";
+// No `sendMail` here any more, and that absence is the point: every message this file sends now
+// goes through `queueMail`, so there is a row proving it was attempted. The password reset was
+// the last direct caller — the one message that cannot be re-sent was the only one leaving no
+// record. If a future edit needs `sendMail` imported here again, that is the bug reappearing.
+import { mailConfigured, orderConfirmationEmail, statusUpdateEmail, passwordResetEmail } from "./mailer.js";
 import { DEV_ADMIN_KEY, validateSettings, setupChecks } from "./setup.js";
 import { resolvePromo } from "./promo.js";
 import { metaForPath, renderHead, injectHead, robotsTxt, sitemapXml } from "./seo.js";
@@ -24,7 +28,7 @@ import {
 import { LOYALTY_ENABLED, LOYALTY_REDEMPTION_ENABLED } from "./loyalty/config.js";
 import {
   repricePendingEarn, readAccount, autoLinkOnFirstRead, recordSignupBonus,
-  redeemWithin, previewRedemption,
+  redeemWithin, previewRedemption, withSerialisationRetry,
   manualAdjustment, linkCustomerToAccount, materialise, LoyaltyError,
 } from "./loyalty/ledger.js";
 import {
@@ -773,7 +777,19 @@ app.post("/api/orders", withCustomer, asyncH(async (req, res) => {
     ? await safely("redeem lookup", () => db.loyaltyAccount.findUnique({ where: { customerId }, select: { id: true } }))
     : null;
 
-  const result = await db.$transaction(async (tx) => {
+  /**
+   * The order transaction, as a function so it can be RETRIED.
+   *
+   * It is raised to Serializable when points are being spent, and a Serializable transaction
+   * can abort for a reason that is nobody's fault — two transactions touching the same rows in
+   * an order Postgres cannot serialise. Without a retry that abort propagated straight out of
+   * the handler and the customer lost the whole order. That directly contradicts the rule this
+   * codebase has followed everywhere else: a loyalty failure must never cost a sale.
+   *
+   * `spendPoints` is a parameter rather than a closure read, because the fallback below runs
+   * the exact same code with points switched off.
+   */
+  const placeOrder = (spendPoints: number) => db.$transaction(async (tx) => {
     let discount = 0;
     let couponCode = "";
     if (coupon) {
@@ -813,14 +829,14 @@ app.post("/api/orders", withCustomer, asyncH(async (req, res) => {
     const merchandiseAfterCoupon = Math.max(0, subtotal - discount);
     let pointsDiscount = 0;
 
-    if (loyaltyAccount && requestedPoints > 0) {
+    if (loyaltyAccount && spendPoints > 0) {
       // Quoted here so the gift card and the total see the reduced figure. The authoritative
       // write happens after the order exists, via redeemWithin, which re-quotes against the
       // same transaction snapshot — so it cannot disagree with this, and if it somehow did it
       // throws and the entire order rolls back rather than shipping a wrong price.
       const quote = await previewRedemption(tx, {
         accountId: loyaltyAccount.id,
-        requestedPoints,
+        requestedPoints: spendPoints,
         merchandiseCents: merchandiseAfterCoupon,
         signedIn: true,
       });
@@ -879,7 +895,7 @@ app.post("/api/orders", withCustomer, asyncH(async (req, res) => {
       const spent = await redeemWithin(tx, {
         accountId: loyaltyAccount.id,
         orderId: order.id,
-        requestedPoints,
+        requestedPoints: spendPoints,
         merchandiseCents: merchandiseAfterCoupon,
         signedIn: true,
       });
@@ -890,7 +906,7 @@ app.post("/api/orders", withCustomer, asyncH(async (req, res) => {
     }
 
     return { order, discount, giftUsed, total, pointsDiscount, pointsSpent };
-  }, requestedPoints > 0
+  }, spendPoints > 0
     // SERIALIZABLE only when points are actually being spent. A balance is derived from the
     // ledger, so it cannot be claimed with a conditional UPDATE the way a gift card's balance
     // is — two checkout tabs at read-committed would both read the same balance and both spend
@@ -900,6 +916,39 @@ app.post("/api/orders", withCustomer, asyncH(async (req, res) => {
     // default isolation and is completely unaffected.
     ? { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }
     : undefined);
+
+  /**
+   * Place it, retrying a serialisation conflict, and NEVER losing the sale to one.
+   *
+   * Three attempts with jitter — a conflict that survives three is not a conflict, it is a
+   * problem. Then one final attempt with points switched OFF, which drops to the default
+   * isolation and cannot conflict for this reason at all.
+   *
+   * That last step is the point. The customer asked to spend points and the shop could not
+   * arrange it; the order still goes through at full price, exactly as a spent-out coupon
+   * already does. Losing a points entry is recoverable — an admin can credit it in ten seconds
+   * from the ledger view. A lost checkout is not recoverable at all.
+   *
+   * Retrying re-runs the whole transaction, which is safe precisely because it rolled back:
+   * the coupon claim, the gift-card debit and the ledger write are all undone together.
+   */
+  const attemptedWithPoints = await withSerialisationRetry(() => placeOrder(requestedPoints));
+
+  let result: Awaited<ReturnType<typeof placeOrder>>;
+  if (attemptedWithPoints.value) {
+    result = attemptedWithPoints.value;
+  } else if (requestedPoints > 0) {
+    // Every retry conflicted. Place it at full price instead of losing it: the customer asked
+    // to spend points and the shop could not arrange it, which is the same outcome as a
+    // spent-out coupon and is already handled everywhere downstream. A missing points entry is
+    // recoverable from the admin ledger in seconds; a lost checkout is not recoverable at all.
+    console.error("[checkout] serialisation conflicts spending points; placing at full price instead:",
+      (attemptedWithPoints as { lastError: unknown }).lastError);
+    result = await placeOrder(0);
+  } else {
+    // Not a points order, so there is no cheaper thing to fall back to — surface the conflict.
+    throw (attemptedWithPoints as { lastError: unknown }).lastError ?? new Error("order could not be placed");
+  }
 
   const { order, discount, giftUsed, total, pointsDiscount, pointsSpent } = result;
 
@@ -1174,13 +1223,17 @@ app.get("/api/orders/:number", withCustomer, asyncH(async (req, res) => {
   // otherwise, which is the same rule `/api/site` follows for settings and for the same reason.
   const {
     id, number, status, createdAt, deliveredAt,
-    subtotalCents, discountCents, giftCardCents, deliveryCents, totalCents,
+    subtotalCents, discountCents, giftCardCents, pointsDiscountCents, deliveryCents, totalCents,
     paymentMethod, area, city, items, events,
   } = order;
 
   res.json({
     id, number, status, createdAt, deliveredAt,
-    subtotalCents, discountCents, giftCardCents, deliveryCents, totalCents,
+    subtotalCents, discountCents, giftCardCents,
+    // Without this the breakdown a customer sees on the tracking page does not add up: the
+    // subtotal and the total differ by an amount with nothing to explain it.
+    pointsDiscountCents,
+    deliveryCents, totalCents,
     paymentMethod,
     // Area and city stay: they are how a customer confirms this is the right order, and they
     // are a district, not an address. Street, name, phone, WhatsApp, email and notes do not.
@@ -1267,9 +1320,26 @@ app.post("/api/auth/forgot", rateLimit(LIMITS.passwordReset), asyncH(async (req,
       data: { customerId: customer.id, tokenHash: resetTokenHash(token), expiresAt: new Date(Date.now() + RESET_TTL_MIN * 60_000) },
     });
     const base = str(settings.siteUrl).trim().replace(/\/+$/, "") || `${req.protocol}://${req.get("host") ?? ""}`;
-    await sendMail(settings, email, `Reset your ${settings.storeName || "TulipGlam"} password`,
-      passwordResetEmail(settings.storeName || "TulipGlam", customer.fullName || "there",
-        `${base}/reset-password?token=${encodeURIComponent(token)}`, RESET_TTL_MIN));
+    /**
+     * Through the outbox, not `sendMail` directly.
+     *
+     * This was the last caller still sending straight out, which meant the one message that
+     * genuinely cannot be re-sent — the token inside it dies in RESET_TTL_MIN minutes — was
+     * also the only one leaving no evidence it was attempted. A customer saying "I never got
+     * the email" had nothing to check against.
+     *
+     * `queueMail` still sends immediately when SMTP is configured, so nothing gets slower; it
+     * just writes the row first. No `dedupeKey`: every request mints a fresh token and retires
+     * the previous one, so two requests are two genuinely different messages and collapsing
+     * them would strand the customer holding the newer link.
+     */
+    await queueMail(db, settings, {
+      to: email,
+      subject: `Reset your ${settings.storeName || "TulipGlam"} password`,
+      html: passwordResetEmail(settings.storeName || "TulipGlam", customer.fullName || "there",
+        `${base}/reset-password?token=${encodeURIComponent(token)}`, RESET_TTL_MIN),
+      kind: "password-reset",
+    });
   }
   res.json({ ok: true });
 }));
@@ -1866,12 +1936,30 @@ admin.post("/orders/:id/resolve", asyncH(async (req, res) => {
      */
     const pointsDiscount = Math.min(order.pointsDiscountCents, Math.max(0, subtotal - discount));
     const afterDiscount = subtotal - discount - pointsDiscount + delivery;
-    // The gift card was already debited at checkout; never charge more of it than the new
-    // total needs, and never refund it here — that is a manual decision.
     const giftUsed = Math.min(order.giftCardCents, Math.max(0, afterDiscount));
     const total = afterDiscount - giftUsed;
 
+    /**
+     * THE GIFT CARD GETS THE DIFFERENCE BACK.
+     *
+     * The card was debited at checkout for the ORIGINAL total. Lowering `giftCardCents` on the
+     * order without touching the card left the gap stranded: a card debited $20 for an order
+     * that now only needs $12 kept $12 of order credit and $8 of nothing — money taken from the
+     * customer's card, applied to no order, recorded nowhere. The card's balance is the only
+     * ledger it has, so not writing it back is not "a manual decision", it is a silent loss.
+     *
+     * An increment, not a recomputed balance: the card may have been spent on another order in
+     * between, and we are returning our own debit, not asserting what the balance should be.
+     * `updateMany` so a deleted or renamed card is a no-op instead of an exception that would
+     * roll back the removal the customer is waiting on.
+     */
+    const giftRefund = Math.max(0, order.giftCardCents - giftUsed);
+    const giftRefundOps = giftRefund > 0 && order.giftCardCode
+      ? [db.giftCard.updateMany({ where: { code: order.giftCardCode }, data: { balanceCents: { increment: giftRefund } } })]
+      : [];
+
     await db.$transaction([
+      ...giftRefundOps,
       db.orderItem.delete({ where: { id: item.id } }),
       db.order.update({
         where: { id },
@@ -1880,7 +1968,15 @@ admin.post("/orders/:id/resolve", asyncH(async (req, res) => {
           subtotalCents: subtotal, discountCents: discount, giftCardCents: giftUsed,
           pointsDiscountCents: pointsDiscount,
           deliveryCents: delivery, totalCents: total,
-          events: { create: { status: "confirmed", note: note || `Removed “${item.name}” at the customer's request. Total recalculated.` } },
+          events: {
+            create: {
+              status: "confirmed",
+              // The refund is appended to whatever the operator wrote, never instead of it —
+              // a balance moving with no line explaining it is how the last one went unnoticed.
+              note: (note || `Removed “${item.name}” at the customer's request. Total recalculated.`)
+                + (giftRefund > 0 ? ` Returned $${(giftRefund / 100).toFixed(2)} to gift card ${order.giftCardCode}.` : ""),
+            },
+          },
         },
       }),
     ]);
@@ -2081,6 +2177,24 @@ admin.post("/outbox/flush", asyncH(async (_req, res) => {
 admin.get("/dispatch", asyncH(async (_req, res) => {
   res.setHeader("Cache-Control", "no-store");
   res.json(await manifest(db));
+}));
+
+/**
+ * What is actually in the till, after the round.
+ *
+ * `?since=` is an ISO timestamp; it defaults to the start of today in the server's zone, which
+ * is the question being asked ninety-nine times out of a hundred. This is deliberately a
+ * separate call from the manifest: one is a forecast made in the morning and the other is a
+ * count made in the evening, and conflating them is how a refused parcel starts reading as
+ * missing money.
+ */
+admin.get("/dispatch/reconcile", asyncH(async (req, res) => {
+  const raw = str(req.query.since).trim();
+  const parsed = raw ? new Date(raw) : null;
+  const startOfToday = new Date(); startOfToday.setHours(0, 0, 0, 0);
+  const since = parsed && !Number.isNaN(parsed.getTime()) ? parsed : startOfToday;
+  res.setHeader("Cache-Control", "no-store");
+  res.json(await reconcile(db, since));
 }));
 
 admin.get("/dispatch/:id", asyncH(async (req, res) => {
