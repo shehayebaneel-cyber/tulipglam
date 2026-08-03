@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom";
 import { usd, priceOf, type Card } from "../lib/api";
+import { nameWithoutBrand } from "../lib/productName";
 import { useStore, lineFromCard } from "../lib/store";
 import { ProductImage } from "./ProductImage";
 import { HeartIcon, HeartFill } from "./ui";
@@ -76,7 +77,9 @@ export function ProductCard({ p }: { p: Card }) {
       {/* info */}
       <div className="mt-3 flex flex-1 flex-col">
         {p.brand && <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted">{p.brand.name}</span>}
-        <h3 className="mt-0.5 line-clamp-2 text-[14px] font-medium leading-snug text-ink">{p.name}</h3>
+        {/* The brand is already the line above, and 92.3% of names repeat it — see lib/productName.
+            The full stored name stays in the title attribute and in the image alt text. */}
+        <h3 title={p.name} className="mt-0.5 line-clamp-2 text-[14px] font-medium leading-snug text-ink">{nameWithoutBrand(p.name, p.brand?.name)}</h3>
         <div className="mt-1.5 flex items-baseline gap-2">
           <span className="serif text-[17px] font-medium text-ink tabular">{usd(priceOf(p))}</span>
           {p.onSale && <span className="serif text-[13px] text-muted line-through tabular">{usd(p.priceCents)}</span>}

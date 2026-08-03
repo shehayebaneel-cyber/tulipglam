@@ -3,6 +3,7 @@ import { Button } from "../components/Button";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import { api, usd, priceOf, type Variant } from "../lib/api";
 import { productImage } from "../lib/img";
+import { nameWithoutBrand } from "../lib/productName";
 import { useStore } from "../lib/store";
 import { useFetch } from "../lib/hooks";
 import { ProductImage } from "../components/ProductImage";
@@ -12,7 +13,12 @@ import { Stars, HeartIcon, HeartFill, PlusIcon, MinusIcon, CheckIcon, TruckIcon,
 export function Product() {
   const { slug = "" } = useParams();
   const navigate = useNavigate();
-  const { addToCart, toggleWish, inWish } = useStore();
+  const { addToCart, toggleWish, inWish, site } = useStore();
+
+  // Derived, never hardcoded — the announcement bar learned this the hard way. Empty string
+  // when the setting is missing or nonsensical, so the sentence simply omits the clause.
+  const thresholdCents = Number(site?.settings.freeDeliveryThresholdCents ?? "");
+  const freeOver = Number.isFinite(thresholdCents) && thresholdCents > 0 ? usd(thresholdCents) : "";
   const { data: p, loading, error } = useFetch(() => api.product(slug), [slug]);
 
   const [imgIdx, setImgIdx] = useState(0);
@@ -122,7 +128,8 @@ export function Product() {
         {/* ---------- info ---------- */}
         <div>
           {p.brand && <Link to={`/shop?brand=${p.brand.slug}`} className="text-[12px] font-semibold uppercase tracking-[0.16em] text-muted hover:text-plum">{p.brand.name}</Link>}
-          <h1 className="serif mt-1.5 text-3xl font-medium leading-tight text-ink sm:text-4xl">{p.name}</h1>
+          {/* Brand is the link immediately above. Stored name unchanged; see lib/productName. */}
+          <h1 className="serif mt-1.5 text-3xl font-medium leading-tight text-ink sm:text-4xl">{nameWithoutBrand(p.name, p.brand?.name)}</h1>
           {p.reviewCount > 0 && (
             <div className="mt-2 flex items-center gap-2">
               <Stars rating={p.ratingAvg} />
@@ -208,10 +215,27 @@ export function Product() {
           </div>
           {added && <button onClick={() => navigate("/cart")} className="mt-3 text-[13px] font-semibold text-plum hover:underline">View bag →</button>}
 
-          {/* assurances */}
+          {/*
+            ── ASSURANCES: two audited claims had survived here ──────────────────────
+
+            "100% authentic — sourced from official brands" is GONE. The audit removed exactly
+            this sentence from the trust bar and from the policy pages, and it lived on here —
+            the highest-traffic surface for it, and the page where someone decides to buy. The
+            catalogue comes from three RETAIL suppliers; CLAUDE.md records that Feel22 carries
+            other companies' brands and "cannot license what it doesn't own". Nothing in the data
+            evidences authenticity, so the store must not assert it. If it ever becomes
+            provable, it belongs in `trustItems` with the other claims, not hardcoded in a page.
+
+            "free over $60" was HARDCODED, and the audit fixed precisely this bug in the
+            announcement bar for precisely this reason. It happens to be right today because the
+            setting really is 6000 — true by coincidence is the failure mode, not the defence.
+            It now reads the setting, and says nothing at all when the setting is unset.
+          */}
           <div className="mt-6 space-y-2 rounded-2xl border border-line bg-surface p-4 text-[13px] text-ink/80">
-            <p className="flex items-center gap-2"><TruckIcon className="h-4 w-4 text-plum" /> Cash on delivery across Lebanon · free over $60</p>
-            <p className="flex items-center gap-2"><CheckIcon className="h-4 w-4 text-plum" /> 100% authentic — sourced from official brands</p>
+            <p className="flex items-center gap-2">
+              <TruckIcon className="h-4 w-4 text-plum" />
+              Cash on delivery across Lebanon{freeOver ? ` · free over ${freeOver}` : ""}
+            </p>
             <p className="text-[12px] text-muted">Orders are subject to product availability. If an item is unavailable, we’ll contact you before dispatch.</p>
           </div>
 
