@@ -441,8 +441,14 @@ match, because matching is on word boundaries.
 
 1. **Real WhatsApp number.** Checkout cannot deliver an order without it. Validation and the
    disabled-state degradation are built; the value must be yours. Admin → Settings.
-2. **Real Instagram handle and contact email.** Currently self-referential placeholders.
-   Links hide themselves until set.
+2. ~~**Real Instagram handle**~~ — **DONE 3 Aug**: `https://www.instagram.com/tulipglam.lb/`,
+   given by the owner. It replaced `https://instagram.com/tulipglam` — a placeholder plausible
+   enough that the footer had been linking to a handle that is not theirs.
+
+   **Contact email is still needed.** `hello@tulipglam.com` is a self-referential placeholder and
+   the footer renders an Email button for it, so the store currently invites people to write to a
+   mailbox nobody has confirmed exists. Either give a real address or say the word and the button
+   goes, the way the trust bar did.
 3. **Real hero photograph.** The current image is visibly AI-generated, which undercuts an
    authenticity-based proposition. Hero is now fully Settings-driven — upload and set it.
    I did not source or generate a replacement.
