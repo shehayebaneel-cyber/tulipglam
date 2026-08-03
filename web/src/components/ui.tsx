@@ -15,14 +15,39 @@ export function TulipMark({ className = "h-6 w-6" }: { className?: string }) {
 }
 
 // Wordmark: the tulip mark + "TulipGlam" set in the grotesque, bold.
+/**
+ * The house lockup — the owner's logo artwork, used wherever the brand signs its name.
+ *
+ * Replaces a hand-built lockup (the `TulipMark` SVG beside bold text) that stood in until real
+ * artwork existed. `TulipMark` itself is still very much in use: it is the mark ALONE, for empty
+ * states, the checkout header and admin, where a full lockup would be too loud.
+ *
+ * ── WHY AN IMAGE AND NOT AN SVG ────────────────────────────────────────────────────
+ *
+ * The artwork arrived as a raster export. Tracing it to SVG would be inventing curves the owner
+ * never approved, and at the size this renders — 28px tall — the difference is invisible while
+ * the risk of a redrawn letterform is not. 14 KB at 1x, once, cached forever.
+ *
+ * ── WIDTH AND HEIGHT ARE BOTH SET ──────────────────────────────────────────────────
+ *
+ * The lockup is 4.793:1, so 28px tall is 134px wide. Both are declared so the header reserves
+ * its space before the file lands and the nav does not jump — the same reasoning as
+ * `ProductImage`, applied to the one element on every single page.
+ */
 export function Wordmark({ className = "" }: { className?: string }) {
   return (
-    <span className={`inline-flex items-center gap-2 ${className}`}>
-      <TulipMark className="h-6 w-6 text-plum" />
-      <span className="text-[1.35rem] font-extrabold leading-none tracking-[-0.02em] text-ink">
-        Tulip<span className="text-plum">Glam</span>
-      </span>
-    </span>
+    <img
+      src="/brand/tulipglam-logo.webp"
+      srcSet="/brand/tulipglam-logo.webp 1x, /brand/tulipglam-logo@2x.webp 2x"
+      // The lockup already reads "TulipGlam"; the alt says so once and the surrounding link
+      // supplies "— home". An empty alt would leave the only branding on the page unnamed.
+      alt="TulipGlam"
+      width={134}
+      height={28}
+      // On every page and above the fold, so it is never lazy.
+      decoding="async"
+      className={`h-7 w-auto ${className}`}
+    />
   );
 }
 

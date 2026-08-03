@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { TulipMark, TruckIcon, ChevronRight } from "./ui";
+import { Wordmark, TruckIcon, ChevronRight } from "./ui";
 
 /**
  * The chrome around checkout, and deliberately almost none of it.
@@ -42,13 +42,15 @@ export function CheckoutShell({ children }: { children: React.ReactNode }) {
             Bag
           </Link>
 
-          {/* Not a link. The one page where the wordmark's job is to reassure, not to navigate. */}
-          <span className="inline-flex items-center gap-1.5">
-            <TulipMark className="h-5 w-5 text-plum" />
-            <span className="text-[15px] font-semibold tracking-tight text-ink">
-              Tulip<span className="text-plum">Glam</span>
-            </span>
-          </span>
+          {/*
+            Not a link. The one page where the lockup's job is to reassure, not to navigate.
+
+            It uses the real `Wordmark` rather than the hand-built stand-in it used to carry —
+            two different-looking logos across a two-page checkout flow is exactly the sort of
+            small wrongness that reads as "is this the same site" at the moment someone is
+            about to hand over an address.
+          */}
+          <Wordmark className="h-6" />
 
           {/* Balances the row so the wordmark sits truly centred. */}
           <span className="w-12" aria-hidden="true" />
