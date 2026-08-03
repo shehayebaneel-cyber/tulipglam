@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Link, useNavigate } from "react-router-dom";
 import { Wordmark, SearchIcon, HeartIcon, BagIcon, MenuIcon, CloseIcon, UserIcon } from "./ui";
 import { useStore } from "../lib/store";
@@ -93,8 +94,24 @@ export function Header() {
         <MainNav site={site ?? null} />
       </div>
 
-      {/* mobile drawer */}
-      {menu && (
+      {/*
+        ── THE DRAWER IS PORTALLED OUT OF THE HEADER, AND MUST STAY THAT WAY ──────────
+
+        The header is `sticky … backdrop-blur`, and **backdrop-filter makes an element a
+        containing block for `position: fixed` descendants.** So `fixed inset-0` on a drawer
+        nested inside it did not resolve against the viewport — it resolved against the header's
+        own box. The drawer opened 93px tall: the height of the header.
+
+        The symptom was a menu that appeared to be empty. It never was — the nav had all sixteen
+        links the whole time, clipped into a stub with `overflow-y-auto` hiding the rest. Nothing
+        threw, nothing logged, and it looked exactly like a data problem.
+
+        `createPortal` to `document.body` puts it above every blurred, transformed or filtered
+        ancestor by construction, so this cannot come back if someone re-nests the markup or adds
+        a filter higher up. Removing the header's blur would also have fixed it today and would
+        have left the trap armed for the next person.
+      */}
+      {menu && createPortal(
         <div className="fixed inset-0 z-50 lg:hidden" role="dialog" aria-modal="true">
           <div className="absolute inset-0 bg-ink/40" onClick={() => setMenu(false)} />
           <div className="absolute left-0 top-0 flex h-full w-[86%] max-w-sm flex-col bg-paper shadow-pop">
@@ -108,7 +125,8 @@ export function Header() {
               <MobileNav site={site ?? null} onNavigate={() => setMenu(false)} />
             </nav>
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
     </header>
   );

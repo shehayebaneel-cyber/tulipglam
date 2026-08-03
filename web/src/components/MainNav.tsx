@@ -299,6 +299,7 @@ export function MobileNav({ site, onNavigate }: { site: SiteData | null; onNavig
 
       <hr className="my-2 border-line" />
       {([
+        ["/categories", "All categories"],
         ["/new", "New Arrivals"],
         ["/bestsellers", "Best Sellers"],
         ...(site?.flags?.hasSale ? [["/sale", "Sale"]] : []),
