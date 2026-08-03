@@ -737,3 +737,40 @@ the code under test.
 Same habit caught the bundle report claiming `renderedLength` was post-minification — checking
 whether the module sum matched the emitted size, before publishing the table, showed react-dom
 reporting more bytes than the entire chunk containing it.
+
+## A sum that does not reconcile is a confession
+
+**Owner's rule, 3 Aug 2026.** Sibling to *a count is not a verdict until you have read what
+failed.* When two numbers that describe the same thing disagree, the disagreement is the
+finding — stop and resolve it before publishing either.
+
+Three times in two days, and every one would have shipped a wrong conclusion:
+
+| the numbers | what the gap meant |
+|---|---|
+| react-dom reported 449 KB inside a chunk emitting 438 KB | `renderedLength` was pre-minification, not post. The report's whole premise was wrong. |
+| main chunk fell 134 KB; the new route chunks totalled 35 KB | A 92.4 KB shared chunk had appeared that index.html still preloads. The real saving was 7.6%, not 30%. |
+| every screenshot came back exactly 844px tall | Real pages are not all the same length — the harness was measuring the viewport, not the document. |
+
+**The test:** if you can write down two figures for the same quantity and they do not add up,
+you do not yet have a result. You have a lead.
+
+## The React Router question is ANSWERED, not deferred
+
+**Owner's ruling, 3 Aug 2026.** `react-router` is ~93 KB, roughly 21% of the main chunk and the
+second-heaviest thing in the bundle. It is **accepted as part of the framework floor.** Do not
+open a router migration on the strength of that number.
+
+The reasoning, so it does not have to be rediscovered:
+
+- A router swap is invasive surgery on the thing every page stands on.
+- The infrastructure under the store is being replaced (see MIGRATION.md) and customers are not
+  on it yet. Wrong surgery, wrong moment.
+- The prize is a *fraction* of 93 KB, against an FCP that has now twice proved it moves for
+  other reasons — the images cut payload 95% and moved it none; the lazy-loads bought 150–200 ms
+  for 33 KB.
+
+**The revisit trigger — and only this one:** real post-launch data showing script weight hurting
+actual customers on actual Lebanese phones. Not an estimate column making anyone itchy, not a
+smaller number in a competitor's bundle. Until that fires, the question is closed and
+`bundle-report.txt` is a map, not a to-do list.
