@@ -37,3 +37,5 @@ shots/
 # it is the shared baseline for "what has already had eyes on it".
 import-review/*.png
 import-review/*-changed.txt
+
+TulipGlam-brands.xlsx
