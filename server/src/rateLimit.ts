@@ -99,6 +99,12 @@ export const LIMITS = {
    * launch could see a handful of real people on one IP.
    */
   launchSignup: { name: "launch-signup", max: 20, windowMs: WINDOW },
+  /**
+   * Product requests. A real customer sends one, occasionally two. Kept at the same order as
+   * the signup capture rather than tighter, because Lebanese mobile traffic is CGNAT-heavy and
+   * a shared egress IP can legitimately carry several genuine people.
+   */
+  productRequest: { name: "product-request", max: 20, windowMs: WINDOW },
 } as const;
 
 /**

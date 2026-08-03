@@ -264,6 +264,7 @@ export async function metaForPath(pathname: string, ctx: Ctx): Promise<PageMeta>
 
   const STATIC: Record<string, [string, string]> = {
     shop: ["All products", `Every product at ${siteName}, delivered across Lebanon.`],
+    request: ["Request a product", `Ask ${siteName} to source something we do not list.`],
     categories: ["All categories", `Every department and shelf at ${siteName}, from makeup to fragrance.`],
     brands: ["Our brands", `The brands carried at ${siteName}, sourced to order and delivered across Lebanon.`],
     new: ["New arrivals", `The latest additions at ${siteName}.`],
@@ -350,6 +351,7 @@ export async function sitemapXml(ctx: Ctx): Promise<string> {
     { loc: "/", priority: "1.0" },
     { loc: "/shop", priority: "0.9" },
     { loc: "/categories", priority: "0.8" },
+    { loc: "/request", priority: "0.6" },
     { loc: "/brands", priority: "0.7" },
     { loc: "/new", priority: "0.7" },
     { loc: "/bestsellers", priority: "0.7" },

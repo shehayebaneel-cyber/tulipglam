@@ -11,6 +11,7 @@ import { rateLimit, LIMITS } from "./rateLimit.js";
 import { recordSignup, launchListStats, launchListCsv } from "./launchList.js";
 import { manifest, dispatchLine, courierMessage, reconcile } from "./dispatch.js";
 import { queueMail, flushOutbox, outboxStatus } from "./outbox.js";
+import { validateRequest, createRequest, requestSummary } from "./productRequests.js";
 import { recordError, countRequest, pulse, recentErrors, resolveError } from "./observe.js";
 // No `sendMail` here any more, and that absence is the point: every message this file sends now
 // goes through `queueMail`, so there is a row proving it was attempted. The password reset was
@@ -992,6 +993,45 @@ app.post("/api/orders", withCustomer, asyncH(async (req, res) => {
   }
 
   res.json({ number: order.number, totalCents: total, subtotalCents: subtotal, discountCents: discount, giftCardCents: giftUsed, pointsDiscountCents: pointsDiscount, pointsSpent, deliveryCents: delivery, freeDeliveryReason, whatsappNumber: settings.whatsappNumber ?? "" });
+}));
+
+/**
+ * A customer asking for something the shop does not carry.
+ *
+ * ── WHY IT ANSWERS WITH FIELD ERRORS, UNLIKE THE SIGNUP CAPTURE ────────────────────
+ *
+ * `/api/launch-signup` deliberately answers identically to everything, because telling a
+ * stranger whether an address is already known turns the endpoint into an oracle for who shops
+ * here. Nothing comparable is at stake in a product request: there is no existing record to
+ * probe and no membership to confirm. So this behaves like an ordinary form and says which
+ * field is wrong — a customer who mistyped their number and is told only "something went wrong"
+ * simply leaves.
+ *
+ * Identity is OPTIONAL and comes from the verified token via `withCustomer`, never from the
+ * body. A request that could name its own `customerId` would be a way to attach yourself to
+ * somebody else's account, which is the exact mistake `getOrCreateAccount` already made once in
+ * this codebase and moved 1,200 points to an attacker's login.
+ */
+app.post("/api/product-requests", rateLimit(LIMITS.productRequest), withCustomer, asyncH(async (req, res) => {
+  const input = {
+    wanted: str(req.body?.wanted),
+    note: str(req.body?.note),
+    phone: str(req.body?.phone),
+    email: str(req.body?.email),
+    source: str(req.body?.source),
+    searchTerm: str(req.body?.searchTerm),
+  };
+
+  const errors = validateRequest(input);
+  if (errors) return res.status(400).json({ error: "Please check the form.", errors });
+
+  const created = await createRequest(db, {
+    ...input,
+    customerId: (req as express.Request & { customerId?: number }).customerId ?? null,
+  });
+
+  res.setHeader("Cache-Control", "no-store");
+  res.json({ ok: true, id: created.id });
 }));
 
 /**
@@ -2220,6 +2260,56 @@ admin.get("/dispatch/:id", asyncH(async (req, res) => {
   if (!line) return res.status(404).json({ error: "No such order." });
   res.setHeader("Cache-Control", "no-store");
   res.json({ ...line, courierMessage: courierMessage(line) });
+}));
+
+// ---- product requests ----
+//
+// What customers asked for and we do not carry. The most valuable list in the admin for a shop
+// that holds no inventory: it is the catalogue's gaps, written by the people who wanted them.
+
+admin.get("/product-requests", asyncH(async (req, res) => {
+  const status = str(req.query.status);
+  const where = status && status !== "all" ? { status } : {};
+  const [requests, summary] = await Promise.all([
+    db.productRequest.findMany({
+      where,
+      orderBy: [{ status: "asc" }, { createdAt: "desc" }],
+      take: 200,
+      include: { customer: { select: { id: true, fullName: true, email: true } } },
+    }),
+    requestSummary(db),
+  ]);
+  res.setHeader("Cache-Control", "no-store");
+  res.json({ requests, summary });
+}));
+
+/**
+ * Move a request along, or annotate it.
+ *
+ * `handledAt` is stamped the first time it leaves `open` and never cleared, so "how long did
+ * people wait" stays answerable even if the status is changed again afterwards.
+ */
+admin.patch("/product-requests/:id", asyncH(async (req, res) => {
+  const id = num(req.params.id);
+  const status = str(req.body?.status);
+  const adminNote = req.body?.adminNote === undefined ? undefined : str(req.body.adminNote);
+
+  if (status && !["open", "sourced", "declined"].includes(status)) {
+    return res.status(400).json({ error: "Unknown status." });
+  }
+
+  const existing = await db.productRequest.findUnique({ where: { id }, select: { handledAt: true } });
+  if (!existing) return res.status(404).json({ error: "No such request." });
+
+  await db.productRequest.update({
+    where: { id },
+    data: {
+      ...(status ? { status } : {}),
+      ...(adminNote !== undefined ? { adminNote } : {}),
+      ...(status && status !== "open" && !existing.handledAt ? { handledAt: new Date() } : {}),
+    },
+  });
+  res.json({ ok: true });
 }));
 
 // ---- launch list ----

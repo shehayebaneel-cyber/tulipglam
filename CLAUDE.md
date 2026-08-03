@@ -520,7 +520,7 @@ nothing is advertised while the programme is off.
 stays correct — `sweepChangesNothing` asserts exactly that against the database.
 
 ### Tests — `npm run test:all -- --write`
-**17 suites, 954 checks.** Do not copy counts out of this file into a commit message; run the
+**18 suites, 980 checks.** Do not copy counts out of this file into a commit message; run the
 command and read the table. Three of the counts written here by hand had drifted at once (one
 suite had grown by twelve, one by one, one had shrunk), and a wrong number in the source of
 truth is how the next session learns to discount a green suite — at which point a suite that has
@@ -530,6 +530,11 @@ failure rather than a zero.
 
 Suites needing `--write` are **skipped, not silently reduced**, and `test-seo.mjs` is skipped
 unless `web/dist` exists — without a build it reads a page production never serves.
+
+**The API server on :4230 must be RUNNING.** `test-seo`, `test-checkout-money` and
+`test-password-reset` connect to it over HTTP; without it they die with ECONNREFUSED and report
+no summary. This contradicts nothing above — the rule is "no OTHER process holding a Prisma
+pool", not "no server at all", and confusing the two costs a diagnosis.
 
 **`test-redemption.mjs` is flaky back-to-back.** It failed 3 checks on one full run and passed
 27 on the next, and passes standalone every time. Suspected cause is Neon's free-tier connection

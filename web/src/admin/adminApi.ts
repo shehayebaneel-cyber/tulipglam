@@ -126,6 +126,20 @@ export type Reconciliation = {
   paidWithPointsCents: number; paidWithPointsLabel: string;
 };
 
+/** A customer asking for something the shop does not carry. */
+export type ProductRequestRow = {
+  id: number; wanted: string; note: string; phone: string; email: string;
+  source: string; searchTerm: string; status: string; adminNote: string;
+  handledAt: string | null; createdAt: string;
+  customer: { id: number; fullName: string; email: string } | null;
+};
+
+export type RequestSummary = {
+  open: number; sourced: number; declined: number;
+  oldestOpenDays: number | null;
+  topTerms: { term: string; count: number }[];
+};
+
 /** The launch list, for the coming-soon email capture. */
 export type LaunchList = {
   total: number; subscribed: number; unsubscribed: number; notified: number;
@@ -180,6 +194,12 @@ export const adminApi = {
   dispatch: () => req<Manifest>("/dispatch"),
   dispatchOne: (id: number) => req<DispatchLine & { courierMessage: string }>(`/dispatch/${id}`),
   dispatchReconcile: () => req<Reconciliation>("/dispatch/reconcile"),
+
+  // product requests — the catalogue's gaps, written by the people who wanted them
+  productRequests: (status: string) =>
+    req<{ requests: ProductRequestRow[]; summary: RequestSummary }>(`/product-requests${qs({ status })}`),
+  updateProductRequest: (id: number, body: { status?: string; adminNote?: string }) =>
+    req<{ ok: boolean }>(`/product-requests/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
   // launch list
   launchList: () => req<LaunchList>("/launch-signups"),
   // loyalty — behind the same x-admin-key gate as everything else here

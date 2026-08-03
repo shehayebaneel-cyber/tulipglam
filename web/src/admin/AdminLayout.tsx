@@ -28,6 +28,9 @@ const NAV: { group: string; items: Item[] }[] = [
     items: [
       { to: "/admin/orders", label: "Orders", icon: ClipboardIcon },
       { to: "/admin/dispatch", label: "Dispatch", icon: TruckIcon },
+      // The catalogue gaps customers named themselves. Under Sales, not Catalogue: each row is
+      // a person waiting for a reply, not a data-entry task.
+      { to: "/admin/requests", label: "Requests", icon: ClipboardIcon },
       { to: "/admin/coupons", label: "Coupons", icon: TicketIcon },
       { to: "/admin/gift-cards", label: "Gift Cards", icon: GiftIcon },
     ],

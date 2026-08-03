@@ -231,8 +231,8 @@ model OutboxEmail {
   expiresAt DateTime?
 
   sentAt    DateTime?
-  attempts  Int      @default(0)
-  lastError String   @default("")
+  attempts  Int       @default(0)
+  lastError String    @default("")
 
   /// Stops the same message being queued twice by a retried request or a replayed hook.
   dedupeKey String? @unique
@@ -277,16 +277,18 @@ model LaunchSignup {
 
 // ------------------------------------------------------------------ customers
 model Customer {
-  id           Int             @id @default(autoincrement())
-  email        String          @unique
-  passwordHash String
-  fullName     String
-  phone        String          @default("")
-  createdAt    DateTime        @default(now())
-  addresses    Address[]
-  orders       Order[]
-  resets       PasswordReset[]
-  loyalty      LoyaltyAccount?
+  id              Int              @id @default(autoincrement())
+  email           String           @unique
+  passwordHash    String
+  fullName        String
+  phone           String           @default("")
+  createdAt       DateTime         @default(now())
+  addresses       Address[]
+  orders          Order[]
+  resets          PasswordReset[]
+  /// Requests they made while signed in. Guests have none; see ProductRequest.
+  productRequests ProductRequest[]
+  loyalty         LoyaltyAccount?
 }
 
 /**
@@ -376,12 +378,12 @@ model Order {
   /// worth being able to see rather than one silently averaged away.
   pointsDiscountCents Int @default(0)
 
-  items          OrderItem[]
-  events         OrderEvent[]
-  loyaltyEntries LoyaltyLedgerEntry[]
+  items                 OrderItem[]
+  events                OrderEvent[]
+  loyaltyEntries        LoyaltyLedgerEntry[]
   loyaltyClaimDecisions LoyaltyClaimDecision[]
-  createdAt      DateTime             @default(now())
-  updatedAt      DateTime             @updatedAt
+  createdAt             DateTime               @default(now())
+  updatedAt             DateTime               @updatedAt
 
   @@index([status])
   @@index([createdAt])
@@ -509,8 +511,8 @@ model LoyaltyAccount {
 
   entries   LoyaltyLedgerEntry[]
   decisions LoyaltyClaimDecision[]
-  createdAt DateTime             @default(now())
-  updatedAt DateTime             @updatedAt
+  createdAt DateTime               @default(now())
+  updatedAt DateTime               @updatedAt
 
   @@index([tier])
 }
@@ -620,4 +622,63 @@ model LoyaltyLedgerEntry {
   @@index([accountId, status])
   @@index([accountId, expiresAt])
   @@index([orderId])
+}
+
+/// A customer asking for something the shop does not carry.
+///
+/// The business holds no inventory and sources every order, so "we don't have it" is never
+/// the whole answer — it is the start of a conversation the shop can actually have. This is
+/// where that conversation begins, and the most valuable place it appears is an empty search
+/// result: the exact moment someone has proved they want something we do not list.
+///
+/// It is also a demand signal for the catalogue. Ten requests for one brand is a buying
+/// decision the owner would otherwise never see.
+model ProductRequest {
+  id Int @id @default(autoincrement())
+
+  /// What they are after, in their words. Never parsed, never matched against the catalogue —
+  /// a request is a message to a person, not a query.
+  wanted String
+
+  /// Optional extra: a shade, a size, a link to the product elsewhere.
+  note String @default("")
+
+  /// How to reply. The shop runs on WhatsApp, so this is required at the form and stored E.164
+  /// where it parses — the same normalisation the loyalty programme uses, so one person's
+  /// requests and their orders can be recognised as the same person later.
+  phone String
+
+  /// Optional. Some people prefer it, and it costs nothing to accept.
+  email String @default("")
+
+  /// Set when a signed-in customer made the request, so their account can be found without
+  /// matching on a phone number. Null for guests, which will be most of them.
+  customerId Int?
+  customer   Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+
+  /// Where the request came from: "search" when it followed an empty search, "page" when they
+  /// went looking for the form, "404" from a dead link. Tells the owner which entry point is
+  /// actually earning requests rather than which one felt right to build.
+  source String @default("page")
+
+  /// The search term, when source is "search". The single most useful field here: it is a
+  /// customer telling you, in their own words, what your catalogue is missing.
+  searchTerm String @default("")
+
+  /// open -> the owner has not dealt with it yet.
+  /// sourced -> found and being listed or ordered.
+  /// declined -> cannot or will not be supplied. Kept, not deleted: the reason a request was
+  ///             declined is worth having when the same thing is asked for again.
+  status String @default("open")
+
+  /// The owner's own note. Never shown to the customer.
+  adminNote String @default("")
+
+  /// Set when it stops being open, so "how long are people waiting" is answerable.
+  handledAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([status, createdAt])
+  @@index([phone])
 }

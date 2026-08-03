@@ -264,6 +264,30 @@ export function Shop({ mode }: { mode: Mode }) {
                   {activeCount > 0 ? "No products match these filters. Try removing one." : "There's nothing in this section right now."}
                 </p>
                 {activeCount > 0 && <button onClick={clearAll} className="btn btn-ghost mt-5 px-6 py-2.5">Clear filters</button>}
+
+                {/*
+                  The highest-intent moment on the whole site.
+
+                  Someone has just told us what they want, in their own words, and we do not have
+                  it. This shop sources every order after it is placed, so "we don't carry that"
+                  is not the end of the conversation — it is the only moment where offering to go
+                  and look is both useful and honest. The term is carried through so nobody
+                  retypes what they just searched for.
+
+                  Only on a SEARCH. An empty category is a catalogue gap for the owner to fix,
+                  not a request to make.
+                */}
+                {mode === "search" && q && (
+                  <div className="mt-6 border-t border-line pt-5">
+                    <p className="t-small text-ink">We don’t list it — but we might be able to get it.</p>
+                    <Link
+                      to={`/request?q=${encodeURIComponent(q)}&from=search`}
+                      className="btn btn-primary btn-cta mt-3 px-6 py-3"
+                    >
+                      Ask us to source it
+                    </Link>
+                  </div>
+                )}
               </div>
             </div>
           ) : (

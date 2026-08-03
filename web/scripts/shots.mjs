@@ -76,6 +76,7 @@ const SURFACES = [
   { name: "account-signedout", url: "/account" },
   { name: "rewards", url: "/rewards" },
   { name: "categories", url: "/categories" },
+  { name: "request", url: "/request?q=huda%20lip%20contour&from=search" },
   { name: "brands", url: "/brands" },
   { name: "track", url: "/track" },
   { name: "info-shipping", url: "/info/shipping" },

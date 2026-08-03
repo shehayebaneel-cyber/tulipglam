@@ -46,6 +46,7 @@ const Account = lazy(() => import("./pages/Account").then((m) => ({ default: m.A
 const Rewards = lazy(() => import("./pages/Rewards").then((m) => ({ default: m.Rewards })));
 const Info = lazy(() => import("./pages/Info").then((m) => ({ default: m.Info })));
 const Categories = lazy(() => import("./pages/Categories").then((m) => ({ default: m.Categories })));
+const RequestProduct = lazy(() => import("./pages/RequestProduct").then((m) => ({ default: m.RequestProduct })));
 const ForgotPassword = lazy(() => import("./pages/Password").then((m) => ({ default: m.ForgotPassword })));
 const ResetPassword = lazy(() => import("./pages/Password").then((m) => ({ default: m.ResetPassword })));
 
@@ -64,6 +65,7 @@ const AdminCustomers = lazy(() => import("./admin/AdminCustomers").then((m) => (
 const AdminLoyalty = lazy(() => import("./admin/AdminLoyalty").then((m) => ({ default: m.AdminLoyalty })));
 const AdminDispatch = lazy(() => import("./admin/AdminDispatch").then((m) => ({ default: m.AdminDispatch })));
 const AdminPulse = lazy(() => import("./admin/AdminPulse").then((m) => ({ default: m.AdminPulse })));
+const AdminRequests = lazy(() => import("./admin/AdminRequests").then((m) => ({ default: m.AdminRequests })));
 
 /** Shown while an admin chunk downloads. Full height so the layout doesn't jump when it lands. */
 const AdminChunk = ({ children }: { children: React.ReactNode }) => (
@@ -99,6 +101,7 @@ function NotFound() {
         <div className="mt-6 flex flex-wrap justify-center gap-2">
           {guess && <Link to={`/search?q=${encodeURIComponent(guess)}`} className="btn btn-ink px-5 py-2.5">Search for “{guess}”</Link>}
           <Link to="/shop" className="btn btn-ghost px-5 py-2.5">Browse everything</Link>
+          {guess && <Link to={`/request?q=${encodeURIComponent(guess)}&from=404`} className="btn btn-ghost px-5 py-2.5">Ask us to source it</Link>}
         </div>
         <p className="mt-6 text-[13px] text-muted">
           Looking for an order? <Link to="/track" className="font-semibold text-plum hover:underline">Track it by number</Link> — no sign-in needed.
@@ -127,6 +130,7 @@ const router = createBrowserRouter([
       { path: "/track/:number", element: <Track /> },
       { path: "/wishlist", element: <Wishlist /> },
       { path: "/categories", element: <Categories /> },
+      { path: "/request", element: <RequestProduct /> },
       { path: "/brands", element: <Brands /> },
       { path: "/gift-cards", element: <GiftCards /> },
       { path: "/contact", element: <Contact /> },
@@ -161,6 +165,7 @@ const router = createBrowserRouter([
       { path: "customers", element: <AdminChunk><AdminCustomers /></AdminChunk> },
       { path: "loyalty", element: <AdminChunk><AdminLoyalty /></AdminChunk> },
       { path: "dispatch", element: <AdminChunk><AdminDispatch /></AdminChunk> },
+      { path: "requests", element: <AdminChunk><AdminRequests /></AdminChunk> },
       { path: "pulse", element: <AdminChunk><AdminPulse /></AdminChunk> },
       { path: "reviews", element: <AdminChunk><AdminReviews /></AdminChunk> },
       { path: "settings", element: <AdminChunk><AdminSettings /></AdminChunk> },

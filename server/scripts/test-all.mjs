@@ -48,6 +48,7 @@ const SUITES = [
   { file: "test-coming-soon.mjs", needsWrite: false },
   { file: "test-gate-bypass.mjs", needsWrite: false },
   { file: "test-launch-list.mjs", needsWrite: true },
+  { file: "test-product-requests.mjs", needsWrite: true },
   // Needs `web/dist`: in dev, Vite serves index.html and no head injection runs, so without a
   // build this suite reports a pass over a page that was never rendered the way production
   // renders it. Skipped loudly rather than counted.
