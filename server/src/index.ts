@@ -240,8 +240,26 @@ function featuredBrands(brands: BrandWithCount[], minProducts: number): BrandWit
 }
 
 function trustItems(settings: Record<string, string>): { title: string; body: string }[] {
+  /**
+   * PRESENCE and VALUE are different questions. Ask them separately.
+   *
+   * This read `raw ? raw.split("\n") : DEFAULT_TRUST`, so clearing the field restored the
+   * defaults and there was no way to turn the bar off at all — in a mechanism whose whole
+   * purpose was "an unsupportable claim can be removed without a deploy". You could edit the
+   * claims; you could not decline to make any.
+   *
+   * Exactly the shape of the outbox bug this codebase already fixed, where
+   * `SHELF_LIFE[kind] ?? 7 * DAY` treated an intentional `null` as absent and would have
+   * expired the launch announcement unsent. Same lesson, different file: a key that is present
+   * and empty is an ANSWER, not a missing value.
+   *
+   *   key absent            -> the owner has never touched this  -> show the defaults
+   *   key present, empty    -> the owner said no                 -> show nothing
+   */
+  const configured = Object.prototype.hasOwnProperty.call(settings, "trustItems");
   const raw = (settings.trustItems ?? "").trim();
-  const lines = (raw ? raw.split("\n") : DEFAULT_TRUST).map((l) => l.trim()).filter(Boolean);
+  const source = configured ? (raw ? raw.split("\n") : []) : DEFAULT_TRUST;
+  const lines = source.map((l) => l.trim()).filter(Boolean);
   return lines
     .map((l) => {
       const [title, ...rest] = l.split("|");
