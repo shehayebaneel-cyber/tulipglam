@@ -45,6 +45,7 @@ const Track = lazy(() => import("./pages/Track").then((m) => ({ default: m.Track
 const Account = lazy(() => import("./pages/Account").then((m) => ({ default: m.Account })));
 const Rewards = lazy(() => import("./pages/Rewards").then((m) => ({ default: m.Rewards })));
 const Info = lazy(() => import("./pages/Info").then((m) => ({ default: m.Info })));
+const Categories = lazy(() => import("./pages/Categories").then((m) => ({ default: m.Categories })));
 const ForgotPassword = lazy(() => import("./pages/Password").then((m) => ({ default: m.ForgotPassword })));
 const ResetPassword = lazy(() => import("./pages/Password").then((m) => ({ default: m.ResetPassword })));
 
@@ -125,6 +126,7 @@ const router = createBrowserRouter([
       { path: "/track", element: <Track /> },
       { path: "/track/:number", element: <Track /> },
       { path: "/wishlist", element: <Wishlist /> },
+      { path: "/categories", element: <Categories /> },
       { path: "/brands", element: <Brands /> },
       { path: "/gift-cards", element: <GiftCards /> },
       { path: "/contact", element: <Contact /> },

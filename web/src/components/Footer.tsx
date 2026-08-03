@@ -4,7 +4,7 @@ import { useStore } from "../lib/store";
 import { waLink } from "../lib/api";
 
 const COLS: { title: string; links: [string, string][] }[] = [
-  { title: "Shop", links: [["/shop", "All products"], ["/new", "New Arrivals"], ["/bestsellers", "Best Sellers"], ["/sale", "Sale"], ["/brands", "Brands"], ["/gift-cards", "Gift Cards"]] },
+  { title: "Shop", links: [["/shop", "All products"], ["/categories", "All categories"], ["/new", "New Arrivals"], ["/bestsellers", "Best Sellers"], ["/sale", "Sale"], ["/brands", "Brands"], ["/gift-cards", "Gift Cards"]] },
   { title: "Help", links: [["/track", "Order Tracking"], ["/shipping", "Shipping & Delivery"], ["/returns", "Returns & Refunds"], ["/contact", "Contact"], ["/faq", "FAQ"]] },
   { title: "Company", links: [["/about", "About Us"], ["/privacy", "Privacy Policy"], ["/terms", "Terms & Conditions"], ["/gift-card-terms", "Gift Card Terms"], ["/account", "Account"]] },
 ];

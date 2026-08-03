@@ -240,7 +240,7 @@ export function Home() {
           the only emphasis a list has, so this is a merchandising decision and it belongs on
           the page that makes it. `sortOrder` still drives the nav, which is a different job. */}
       <section className="wrap mt-14">
-        <SectionHead eyebrow="Shop by category" title="Where do you want to glow?" />
+        <SectionHead eyebrow="Shop by category" title="Where do you want to glow?" to="/categories" />
         <CategoryList
           categories={[...categories]
             .sort((a, b) => (b._count?.products ?? 0) - (a._count?.products ?? 0))

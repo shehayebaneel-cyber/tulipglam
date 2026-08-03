@@ -75,6 +75,7 @@ const SURFACES = [
   { name: "checkout", url: "/checkout", seedCart: true },
   { name: "account-signedout", url: "/account" },
   { name: "rewards", url: "/rewards" },
+  { name: "categories", url: "/categories" },
   { name: "brands", url: "/brands" },
   { name: "track", url: "/track" },
   { name: "info-shipping", url: "/info/shipping" },
