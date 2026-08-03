@@ -196,6 +196,10 @@ async function main() {
     [],
     ["no row here. They are a separate job — give them a brand in admin and they join the list."],
     [],
+    ["WHAT THIS SHEET CANNOT SHOW YOU"],
+    [`${noBrand} products in the catalogue have no brand recorded at all, so they appear on no`],
+    ["row here — no brand sheet can show them. Give them a brand in admin and they join the list."],
+    [],
     ["Re-run any time: cd server && npx tsx scripts/brand-sheet.ts"],
   ]);
   guide["!cols"] = [{ wch: 36 }, { wch: 12 }, { wch: 58 }];
