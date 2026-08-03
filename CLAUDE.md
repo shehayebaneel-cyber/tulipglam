@@ -700,3 +700,40 @@ rather than drifting into two.
 
 The legitimate path is unchanged: importer runs → `image-review.mjs` rebaselines and shows a
 contact sheet → build passes. Nothing else reproduces that, which is the point.
+
+## Standing approvals die with their premises
+
+**Owner's rule, 3 Aug 2026.** An approval is granted for a reason. When the reason turns out to
+be false — or only half true — the approval does not survive it. Read the justifications, not
+the permission.
+
+The case that produced it. A pre-approval said: *ceiling confirmed → `BATCH = 40` and the
+sequential `materialise` loop go.* The verdict came back positive (20/20 on local Postgres), so
+the permission was live. But the premise was that both were **Neon** accommodations, and reading
+them showed three justifications between them, of which the experiment killed exactly one:
+
+| | |
+|---|---|
+| `BATCH = 40` — "inside a cold-start request budget" | **Render**, not Neon. Untouched by the verdict. |
+| sequential, reason 1 — Neon's small connection pool | **Dead.** Struck. |
+| sequential, reason 2 — keeps serialisation pressure off `redeem()` | **Alive on every host.** |
+
+The experiment measured the sweep in *isolation*. It never measured a sweep racing a checkout,
+which is what reason 2 protects. So the dead justification was struck and the code did not
+change — a customer's checkout latency is not worth trading for freshness nobody is waiting on.
+
+**The test:** before executing a conditional approval, name the premise out loud and check it
+still holds. If the condition was met but the premise was not, you have permission to do the
+wrong thing.
+
+### Its companion, from the same day
+
+**A count is not a verdict until you have read what failed.** The same experiment first returned
+*20 of 20 failed* — which would have "confirmed" the opposite conclusion and licensed the
+deletions for entirely the wrong reason. Reading the failures showed every run dying on
+`no product to order`: the throwaway database had the schema and no data, so nothing ever reached
+the code under test.
+
+Same habit caught the bundle report claiming `renderedLength` was post-minification — checking
+whether the module sum matched the emitted size, before publishing the table, showed react-dom
+reporting more bytes than the entire chunk containing it.

@@ -28,8 +28,11 @@ import { addDays, addMonths } from "./rules.js";
  * Accounts touched per call. Small enough to finish inside a cold-start request budget.
  *
  * **Not a Neon accommodation** — this one is about Render, and about any HTTP endpoint wanting
- * bounded work. It survives the flake verdict of 3 Aug (see `runSweep`) untouched, and retires
- * with Render rather than with Neon.
+ * bounded work. It survives the flake verdict of 3 Aug (see `runSweep`) untouched.
+ *
+ * It RETIRES WITH RENDER, on the box, alongside the other three workarounds listed in
+ * MIGRATION.md — not before. Deleting a Render accommodation while still running on Render is
+ * the mirror image of building a Render-shaped interim for a host we are leaving.
  */
 const BATCH = 40;
 
@@ -114,10 +117,9 @@ async function accountsNeedingWork(db: PrismaClient, now: Date, take: number): P
  * Hetzner box. The experiment measured the sweep in isolation; it never measured a sweep racing
  * a checkout, which is the case this protects.
  *
- * The deletion was pre-approved on a positive verdict, and the verdict is positive. It is not
- * being executed, because the approval rested on these being Neon accommodations and only one of
- * them was. Parallelising this would trade nothing for a customer's checkout contending with a
- * cache refresh that no one is waiting for. If that trade is wanted anyway, it is one line.
+ * CLOSED, NOT DEFERRED (owner's ruling, 3 Aug). This stays sequential permanently, on reason 2
+ * alone. Parallelising would trade a customer's checkout latency for freshness nobody is waiting
+ * on: nothing bought, something real spent. Do not revisit it as a performance idea.
  */
 export async function runSweep(db: PrismaClient, now = new Date()): Promise<SweepReport> {
   const ids = await accountsNeedingWork(db, now, BATCH + 1);

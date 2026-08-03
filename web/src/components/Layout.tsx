@@ -1,5 +1,7 @@
+import { Suspense } from "react";
 import { Outlet, ScrollRestoration, useLocation } from "react-router-dom";
 import { Header } from "./Header";
+import { Spinner } from "./ui";
 import { Footer } from "./Footer";
 import { BottomNav } from "./BottomNav";
 import { CheckoutShell } from "./CheckoutShell";
@@ -13,6 +15,24 @@ import { CheckoutShell } from "./CheckoutShell";
  */
 const FOCUSED = new Set(["/checkout"]);
 
+/**
+ * One boundary for every storefront route.
+ *
+ * Five routes off the critical path are lazily loaded (Track, Account, Rewards, Info,
+ * password reset), and a lazy component without a Suspense above it throws rather than waits.
+ * Putting the boundary here — where every storefront route already passes through — means the
+ * next route that becomes lazy needs no second thought, instead of a crash that only shows up
+ * when someone taps that one link.
+ *
+ * min-h so the footer does not jump up the page for the fraction of a second a chunk takes.
+ */
+const RouteChunk = () => (
+  <Suspense fallback={<div className="grid min-h-[60vh] place-items-center text-plum"><Spinner /></div>}>
+    <Outlet />
+  </Suspense>
+);
+
+
 export function Layout() {
   const { pathname } = useLocation();
 
@@ -20,7 +40,7 @@ export function Layout() {
     return (
       <>
         <a href="#main" className="skip-link">Skip to content</a>
-        <CheckoutShell><Outlet /></CheckoutShell>
+        <CheckoutShell><RouteChunk /></CheckoutShell>
         <ScrollRestoration />
       </>
     );
@@ -38,7 +58,7 @@ export function Layout() {
       {/* tabIndex -1 so the skip link can move focus here, not just scroll to it — without it
           the next Tab would continue from the header where focus actually still was. */}
       <main id="main" tabIndex={-1} className="flex-1 focus:outline-none">
-        <Outlet />
+        <RouteChunk />
       </main>
       <Footer />
       <BottomNav />

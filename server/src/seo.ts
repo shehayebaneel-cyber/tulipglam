@@ -143,7 +143,20 @@ export async function metaForPath(pathname: string, ctx: Ctx): Promise<PageMeta>
   const parts = pathname.split("/").filter(Boolean);
 
   // Pages that must never be indexed: personal, transactional, or a dead end for a searcher.
-  if (["cart", "checkout", "account", "login", "register", "wishlist", "forgot-password", "reset-password", "admin", "order"].includes(parts[0] ?? "")) {
+  /**
+   * Private, signed-in or transactional pages: real routes, 200, never indexed.
+   *
+   * `rewards` and `orders` were missing from this list, so both answered **404 on a direct visit
+   * or a refresh** — the SPA still booted and rendered, which is why nobody noticed, but the
+   * status line said the page did not exist. That matters more from the migration onward, with
+   * Cloudflare in front and cache rules deciding what to keep: a cached 404 on a real customer
+   * page is a page that stops existing for everyone behind that edge.
+   *
+   * Found by listing every router path against this table and then REQUESTING each one. The
+   * structural comparison flagged eleven; nine were false positives handled by branches further
+   * down. Testing turned a list of suspicions into two facts.
+   */
+  if (["cart", "checkout", "account", "login", "register", "wishlist", "forgot-password", "reset-password", "admin", "order", "orders", "rewards"].includes(parts[0] ?? "")) {
     return { ...base, noIndex: true, title: titled(properCase(parts[0]!), siteName) };
   }
 

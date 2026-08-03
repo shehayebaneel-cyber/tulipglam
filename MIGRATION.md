@@ -210,12 +210,23 @@ The Neon connection ceiling is behind three things in this codebase. It dies wit
 which makes the standing theory **testable for the first time**, and the proof decides the
 deletions.
 
-**The experiment:** on the box, against local Postgres, run `test-redemption.mjs` 20 times.
+**RUN AND SETTLED, 3 Aug 2026 — this no longer waits on the migration.** A no-admin Postgres
+16.4 was stood up locally and `test-redemption.mjs` ran 20 times: **20 passed, 0 failed.** The
+same suite had lost 13 of 17 sibling suites minutes earlier when a second process was holding
+pools against Neon. **The connection ceiling is confirmed as the cause.**
 
-- **0 failures →** the ceiling is confirmed as the cause. `BATCH = 40` and the sequential
-  `materialise` loop in `runSweep` both go, with the disappearance of the flake as the evidence.
-- **Any failure →** the ceiling was not the cause, both stay, and we have a real bug to hunt
-  with a reproduction we did not have before.
+**The pre-approved deletion did NOT follow**, because the approval's premise was that both were
+Neon accommodations — and only one of the three justifications between them was:
+
+| | |
+|---|---|
+| `BATCH = 40` — cold-start request budget | **Render.** Retires *here*, at migration — it is on the list above. |
+| sequential, reason 1 — Neon's small pool | **Dead.** Struck from the file. |
+| sequential, reason 2 — keeps serialisation pressure off `redeem()` | **Alive on every host. CLOSED, not deferred.** |
+
+The experiment measured the sweep in isolation; it never measured a sweep racing a checkout,
+which is exactly what reason 2 protects. Owner's ruling: sequential stays permanently, because
+parallelising trades a customer's checkout latency for freshness nobody is waiting on.
 
 **`test-all.mjs` now prints the failing assertions rather than the tail**, so the next flake
 produces a cause instead of a count. Without that this experiment could only ever produce
@@ -226,6 +237,11 @@ Also retired at cutover, as workarounds rather than decisions:
 - product images living in `web/public/` because Render's disk is ephemeral — `UPLOAD_DIR` is
   already env-driven, so this is configuration, not code;
 - the JSON backup path, replaced by `pg_dump` (§3);
+- **`BATCH = 40` in `sweep.ts`** — bounded work per call so a cold-start request budget is
+  never exceeded. A RENDER accommodation, not a Neon one: the 3 Aug flake verdict confirmed the
+  connection ceiling but left this untouched, because it protects against a spinning-down free
+  tier rather than a small pool. Deleting it while still on Render would be the mirror image of
+  building a Render-shaped interim for a host we are leaving, so it dies here with the others;
 - the sweep as an external ping — it becomes a local cron hitting `127.0.0.1`, so the shared
   secret stops crossing the network and the cold-start timeout advice becomes noise.
 
