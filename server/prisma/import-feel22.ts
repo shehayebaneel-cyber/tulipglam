@@ -32,6 +32,7 @@
 import { PrismaClient } from "@prisma/client";
 import { stripGeneratedImages } from "./generated-images.js";
 import { reviewImportedImages } from "./image-review.js";
+import { applyBrandAllowlist } from "./brandAllowlist.js";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -492,6 +493,21 @@ async function main() {
 
   // Supplier content just walked in. Put whatever is new or changed on a sheet the owner
   // can flick through — the filename filter catches a family, not invention in general.
+  /**
+   * The owner sells a chosen range, not everything the feed carries.
+   *
+   * This importer just deleted and recreated every product for its source, so any earlier
+   * hiding is gone. Re-applying here is what makes the range survive an import instead of
+   * 339 brands quietly reappearing under a log line that says the import succeeded.
+   */
+  {
+    const r = await applyBrandAllowlist(db, { write: true, source: "feel22" });
+    if (r.unmatched.length) {
+      console.warn(`\n  [brands] ${r.unmatched.length} name(s) in brands-we-sell.txt match no brand here: ${r.unmatched.join(", ")}`);
+      console.warn(`  [brands] Nothing was kept for them. Check the spelling in prisma/brands-we-sell.txt.`);
+    }
+    console.log(`\n  [brands] kept ${r.keptBrands} brands; hid ${r.hidden} products from brands not on the list.`);
+  }
   reviewImportedImages("feel22");
 }
 

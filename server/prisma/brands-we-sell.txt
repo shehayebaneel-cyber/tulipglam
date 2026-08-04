@@ -1,0 +1,77 @@
+# The brands TulipGlam sells. Everything else is hidden from the storefront.
+#
+# Owner's list, 4 Aug 2026. Edit this file to add or remove a brand, then run:
+#
+#     cd server && npx tsx scripts/apply-brand-allowlist.ts          # shows what would change
+#     cd server && npx tsx scripts/apply-brand-allowlist.ts --write  # applies it
+#
+# Names must match the catalogue exactly. The script refuses to run if any line here
+# matches no brand, rather than silently hiding something you meant to keep.
+#
+# Blank lines and lines starting with # are ignored.
+
+Adidas
+Antonio Banderas
+Azzaro
+Bassam Fattouh
+Beesline
+Biolage
+Braun
+Burberry
+Bvlgari
+Cacharel
+Calvin Klein
+Carolina Herrera
+Cartier
+Chloe
+Chopard
+Clipp
+Cosmaline
+D'Elites
+Dali
+Dali Cosmetics
+Dior
+Disney
+Dolce And Gabbana
+Dove
+Elie Saab
+Garnier
+Gillette
+Giorgio Armani
+Givenchy
+Gucci
+Hamlet
+Hugo Boss
+Jacadi
+Johnson's Adult
+Johnson's Baby
+L'Oréal Paris
+Lancaster
+Lancôme
+Lanvin
+Lattafa
+Listerine
+Matrix
+Maybelline
+Mixa
+Mont Blanc
+Narciso Rodriguez
+Narta
+Nivea
+Oral B
+Paco Rabanne
+Prada
+Ralph Lauren
+Rasasi
+Rimmel
+Ruby Rose
+S.T. Dupont
+Speed Stick
+Tabac
+Thierry Mugler
+Valentino
+Vaseline
+Viktor and Rolf
+Wella Professionals
+Women'Secret
+Yves Saint-Laurent
