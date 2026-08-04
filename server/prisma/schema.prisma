@@ -89,12 +89,13 @@ model Product {
   ingredients    String  @default("")
 
   // merchandising
-  glyph        String  @default("bottle") // fallback silhouette when no photo
-  tint         String  @default("#f5e9f0") // image-bed background
-  isBestSeller Boolean @default(false)
-  isNewMode    String  @default("auto") // auto|always|never (New badge, like mundo)
-  concerns     String  @default("") // comma tags: hydration,acne,brightening...
-  attributes   String  @default("") // comma tags: vegan,clean,cruelty-free,mini,refillable
+  glyph         String                 @default("bottle") // fallback silhouette when no photo
+  tint          String                 @default("#f5e9f0") // image-bed background
+  isBestSeller  Boolean                @default(false)
+  isNewMode     String                 @default("auto") // auto|always|never (New badge, like mundo)
+  concerns      String                 @default("") // comma tags: hydration,acne,brightening...
+  assignmentLog ProductAssignmentLog[]
+  attributes    String                 @default("") // comma tags: vegan,clean,cruelty-free,mini,refillable
 
   categoryId Int
   category   Category @relation(fields: [categoryId], references: [id])
@@ -681,4 +682,41 @@ model ProductRequest {
 
   @@index([status, createdAt])
   @@index([phone])
+}
+
+/// One field of one product changed by an automated classification pass.
+///
+/// Exists so a bulk re-shelving is never a one-way door. Every write records what the value was
+/// before, which product it belonged to, and which pass did it — so a single product can be put
+/// back, or an entire pass undone, without a backup or a guess.
+///
+/// Append-only. Reverting writes the old value to the Product and marks the row reverted; it
+/// never deletes the history, because "what did this pass do" has to stay answerable afterwards.
+model ProductAssignmentLog {
+  id Int @id @default(autoincrement())
+
+  productId Int
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  /// "categoryId" | "concerns" | "attributes" | "audience"
+  field String
+
+  /// Stored as text whatever the column's real type is — these are read by a person deciding
+  /// whether to revert, not by code that needs to compute on them.
+  oldValue String
+  newValue String
+
+  /// Groups every row written by one run, so the whole pass can be undone together.
+  pass String
+
+  /// Why the classifier chose this. The thing an owner reads when a shelf looks wrong.
+  reason String @default("")
+
+  /// Set when this specific change has been put back.
+  revertedAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([pass, field])
+  @@index([productId])
 }
