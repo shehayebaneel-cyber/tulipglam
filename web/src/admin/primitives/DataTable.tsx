@@ -11,6 +11,19 @@ export type Column<T> = {
   align?: "left" | "right";
   /** Width / padding classes applied to both the th and the td so they cannot drift apart. */
   cellClass?: string;
+  /**
+   * Pin this column to the right edge so it survives horizontal scrolling.
+   *
+   * The products table is wider than most laptop screens. Measured across five viewports, the
+   * Edit button sat off-screen at 1100, 1280, 1440 AND 1600 — only visible at 1920 — so on an
+   * ordinary laptop the only way to edit a product was to notice a horizontal scrollbar and
+   * drag the table sideways. The feature worked; it was unreachable, which is the same thing to
+   * whoever is trying to use it.
+   *
+   * Sticky rather than narrower columns: the data genuinely needs the width, and an action a
+   * person takes on every row should not be the thing that scrolls away.
+   */
+  stickyRight?: boolean;
   /** Hide on narrow screens — the product column always stays. */
   hideBelow?: "sm" | "md" | "lg" | "xl";
   cell: (row: T) => React.ReactNode;
@@ -113,7 +126,10 @@ export function DataTable<T>({
   };
 
   const headerCell = (c: Column<T>) => {
-    const base = `th-label px-3 py-2.5 ${c.align === "right" ? "text-right" : "text-left"} ${c.cellClass ?? ""} ${c.hideBelow ? HIDE[c.hideBelow] : ""}`;
+    // The pinned cell needs its own opaque background, or the scrolling columns show
+    // through it. Header and body differ, which is why this is not just a cellClass.
+    const sticky = c.stickyRight ? "sticky right-0 z-20 bg-soft shadow-[-8px_0_8px_-8px_rgba(26,26,30,0.12)]" : "";
+    const base = `th-label px-3 py-2.5 ${c.align === "right" ? "text-right" : "text-left"} ${sticky} ${c.cellClass ?? ""} ${c.hideBelow ? HIDE[c.hideBelow] : ""}`;
     if (!c.sortKey || !onSort) return <th key={c.key} scope="col" className={base}>{c.header}</th>;
 
     const isActive = sort === c.sortKey;
@@ -169,7 +185,10 @@ export function DataTable<T>({
                 <tr key={`sk-${i}`} aria-hidden="true">
                   {selectable && <td className="px-3 py-3"><span className="skeleton block h-4 w-4" /></td>}
                   {columns.map((c) => (
-                    <td key={c.key} className={`px-3 py-3 ${c.cellClass ?? ""} ${c.hideBelow ? HIDE[c.hideBelow] : ""}`}>
+                    <td
+                      key={c.key}
+                      className={`px-3 py-3 ${c.stickyRight ? "sticky right-0 z-10 bg-surface" : ""} ${c.cellClass ?? ""} ${c.hideBelow ? HIDE[c.hideBelow] : ""}`}
+                    >
                       {c.skeleton ?? <span className="skeleton block h-4 w-full max-w-[9rem]" />}
                     </td>
                   ))}
@@ -221,7 +240,17 @@ export function DataTable<T>({
                     {columns.map((c) => (
                       <td
                         key={c.key}
-                        className={`px-3 py-3 align-middle ${c.align === "right" ? "text-right" : ""} ${c.cellClass ?? ""} ${c.hideBelow ? HIDE[c.hideBelow] : ""}`}
+                        className={`px-3 py-3 align-middle ${c.align === "right" ? "text-right" : ""} ${
+                          // A pinned cell needs its own opaque background, or the scrolling
+                          // columns show through it — and that background has to follow the
+                          // row's state, since selected rows are tinted and hovered rows shade.
+                          // A flat white pin would sit on the row like a sticker.
+                          c.stickyRight
+                            ? `sticky right-0 z-10 shadow-[-8px_0_8px_-8px_rgba(26,26,30,0.12)] ${
+                                isSel ? "bg-[#faf1f6]" : "bg-surface group-hover:bg-[#f7f5f8]"
+                              }`
+                            : ""
+                        } ${c.cellClass ?? ""} ${c.hideBelow ? HIDE[c.hideBelow] : ""}`}
                       >
                         {c.cell(row)}
                       </td>
