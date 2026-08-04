@@ -33,6 +33,11 @@ import { PrismaClient } from "@prisma/client";
 import { stripGeneratedImages } from "./generated-images.js";
 import { reviewImportedImages } from "./image-review.js";
 import { applyBrandAllowlist } from "./brandAllowlist.js";
+import { refreshSearchText, ensureSearchIndex } from "../src/searchIndex.js";
+
+const SEARCH_SOURCE = "feel22";
+const SEARCH_LOG = (s: { scanned: number; changed: number }) =>
+  "  [search] rebuilt searchable text for " + s.changed + " of " + s.scanned + " products.";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -507,6 +512,22 @@ async function main() {
       console.warn(`  [brands] Nothing was kept for them. Check the spelling in prisma/brands-we-sell.txt.`);
     }
     console.log(`\n  [brands] kept ${r.keptBrands} brands; hid ${r.hidden} products from brands not on the list.`);
+  }
+  /**
+   * Rebuild what search finds these products by.
+   *
+   * This importer just deleted and recreated every row for its source, so every searchText
+   * is empty — and an empty searchText means the product is invisible to search while
+   * looking perfectly correct on every page. A success log and something quietly missing is
+   * the shape of bug this codebase keeps meeting, so the rebuild runs here, every time.
+   *
+   * After the brand allowlist, so hidden products are skipped rather than indexed and then
+   * filtered out at query time.
+   */
+  {
+    await ensureSearchIndex(db);
+    const s = await refreshSearchText(db, { write: true, source: SEARCH_SOURCE });
+    console.log(SEARCH_LOG(s));
   }
   reviewImportedImages("feel22");
 }

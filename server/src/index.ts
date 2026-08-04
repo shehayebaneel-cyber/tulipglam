@@ -12,6 +12,8 @@ import { recordSignup, launchListStats, launchListCsv } from "./launchList.js";
 import { manifest, dispatchLine, courierMessage, reconcile } from "./dispatch.js";
 import { queueMail, flushOutbox, outboxStatus } from "./outbox.js";
 import { validateRequest, createRequest, requestSummary } from "./productRequests.js";
+import { searchProductIds } from "./search.js";
+import { loadCards, type CardRow } from "./cards.js";
 import { recordError, countRequest, pulse, recentErrors, resolveError } from "./observe.js";
 // No `sendMail` here any more, and that absence is the point: every message this file sends now
 // goes through `queueMail`, so there is a row proving it was attempted. The password reset was
@@ -274,9 +276,38 @@ function requireAdmin(req: express.Request, res: express.Response, next: express
   next();
 }
 
+/**
+ * Settings, cached — because this was a full round trip on **every request**.
+ *
+ * Thirteen rows, read fresh by nearly every endpoint including search, at 143 ms against Neon.
+ * That was the single largest fixed cost on the search path, larger than the trigram query it
+ * was preceding (24 ms of actual work), and it was paid by every page on the site.
+ *
+ * ── WHY A TTL *AND* EXPLICIT INVALIDATION ──────────────────────────────────────────
+ *
+ * `invalidateSettings()` runs on the settings save, so an admin sees their own change take
+ * effect immediately — no "wait a bit and refresh", which is how people learn to distrust an
+ * admin screen. The TTL is the backstop for the case explicit invalidation cannot cover: a
+ * second process (or a second box after Stage C) writing settings this one never hears about.
+ *
+ * Five seconds, not five minutes, **because settings carry money** — the free-delivery
+ * threshold and the default delivery fee are read from here at checkout. A stale value is a
+ * wrong price, so the window is set to the smallest one that still removes the per-request cost
+ * rather than the largest one that would still be "probably fine".
+ */
+const SETTINGS_TTL_MS = 5_000;
+let settingsCache: { at: number; value: Record<string, string> } | null = null;
+
+function invalidateSettings() {
+  settingsCache = null;
+}
+
 async function getSettings(): Promise<Record<string, string>> {
+  if (settingsCache && Date.now() - settingsCache.at < SETTINGS_TTL_MS) return settingsCache.value;
   const rows = await db.setting.findMany();
-  return Object.fromEntries(rows.map((r) => [r.key, r.value]));
+  const value = Object.fromEntries(rows.map((r) => [r.key, r.value]));
+  settingsCache = { at: Date.now(), value };
+  return value;
 }
 
 // New badge: mode always/never override; auto = created within N days.
@@ -286,8 +317,15 @@ function computeIsNew(p: { isNewMode: string; createdAt: Date }, days: number) {
   return Date.now() - new Date(p.createdAt).getTime() < days * 864e5;
 }
 
-type ProdWith = Prisma.ProductGetPayload<{ include: { brand: true; category: true; images: true } }>;
-function cardOf(p: ProdWith, newDays: number) {
+/**
+ * The one place that decides what a product card shows a customer.
+ *
+ * Typed on `CardRow` — the minimum a card needs — rather than the full Prisma payload, so both
+ * loaders can feed it: Prisma's `include` (which satisfies `CardRow` structurally) and
+ * `loadCards`, the single-round-trip raw join used where latency matters. One serialiser, two
+ * ways of fetching, no second copy to drift.
+ */
+function cardOf(p: CardRow, newDays: number) {
   return {
     id: p.id, slug: p.slug, name: p.name, status: p.status,
     priceCents: p.priceCents, saleCents: p.saleCents,
@@ -301,6 +339,17 @@ function cardOf(p: ProdWith, newDays: number) {
   };
 }
 const cardInclude = { brand: true, category: true, images: { orderBy: { sortOrder: "asc" as const }, take: 1 } };
+
+/**
+ * How many ranked matches a search resolves to before the other filters apply.
+ *
+ * A search is a ranking, not a set: past a few hundred results the tail is fuzzy matches nobody
+ * scrolls to, and carrying it costs a longer id list on every filter and facet query. The cap is
+ * therefore also the reported `total`, so a very broad query says "400" rather than a number
+ * only true of the fuzzy tail. The broadest realistic query measured here is "makup" at 347,
+ * which fits under it — if that stops being true, raise this rather than paginating the tail.
+ */
+const SEARCH_RESULT_CAP = 400;
 
 // ============================================================ PUBLIC
 app.get("/api/health", (_req, res) => res.json({ ok: true }));
@@ -409,12 +458,25 @@ app.get("/api/site", asyncH(async (_req, res) => {
 app.get("/api/home", asyncH(async (_req, res) => {
   const settings = await getSettings();
   const newDays = num(settings.newArrivalDays, 30);
-  const [best, fresh, reviews] = await Promise.all([
-    db.product.findMany({ where: { status: "active", isBestSeller: true }, include: cardInclude, take: 8, orderBy: { updatedAt: "desc" } }),
+  /**
+   * Ids then `loadCards`, for the same reason as the search path.
+   *
+   * Found by hunting for the shape after fixing it in search: `include` is one query per
+   * relation, so each of these two was four sequential round trips — eight in total on the
+   * homepage, the first page any customer sees. Reading ids and joining once is two.
+   *
+   * The id reads sit in the existing `Promise.all`; the card loads run as a pair afterwards.
+   */
+  const [bestIds, freshIds, reviews] = await Promise.all([
+    db.product.findMany({ where: { status: "active", isBestSeller: true }, select: { id: true }, take: 8, orderBy: { updatedAt: "desc" } }),
     // Over-fetched so spreadBrands() has something to backfill from: the newest 12 products
     // were all Lattafa, which made "New arrivals" read like a bug.
-    db.product.findMany({ where: { status: "active" }, include: cardInclude, orderBy: { createdAt: "desc" }, take: 120 }),
+    db.product.findMany({ where: { status: "active" }, select: { id: true }, orderBy: { createdAt: "desc" }, take: 120 }),
     db.review.findMany({ where: { approved: true }, orderBy: { createdAt: "desc" }, take: 6, include: { product: { select: { name: true } } } }),
+  ]);
+  const [best, fresh] = await Promise.all([
+    loadCards(db, bestIds.map((r) => r.id)),
+    loadCards(db, freshIds.map((r) => r.id)),
   ]);
   const newArrivals = spreadBrands(fresh.filter((p) => computeIsNew(p, newDays)), 8, 2);
   // Resolved server-side against real rows; null means the homepage renders no promo at
@@ -435,6 +497,11 @@ app.get("/api/products", asyncH(async (req, res) => {
   const q = str(req.query.q).trim();
   const where: Prisma.ProductWhereInput = { status: { in: ["active", "unavailable"] } };
   const and: Prisma.ProductWhereInput[] = [];
+
+  // "Include temporarily unavailable" — the checkbox in the shop sidebar. Resolved once, here,
+  // so the search ranking and the shelf it feeds cannot disagree about what is visible.
+  const includeUnavailable = req.query.available === "0";
+  const searchStatuses = includeUnavailable ? ["active", "unavailable"] : ["active"];
 
   // A department (Nails, Makeup…) holds no products itself — they sit in its
   // subcategories, so match the category AND its children or the department pages
@@ -465,8 +532,8 @@ app.get("/api/products", asyncH(async (req, res) => {
   if (audience === "men" || audience === "women") and.push({ audience: { in: [audience, "unisex"] } });
   else if (audience === "men-only" || audience === "women-only") and.push({ audience: audience.replace("-only", "") });
 
-  // Availability. Defaults ON for shoppers — see the `available` param below.
-  if (req.query.available !== "0") and.push({ status: "active" });
+  // Availability. Defaults ON for shoppers — see `includeUnavailable` above.
+  if (!includeUnavailable) and.push({ status: "active" });
 
   const priceMin = str(req.query.priceMin).trim();
   const priceMax = str(req.query.priceMax).trim();
@@ -478,21 +545,52 @@ app.get("/api/products", asyncH(async (req, res) => {
   }
   for (const c of list(str(req.query.concerns))) and.push({ concerns: { contains: c } });
   for (const a of list(str(req.query.attributes))) and.push({ attributes: { contains: a } });
+  /**
+   * Search resolves to a set of ids, which then flows through the normal filter pipeline.
+   *
+   * The previous version required every typed word to appear, case-sensitively, as a substring
+   * of one of six columns — so "nivea" did not match "Nivea", and one wrong letter found
+   * nothing. Resolving to ids first means the fuzzy matching happens once, in one place, and
+   * every existing filter, sort and page still applies on top of it unchanged.
+   *
+   * A query that matches nothing pushes an impossible id, rather than being dropped — dropping
+   * it would silently return the whole catalogue for a search that found no products, which is
+   * the worst possible answer to "we don't have that".
+   */
+  let rank: Map<number, number> | null = null;
   if (q) {
-    for (const term of q.split(/\s+/).filter(Boolean)) {
-      and.push({ OR: [
-        { name: { contains: term } },
-        { shortDesc: { contains: term } },
-        { concerns: { contains: term } },
-        { attributes: { contains: term } },
-        { brand: { name: { contains: term } } },
-        { category: { name: { contains: term } } },
-      ] });
-    }
+    /**
+     * The statuses the ranking is allowed to contain are the ones this request can show.
+     *
+     * Passing the *effective* visibility rather than a fixed pair means the ranked ids are
+     * already a valid answer, which is what lets the redundant second id query be skipped
+     * below. It also keeps one rule in one place: `available=0` is the customer ticking
+     * "include temporarily unavailable", and search must agree with the shelf it feeds.
+     */
+    const hits = await searchProductIds(db, q, searchStatuses, SEARCH_RESULT_CAP);
+    and.push({ id: { in: hits.length ? hits.map((h) => h.id) : [-1] } });
+    // Kept, because it is the answer to "which of these did the customer most likely mean".
+    // Before this, it was computed and thrown away one line later.
+    rank = new Map(hits.map((h, i) => [h.id, i]));
   }
   if (and.length) where.AND = and;
 
   const sort = str(req.query.sort, "featured");
+
+  /**
+   * A search is sorted by relevance unless the customer asks for something else.
+   *
+   * This was the ranking bug, and it was invisible from the search layer: `searchProductIds`
+   * ranked correctly, the handler pushed the ids into `where`, and then `orderBy` re-sorted the
+   * whole set by status/best-seller/recency — discarding the ranking entirely. Searching
+   * "shampo" put a **Maybelline lipstick sixth**, above dozens of actual shampoos, because it
+   * happened to be a best-seller. The relevance order existed and never reached the customer.
+   *
+   * "Featured" is still the default for *browsing*, where there is no query to be relevant to.
+   * Picking price/name/newest explicitly still overrides, because a customer who chose a sort
+   * means it.
+   */
+  const byRelevance = rank !== null && (sort === "featured" || sort === "relevance");
   // "Featured" is now a deliberate ordering, not insertion order: anything a shopper cannot
   // buy sinks to the bottom, then best-sellers, then recency. Previously `/category/makeup`
   // had 3 unavailable items in its first 8 and `/category/nails` had 5, so a shopper's first
@@ -541,9 +639,53 @@ app.get("/api/products", asyncH(async (req, res) => {
   };
 
   const wantFacets = req.query.facets === "1";
-  const [total, products, brandFacet, priceAgg, concernRows, attributeRows, audienceRows] = await Promise.all([
-    db.product.count({ where }),
-    db.product.findMany({ where, include: cardInclude, orderBy, skip: (page - 1) * limit, take: limit }),
+
+  /**
+   * Ids first, cards second — two round trips instead of five.
+   *
+   * `include` does not join: Prisma issues one query per relation, so `include: cardInclude`
+   * cost four sequential round trips against a database in Ohio. Reading ids and then calling
+   * `loadCards` (one LEFT JOIN + LATERAL) is the same data in one. Measured on the real
+   * endpoint for `q=makup`: **3,067 ms before, 1,458 ms after** — and the rest of the fall
+   * comes from dropping `count`.
+   *
+   * When sorting by relevance there is no `count` and no `skip`/`take`: the ranked set is
+   * already capped at SEARCH_RESULT_CAP, so every surviving id is read at once and paging is a
+   * slice of an array. That is also the only way to page a ranking Postgres cannot express in
+   * an `ORDER BY` — the order lives in `rank`, not in a column.
+   */
+  /**
+   * When nothing narrows the ranking, the ranked ids ARE the answer — don't ask again.
+   *
+   * A customer searching with no filters is the common case, and for it the id query was pure
+   * ceremony: `searchProductIds` already filtered by the visible statuses, so re-selecting
+   * `id` under the same conditions returns the identical set for a full round trip. Skipping it
+   * also lets the card load move into the parallel block below, because the page is known
+   * before any of it runs.
+   *
+   * The test is deliberately negative — *any* clause that is not the id list or a status is
+   * treated as narrowing. A filter added later is therefore slow-but-correct by default, rather
+   * than silently taking a shortcut that no longer holds.
+   */
+  const narrowing = and.filter((c) => !("id" in c) && !("status" in c)).length;
+  const rankedIsAnswer = byRelevance && narrowing === 0;
+
+  let total0 = 0;
+  let preIds: number[] = [];
+  if (rankedIsAnswer) {
+    const ordered = [...rank!.keys()].sort((a, b) => rank!.get(a)! - rank!.get(b)!);
+    total0 = ordered.length;
+    preIds = ordered.slice((page - 1) * limit, page * limit);
+  }
+
+  const [countOrZero, idRows, preCards, brandFacet, priceAgg, concernRows, attributeRows, audienceRows] = await Promise.all([
+    byRelevance ? Promise.resolve(0) : db.product.count({ where }),
+    byRelevance
+      ? (rankedIsAnswer ? Promise.resolve([]) : db.product.findMany({ where, select: { id: true } }))
+      : db.product.findMany({ where, select: { id: true }, orderBy, skip: (page - 1) * limit, take: limit }),
+    // Runs beside the facets rather than after them: one fewer sequential round trip on the
+    // path a customer actually waits for.
+    rankedIsAnswer ? loadCards(db, preIds) : Promise.resolve(null),
     wantFacets
       ? db.product.groupBy({ by: ["brandId"], where: facetWhere("brand"), _count: { _all: true }, orderBy: { _count: { brandId: "desc" } }, take: 500 })
       : Promise.resolve([]),
@@ -558,6 +700,22 @@ app.get("/api/products", asyncH(async (req, res) => {
     // exactly like the concerns and attributes lists were.
     wantFacets ? db.product.groupBy({ by: ["audience"], where: facetWhere("audience"), _count: { _all: true } }) : Promise.resolve([]),
   ]);
+
+  // Relevance order is applied here, to the ids that survived every other filter — so a brand
+  // or price filter narrows the ranking rather than reshuffling it.
+  let products: CardRow[];
+  let total: number;
+  if (rankedIsAnswer) {
+    total = total0;
+    products = preCards!;
+  } else if (byRelevance) {
+    const ordered = idRows.map((r) => r.id).sort((a, b) => (rank!.get(a) ?? 1e9) - (rank!.get(b) ?? 1e9));
+    total = ordered.length;
+    products = await loadCards(db, ordered.slice((page - 1) * limit, page * limit));
+  } else {
+    total = countOrZero;
+    products = await loadCards(db, idRows.map((r) => r.id));
+  }
 
   let facets: unknown = undefined;
   if (wantFacets) {
@@ -592,13 +750,32 @@ app.get("/api/search", asyncH(async (req, res) => {
   if (!q) return res.json({ products: [] });
   const settings = await getSettings();
   const newDays = num(settings.newArrivalDays, 30);
-  const products = await db.product.findMany({
-    where: { status: { in: ["active", "unavailable"] }, OR: [
-      { name: { contains: q } }, { brand: { name: { contains: q } } }, { category: { name: { contains: q } } },
-    ] },
-    include: cardInclude, take: 6, orderBy: { isBestSeller: "desc" },
-  });
-  res.json({ products: products.map((p) => cardOf(p, newDays)) });
+  /**
+   * Typo-tolerant, and the visible statuses are passed in explicitly.
+   *
+   * `searchProductIds` has no default for `status` — the caller must say what may be found, so
+   * there is no path where a widened default quietly exposes hidden stock. Same statuses as
+   * VISIBLE, which is what the rest of the storefront shows: an `unavailable` product is on the
+   * shelf with a badge, and a search that could not find a product a customer can see would be
+   * a different bug.
+   */
+  const hits = await searchProductIds(db, q, ["active", "unavailable"], 6);
+  if (hits.length === 0) return res.json({ products: [] });
+
+  /**
+   * `loadCards`, not `findMany({ include })`.
+   *
+   * This runs on every keystroke, so it is the one place in the codebase where the difference
+   * between one round trip and four is the whole feature. Median of five against Neon, six
+   * cards: **696 ms via `include`, 152 ms via the join** — and 152 ms is the bare round trip
+   * (174 ms), so the join itself costs nothing measurable. It was all latency, four times over.
+   *
+   * `loadCards` also returns rows in the order given, so relevance order survives without a
+   * re-sort in the handler that a later edit could quietly drop.
+   */
+  const rows = await loadCards(db, hits.map((h) => h.id));
+
+  res.json({ products: rows.map((p) => cardOf(p, newDays)) });
 }));
 
 // single product
@@ -1503,7 +1680,10 @@ admin.get("/summary", asyncH(async (_req, res) => {
 admin.get("/products", asyncH(async (req, res) => {
   const where: Prisma.ProductWhereInput = {};
   if (req.query.status) where.status = str(req.query.status);
-  if (req.query.q) where.name = { contains: str(req.query.q) };
+  // `mode: "insensitive"`, because without it Prisma emits plain `LIKE` on Postgres and an
+  // admin searching "nivea" would not find "Nivea". Same defect the storefront search had —
+  // found by hunting for the shape after fixing it there.
+  if (req.query.q) where.name = { contains: str(req.query.q), mode: "insensitive" };
   // Paginated: unpaginated this returned all ~9.7k products as a 17 MB / 15-second
   // response, which made the admin product list unusable.
   const and: Prisma.ProductWhereInput[] = [];
@@ -1815,7 +1995,12 @@ admin.delete("/brands/:id", asyncH(async (req, res) => {
 admin.get("/orders", asyncH(async (req, res) => {
   const where: Prisma.OrderWhereInput = {};
   if (req.query.status) where.status = str(req.query.status);
-  if (req.query.q) where.OR = [{ number: { contains: str(req.query.q) } }, { fullName: { contains: str(req.query.q) } }, { phone: { contains: str(req.query.q) } }];
+  // Case-insensitive: an order for "Ahmad" must be findable by typing "ahmad" at the door.
+  if (req.query.q) where.OR = [
+    { number: { contains: str(req.query.q), mode: "insensitive" } },
+    { fullName: { contains: str(req.query.q), mode: "insensitive" } },
+    { phone: { contains: str(req.query.q) } }, // digits — case does not apply
+  ];
   const limit = Math.min(Math.max(num(req.query.limit, 50), 1), 200);
   const page = Math.max(num(req.query.page, 1), 1);
   const [total, orders] = await Promise.all([
@@ -2128,6 +2313,8 @@ admin.put("/settings", asyncH(async (req, res) => {
   for (const [key, value] of Object.entries(patch)) {
     await db.setting.upsert({ where: { key }, update: { value: str(value) }, create: { key, value: str(value) } });
   }
+  // Before the response, so the admin's next read cannot race their own save.
+  invalidateSettings();
   res.json({ ok: true });
 }));
 admin.put("/delivery-areas", asyncH(async (req, res) => {
@@ -2423,7 +2610,12 @@ admin.post("/loyalty/accounts/:id/materialise", asyncH(async (req, res) => {
 // ---- customers ----
 admin.get("/customers", asyncH(async (req, res) => {
   const where: Prisma.CustomerWhereInput = {};
-  if (req.query.q) where.OR = [{ fullName: { contains: str(req.query.q) } }, { email: { contains: str(req.query.q) } }, { phone: { contains: str(req.query.q) } }];
+  if (req.query.q) where.OR = [
+    { fullName: { contains: str(req.query.q), mode: "insensitive" } },
+    // Email especially: addresses are commonly stored with capitals and typed without.
+    { email: { contains: str(req.query.q), mode: "insensitive" } },
+    { phone: { contains: str(req.query.q) } },
+  ];
   const customers = await db.customer.findMany({ where, orderBy: { createdAt: "desc" },
     include: { _count: { select: { orders: true } }, orders: { select: { totalCents: true, status: true } } } });
   res.json({ customers: customers.map((c) => ({

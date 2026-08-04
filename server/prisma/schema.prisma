@@ -93,6 +93,10 @@ model Product {
   tint          String                 @default("#f5e9f0") // image-bed background
   isBestSeller  Boolean                @default(false)
   isNewMode     String                 @default("auto") // auto|always|never (New badge, like mundo)
+  /// Normalised name + brand + category + tags, folded for search: lowercase, accents stripped,
+  /// punctuation removed, plus a space-stripped copy so "lipliner" finds "Lip Liner". Rebuilt by
+  /// scripts/rebuild-search.ts and after every import. Never serialised to anyone.
+  searchText    String                 @default("")
   concerns      String                 @default("") // comma tags: hydration,acne,brightening...
   assignmentLog ProductAssignmentLog[]
   attributes    String                 @default("") // comma tags: vegan,clean,cruelty-free,mini,refillable
