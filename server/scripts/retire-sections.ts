@@ -37,6 +37,17 @@ const db = new PrismaClient();
 const WRITE = process.argv.includes("--write");
 const RESTORE = process.argv.includes("--restore");
 
+/**
+ * `--only <slug>` narrows to one section.
+ *
+ * Added because Oral Care came back on its own: the owner's brand list is a truer statement of
+ * what the shop stocks than a retirement decided before that list existed, and Listerine and
+ * Oral B live only there. Electricals and Sets & Routines stay retired, so restoring all three
+ * would have quietly reversed two decisions to fix one.
+ */
+const onlyAt = process.argv.indexOf("--only");
+const ONLY = onlyAt > -1 ? process.argv[onlyAt + 1] : null;
+
 /** Slugs to retire. A parent here does NOT imply its children — list each one you mean. */
 const SECTIONS = ["electricals", "oral-care", "gift-sets"];
 
@@ -46,7 +57,7 @@ async function main() {
   let categories = 0;
   let products = 0;
 
-  for (const slug of SECTIONS) {
+  for (const slug of ONLY ? [ONLY] : SECTIONS) {
     const cat = await db.category.findUnique({
       where: { slug },
       select: { id: true, name: true, active: true, children: { select: { id: true, name: true } } },

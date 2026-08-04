@@ -422,10 +422,26 @@ node scripts/test-seo.mjs                      # head, SKU privacy, 404s, robots
 | Section | Products | Why |
 |---|---|---|
 | `electricals` | 158 | Dyson/Braun/Remington dryers, stylers, epilators — not a beauty range |
-| `oral-care` | 150 | toothpaste, brushes, mouthwash |
+| ~~`oral-care`~~ | ~~150~~ | **UN-RETIRED 4 Aug — see below** |
 | `gift-sets` (Sets & Routines) | 788 | **"my supplier doesn't sell in sets"** |
 
-Catalogue went 9,533 → 8,437 visible. Reversible: `--write --restore`.
+Catalogue went 9,533 → 8,437 visible. Reversible: `--write --restore`, and
+`--only <slug>` restores one section without reversing the others.
+
+### Oral Care came back, 4 Aug 2026
+
+The owner's brand list (`prisma/brands-we-sell.txt`) is a truer statement of what the shop
+stocks than a retirement decided before that list existed, and **Listerine and Oral B live only
+in Oral Care**. So the section is active again — but only 15 of its 150 products are visible.
+
+That is the brand allowlist doing its job unaided: restoring a section sets **every** hidden
+product in it back to `active`, so 150 came back and the allowlist step immediately re-hid the
+135 belonging to Colgate, Elgydium, White Glo, Signal, Crest and Kundal — none of which are on
+the list. Two rules composing correctly rather than fighting.
+
+**Restoring always returns products as `active`, even ones that were `unavailable` before.**
+There is no record of the pre-retirement status, so any of those 15 that the supplier cannot
+actually get needs marking unavailable by hand.
 
 **"Electronics" means the `electricals` SUBcategory, not its parent.** Accessories keeps 40
 non-electronic items (cotton pads, lenses, shaving, Dali's key charms).
