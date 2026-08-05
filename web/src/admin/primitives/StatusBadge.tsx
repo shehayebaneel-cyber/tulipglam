@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { usePopoverPlacement } from "./usePopoverPlacement";
 import { CheckIcon, ChevronDown } from "../../components/ui";
 
 /**
@@ -60,10 +61,12 @@ export function StatusBadgeEditable({
     return () => { document.removeEventListener("mousedown", onDown); document.removeEventListener("keydown", onKey); };
   }, [open]);
 
+  const { anchorRef, place, posClass } = usePopoverPlacement(open);
+
   return (
     <div ref={rootRef} className="relative inline-block">
       <button
-        ref={btnRef}
+        ref={(el) => { btnRef.current = el; anchorRef.current = el; }}
         type="button"
         disabled={busy}
         onClick={() => setOpen((v) => !v)}
@@ -76,8 +79,12 @@ export function StatusBadgeEditable({
         <ChevronDown className="h-3 w-3" />
       </button>
 
+      {/* Flips upward like the comboboxes: a status chip on the last row of a long table had
+          its menu below the fold. Found by hunting for the shape after fixing the bulk bar. */}
       {open && (
-        <div role="menu" aria-label={`Set status for ${name}`} className="absolute left-0 z-40 mt-1 w-60 overflow-hidden rounded-xl border border-line-strong bg-surface py-1 shadow-pop">
+        <div role="menu" aria-label={`Set status for ${name}`}
+          style={{ maxHeight: place.maxH }}
+          className={`absolute left-0 z-50 w-60 overflow-y-auto rounded-xl border border-line-strong bg-surface py-1 shadow-pop ${posClass}`}>
           {PRODUCT_STATUSES.map((s) => (
             <button
               key={s.value}

@@ -793,6 +793,33 @@ rendered. False and invisible simultaneously, which is why it survived an audit.
 `/our-picks` and `/bestsellers` both route to the same shelf; the sitemap lists only the live
 one, and `/bestsellers` stays alive so an indexed URL never 404s when the rail upgrades.
 
+## Admin popovers measure the viewport — `primitives/usePopoverPlacement.ts`
+
+Every admin popover was `absolute mt-1`: always below its trigger, always as tall as it liked.
+The bulk action bar in the product list is `fixed bottom-4`, so all four of its comboboxes had
+about **sixteen pixels** of space underneath — their menus rendered off the bottom of the screen
+and behind the taskbar. Reported, correctly, as *"the dropdown does not open."*
+
+- **One hook, two callers.** `Combobox` and `StatusBadgeEditable` share it rather than carrying
+  a copy each — the `rules.ts` / `ledger.ts` lesson.
+- **It measures, it does not assume.** A "flip up inside the bulk bar" rule would have fixed the
+  reported case and left every other popover to hit the same wall further down a scrolled page.
+  It flips only when below is genuinely too small *and* above is actually better, so a short menu
+  near the bottom does not flip for nothing, and it caps height to the space that exists.
+- **Menus are `z-50`, above the `z-40` bulk bar.** Both were `z-40` and the bar won on DOM order.
+
+### Inside the viewport is not the same as visible
+The first version of the harness asserted the menu's rectangle sat within the viewport. It
+passed — while the bulk bar covered the bottom of the menu and made the last option unreadable
+in the screenshot the check had just called fine. It now **hit-tests** with `elementFromPoint` at
+three points down the menu: whatever is returned must be the menu or inside it. That is the
+property being claimed — *the operator can see and click it* — rather than a proxy for it.
+
+`web/scripts/shot-bulkbar.mjs` drives the real built admin and asserts all three cases: bulk bar
+flips **up**, the filter row still opens **down**, and the last row's status chip is unoccluded.
+Run it against a server serving a **fresh** `web/dist` — `index.html` is read once at boot
+(`index.ts`), so a server started before a rebuild serves a stale one referencing dead assets.
+
 ## Sibling-hunt: a fix is not done until you have looked for the same shape elsewhere
 
 **Owner's standing rule, 2 Aug 2026.** Every fixed bug ends with a search for the same shape in

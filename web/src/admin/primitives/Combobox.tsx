@@ -1,4 +1,5 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { usePopoverPlacement } from "./usePopoverPlacement";
 import { ChevronDown, CheckIcon, SearchIcon, CloseIcon } from "../../components/ui";
 
 export type Option = { value: string; label: string; hint?: string; depth?: number };
@@ -81,6 +82,10 @@ export function Combobox({
     else listRef.current?.focus();
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Opens upward when there is no room below — see usePopoverPlacement for why, and for the
+  // bulk action bar that made it necessary.
+  const { anchorRef, place, posClass } = usePopoverPlacement(open);
+
   // Keep the active option in view while arrowing through a long list.
   useEffect(() => {
     if (!open) return;
@@ -139,7 +144,7 @@ export function Combobox({
   return (
     <div ref={rootRef} className={`relative ${className}`}>
       <button
-        ref={buttonRef}
+        ref={(el) => { buttonRef.current = el; anchorRef.current = el; }}
         type="button"
         disabled={disabled}
         onClick={() => (open ? close() : setOpen(true))}
@@ -156,7 +161,7 @@ export function Combobox({
       </button>
 
       {open && (
-        <div className="absolute z-40 mt-1 w-full min-w-[13rem] overflow-hidden rounded-xl border border-line-strong bg-surface shadow-pop">
+        <div className={`absolute z-50 w-full min-w-[13rem] overflow-hidden rounded-xl border border-line-strong bg-surface shadow-pop ${posClass}`}>
           {searchable && (
             <div className="flex items-center gap-2 border-b border-line px-3 py-2">
               <SearchIcon className="h-4 w-4 shrink-0 text-muted-strong" />
@@ -186,7 +191,10 @@ export function Combobox({
             tabIndex={searchable ? -1 : 0}
             onKeyDown={searchable ? undefined : onKeyDown}
             aria-activedescendant={filtered[active] ? `${listId}-${active}` : undefined}
-            className="max-h-64 overflow-y-auto py-1 outline-none"
+            // Height comes from the measured space, not a fixed max-h-64 — a menu that fits the
+            // gap is scrollable; one that overflows it is invisible.
+            style={{ maxHeight: place.maxH - (searchable ? 44 : 0) }}
+            className="overflow-y-auto py-1 outline-none"
           >
             {filtered.length === 0 && <li className="px-3 py-3 text-[13px] text-muted-strong">No matches.</li>}
             {filtered.map((o, i) => {
