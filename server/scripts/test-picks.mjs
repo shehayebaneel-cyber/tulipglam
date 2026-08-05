@@ -25,6 +25,14 @@ const section = (t) => console.log(`\n${t}`);
 
 const db = new PrismaClient();
 const made = { orders: [], picked: [] };
+
+/**
+ * Which products were picked BEFORE this suite ran.
+ *
+ * The authority for teardown. Captured before a single assertion, so a crashed previous run
+ * cannot make this one think a stray pick belongs to the owner.
+ */
+const pickedAtStart = (await db.product.findMany({ where: { isBestSeller: true }, select: { id: true } })).map((r) => r.id);
 const TAG = "ZZZ-PICKTEST";
 
 /**
@@ -212,19 +220,36 @@ if (WRITE) {
     await db.orderItem.deleteMany({ where: { orderId: { in: made.orders } } });
     await db.order.deleteMany({ where: { id: { in: made.orders } } });
   }
-  // Restore each flag to what it was, not to `false` — the owner may have picked it already.
-  for (const { id, was } of made.picked) {
-    await db.product.update({ where: { id }, data: { isBestSeller: was } });
-  }
+  /**
+   * Restore the WHOLE pick set, not just the rows this run touched.
+   *
+   * This suite runs against the ambient DATABASE_URL — the shared production database — and
+   * `isBestSeller` is not an internal flag: it is the homepage rail a customer sees. Per-row
+   * restore is correct only if the `finally` always runs, and it does not. A run killed
+   * mid-flight (session limit, Ctrl-C, a crashed harness) leaves a product FEATURED ON THE LIVE
+   * HOMEPAGE, chosen by a test.
+   *
+   * That is not hypothetical: setting the owner's real picks reported "cleared 1 previously
+   * picked", and that one was this suite's.
+   *
+   * So the snapshot taken at startup is the authority. Anything picked now that was not picked
+   * then is unpicked, and anything picked then is restored — which also repairs the damage from
+   * an EARLIER crashed run, not just this one. Same lesson as the stranded test orders in
+   * test-loyalty-ledger: a teardown that assumes it runs is not a teardown.
+   */
+  const nowPicked = (await db.product.findMany({ where: { isBestSeller: true }, select: { id: true } })).map((r) => r.id);
+  const shouldBe = new Set(pickedAtStart);
+  const toUnpick = nowPicked.filter((id) => !shouldBe.has(id));
+  const toRepick = pickedAtStart.filter((id) => !nowPicked.includes(id));
+  if (toUnpick.length) await db.product.updateMany({ where: { id: { in: toUnpick } }, data: { isBestSeller: false } });
+  if (toRepick.length) await db.product.updateMany({ where: { id: { in: toRepick } }, data: { isBestSeller: true } });
   invalidateRail();
 
   const strayOrders = await db.order.count({ where: { number: { startsWith: TAG } } });
-  const strayPicks = made.picked.length
-    ? await db.product.count({ where: { id: { in: made.picked.map((p) => p.id) }, isBestSeller: true } })
-    : 0;
-  const expectedPicks = made.picked.filter((p) => p.was).length;
-  console.log(`\n  cleanup: ${strayOrders} test order(s) left (want 0), ${strayPicks} flag(s) set (want ${expectedPicks})`);
-  if (strayOrders || strayPicks !== expectedPicks) fail++;
+  const finalPicked = (await db.product.findMany({ where: { isBestSeller: true }, select: { id: true } })).map((r) => r.id);
+  const restored = finalPicked.length === pickedAtStart.length && finalPicked.every((id) => shouldBe.has(id));
+  console.log(`\n  cleanup: ${strayOrders} test order(s) left (want 0); picks ${restored ? "restored exactly" : `DRIFTED — was ${pickedAtStart.length}, now ${finalPicked.length}`}`);
+  if (strayOrders || !restored) fail++;
   await db.$disconnect();
 }
 

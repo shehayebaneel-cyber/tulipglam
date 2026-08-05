@@ -754,6 +754,17 @@ unique `TAG` prefix (catching rows created but never recorded), and **counts wha
 left** rather than printing its own intent. The rule generalises: *a cleanup message must report
 the outcome, not the plan.*
 
+### The same shape, on a customer-facing flag
+`test-picks.mjs` runs against the ambient `DATABASE_URL` — **production** — and flips
+`Product.isBestSeller`, which is not an internal flag: it is the homepage rail. Per-row restore
+is correct only if the `finally` always runs, and it does not. A run killed mid-flight leaves a
+product **featured on the live homepage, chosen by a test**. Found when setting the owner's real
+picks reported *"cleared 1 previously picked"* — and that one was the suite's.
+
+It now snapshots the **whole pick set** before the first assertion and restores exactly that set,
+which repairs an earlier crashed run as well as its own. **When a test writes to a
+customer-facing surface, its teardown must restore the surface, not the rows it touched.**
+
 ## The homepage rail — `src/picks.ts` names it, nothing else may
 
 The rail read **"Best sellers"** under **"Loved by everyone"**, linked to `/bestsellers`, and its
