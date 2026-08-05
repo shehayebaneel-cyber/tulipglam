@@ -127,7 +127,11 @@ export function Product() {
 
         {/* ---------- info ---------- */}
         <div>
-          {p.brand && <Link to={`/shop?brand=${p.brand.slug}`} className="text-[12px] font-semibold uppercase tracking-[0.16em] text-muted hover:text-plum">{p.brand.name}</Link>}
+          {/* `available=0` for the same reason as the brand directory (see Brands.tsx): a brand
+              shelf is the same shelf wherever you arrive from. Without it, clicking the brand
+              while reading an UNAVAILABLE product opens a shelf that does not contain the
+              product you were just looking at. */}
+          {p.brand && <Link to={`/shop?brand=${p.brand.slug}&available=0`} className="text-[12px] font-semibold uppercase tracking-[0.16em] text-muted hover:text-plum">{p.brand.name}</Link>}
           {/* Brand is the link immediately above. Stored name unchanged; see lib/productName. */}
           <h1 className="serif mt-1.5 text-3xl font-medium leading-tight text-ink sm:text-4xl">{nameWithoutBrand(p.name, p.brand?.name)}</h1>
           {p.reviewCount > 0 && (

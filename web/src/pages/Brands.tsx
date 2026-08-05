@@ -134,7 +134,28 @@ export function Brands() {
                     <ul className="mt-2 grid gap-x-6 sm:grid-cols-2 lg:grid-cols-3">
                       {list.map((b) => (
                         <li key={b.slug}>
-                          <Link to={`/shop?brand=${b.slug}`}
+                          {/*
+                            `available=0` — the shelf shows temporarily-unavailable stock too.
+
+                            This directory counts a brand's products as active OR unavailable, so
+                            five allowlisted brands (Clipp, Cosmaline, Gillette, Hamlet, Tabac)
+                            were listed here while every one of their products is out of stock at
+                            the supplier. The shop defaults to active-only, so clicking any of
+                            them landed on an EMPTY SHELF — the directory promising something the
+                            next page denied.
+
+                            Carrying the parameter in the link, rather than defaulting it on the
+                            server, keeps the URL honest: the "Include temporarily unavailable"
+                            checkbox reads `available=0`, so it shows ticked and the customer can
+                            untick it. A hidden server default would have shown unavailable items
+                            beside an unticked box — the same class of lie, one layer down.
+
+                            It also makes the number on this row equal the number on the shelf.
+                            For a shop that sources per order, "we carry it, currently out, ask
+                            us" beats silence — and the Request a Product flow is already there
+                            to catch it.
+                          */}
+                          <Link to={`/shop?brand=${b.slug}&available=0`}
                             className="focus-ring group flex items-baseline justify-between gap-3 rounded-lg border-b border-line/60 py-2.5 pr-1 transition-colors hover:border-plum/40">
                             <span className="min-w-0 flex-1">
                               <span className="cell-truncate block text-[14px] font-medium text-ink group-hover:text-plum">{b.name}</span>

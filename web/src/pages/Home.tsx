@@ -341,8 +341,9 @@ export function Home() {
                 : "grid-cols-1"
             }`}
           >
+            {/* `available=0` — one brand shelf, whichever door you come through. See Brands.tsx. */}
             {featured.map((b) => (
-              <Link key={b.slug} to={`/shop?brand=${b.slug}`} className="grid place-items-center bg-surface px-4 py-8 transition-colors hover:bg-soft">
+              <Link key={b.slug} to={`/shop?brand=${b.slug}&available=0`} className="grid place-items-center bg-surface px-4 py-8 transition-colors hover:bg-soft">
                 <span className="serif text-lg font-medium tracking-tight text-ink/85">{b.name}</span>
               </Link>
             ))}

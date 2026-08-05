@@ -183,6 +183,58 @@ try {
     deliveryRow || bigText.slice(0, 100));
 
   // ─────────────────────────────────────────────────────────────────────────────
+  r.section("brand directory → no card leads to an empty shelf:");
+  /**
+   * The directory counts a brand's products as active OR unavailable; the shop defaults to
+   * active-only. Five real brands sat in the gap — listed here, empty when clicked. This walks
+   * the actual link rather than checking the API, because the defect lived in the href.
+   */
+  await b.goto(`${BASE}/brands`, { waitFor: "document.body.innerText.includes('Solene')" });
+  const listed = await b.eval(`document.body.innerText.includes('Solene')`);
+  r.ck("a brand whose only product is out of stock is still listed", listed);
+
+  const href = await b.eval(`
+    (() => {
+      const a = [...document.querySelectorAll('a[href*="brand="]')].find((x) => /solene/i.test(x.innerText));
+      return a ? a.getAttribute('href') : "";
+    })()
+  `);
+  r.ck("its link carries availability, so the shelf can show it", /available=0/.test(href), href || "no link found");
+
+  await b.click("text=Solene");
+  await b.waitFor(`location.search.includes('brand=solene')`, { label: "brand shelf" });
+  // Poll for the shelf to SETTLE — a product card, or an explicit empty state. A fixed sleep
+  // here read the page mid-fetch and reported an empty shelf that was merely still loading,
+  // which is the same trap that made an earlier harness report "no rows" for a slow table.
+  await b.waitFor(
+    `document.querySelectorAll('a[href^="/product/"]').length > 0 || /no items|nothing here/i.test(document.body.innerText)`,
+    { timeout: 20000, label: "brand shelf to settle" },
+  );
+  /**
+   * Asserted on the product LINK, not on the fixture's name string.
+   *
+   * The card renders the brand as an eyebrow and strips the redundant prefix from the title, so
+   * "Solene Hand Cream" appears on screen as "SOLENE" above "Hand Cream" and a text match for
+   * the seeded name fails on a shelf that is displaying the product perfectly. The link is what
+   * "the shelf has this product" actually means, and it survives any change to how a card is
+   * laid out.
+   */
+  const onShelf = await b.eval(`!!document.querySelector('a[href="/product/solene-hand-cream"]')`);
+  const shelfText = await b.text();
+  r.ck("the shelf is NOT empty on arrival", onShelf,
+    shelfText.match(/No items|Nothing here[^\n]*/i)?.[0] ?? "no product link found");
+  r.ck("and the product is badged as unavailable rather than passed off as sellable",
+    /unavailable/i.test(shelfText));
+  // The checkbox must agree with what is on screen, or the page contradicts itself the other way.
+  const boxTicked = await b.eval(`
+    (() => {
+      const lab = [...document.querySelectorAll('label')].find((l) => /include temporarily unavailable/i.test(l.textContent));
+      return lab ? !!lab.querySelector('input[type=checkbox]')?.checked : null;
+    })()
+  `);
+  r.ck('"Include temporarily unavailable" shows ticked, matching the shelf', boxTicked === true, String(boxTicked));
+
+  // ─────────────────────────────────────────────────────────────────────────────
   r.section("admin → the operator can see the order that was just placed:");
   await b.goto(`${BASE}/admin`);
   await sleep(1200);

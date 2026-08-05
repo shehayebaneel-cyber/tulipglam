@@ -31,6 +31,16 @@ export const FIXTURES = {
     { slug: "keralux", name: "Keralux" },
     { slug: "novena", name: "Novena" },
     { slug: "lumea", name: "Lumea" },
+    /**
+     * A brand whose ONLY product is out of stock.
+     *
+     * Reproduces a real defect: the brand directory counts products as active OR unavailable, so
+     * a brand like this is listed — while the shop defaults to active-only, so clicking it landed
+     * on an empty shelf. Five real brands (Clipp, Cosmaline, Gillette, Hamlet, Tabac) were in
+     * exactly this state. Without a fixture in the same state, the fix has nothing to prove
+     * itself against.
+     */
+    { slug: "solene", name: "Solene" },
   ],
   // department -> children
   categories: [
@@ -52,6 +62,8 @@ export const FIXTURES = {
     // One of each non-active status, so visibility rules have something to exclude.
     { slug: "hidden-serum", name: "Hidden Test Serum", brand: "novena", cat: "moisturisers", priceCents: 3000, status: "hidden" },
     { slug: "unavailable-balm", name: "Unavailable Lip Balm", brand: "lumea", cat: "lips", priceCents: 500, status: "unavailable" },
+    // Solene's only product, and it is out of stock — see the brand's note above.
+    { slug: "solene-hand-cream", name: "Solene Hand Cream", brand: "solene", cat: "moisturisers", priceCents: 1450, status: "unavailable" },
   ],
 };
 
