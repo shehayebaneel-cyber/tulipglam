@@ -116,6 +116,13 @@ Taking the gate off. Run this when the store is ready to sell.
 
 1. **Flip the switch.** Environment → `COMING_SOON` → change `true` to **`false`** → save.
 
+   > **One thing to know before you do.** `render.yaml` sets `COMING_SOON: "true"` as the
+   > blueprint default, so **re-syncing the blueprint will put the gate back on** and take the
+   > store offline behind the placeholder. That is deliberate — the two failure directions are
+   > not equal. Re-gating a live shop is an outage you spot in seconds and undo with this same
+   > toggle; un-gating an unfinished one cannot be undone, because you cannot un-publish what a
+   > crawler already read. If you re-sync after going live, come back here and flip it again.
+
    Leave `PREVIEW_KEY` where it is. It is ignored while the gate is off, and you will want it
    again if you ever put the site into maintenance mode.
 

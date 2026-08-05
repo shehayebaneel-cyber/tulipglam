@@ -30,8 +30,24 @@ services:
       # ---- coming-soon gate (see LAUNCH.md) ----
       # "true" puts the whole site behind web/public/coming-soon.html. Any other value is off.
       # This is the single switch that launches the store; nothing else changes.
+      #
+      # DEFAULTS TO "true", AND THAT IS DELIBERATE. It used to say "false".
+      #
+      # A blueprint `value:` is reapplied on every sync, so the old default meant any re-sync
+      # would silently switch the gate OFF and publish an unfinished store — undoing, without a
+      # deploy log anyone would read, the one rule that outranks everything else here.
+      # LAUNCH.md turns the gate on from the dashboard, which is right; the blueprint simply must
+      # not hold an opinion that can overrule it in the dangerous direction.
+      #
+      # Failure directions are not symmetric. Re-gating a live store is an outage you notice in
+      # seconds and fix with one dashboard toggle. Un-gating an unfinished one is not recoverable
+      # — you cannot un-see a half-built shop, and search engines index fast.
+      #
+      # On a first deploy this makes the service REFUSE TO BOOT until PREVIEW_KEY is set. That is
+      # the designed behaviour, not a bug (LAUNCH.md says so): a gate with no way past it is a
+      # mistake the server declines to make.
       - key: COMING_SOON
-        value: "false"
+        value: "true"
       # Lets one browser through the gate via /?preview=<key>. Required only while the gate is
       # on — the server refuses to start with it missing or under 24 characters, because a
       # guessable key is a public bypass. Generate:
