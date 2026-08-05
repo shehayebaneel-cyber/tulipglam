@@ -3,8 +3,10 @@ import { Wordmark, WhatsAppIcon, InstagramIcon } from "./ui";
 import { useStore } from "../lib/store";
 import { waLink } from "../lib/api";
 
-const COLS: { title: string; links: [string, string][] }[] = [
-  { title: "Shop", links: [["/shop", "All products"], ["/categories", "All categories"], ["/new", "New Arrivals"], ["/bestsellers", "Best Sellers"], ["/sale", "Sale"], ["/brands", "Brands"], ["/gift-cards", "Gift Cards"]] },
+// The picks / best-sellers link is resolved per render from /api/site, so the footer cannot
+// promise "Best Sellers" while the page it opens is headed "Our Picks". Everything else static.
+const cols = (picksHref: string, picksLabel: string): { title: string; links: [string, string][] }[] => [
+  { title: "Shop", links: [["/shop", "All products"], ["/categories", "All categories"], ["/new", "New Arrivals"], [picksHref, picksLabel], ["/sale", "Sale"], ["/brands", "Brands"], ["/gift-cards", "Gift Cards"]] },
   { title: "Help", links: [["/request", "Request a Product"], ["/track", "Order Tracking"], ["/shipping", "Shipping & Delivery"], ["/returns", "Returns & Refunds"], ["/contact", "Contact"], ["/faq", "FAQ"]] },
   { title: "Company", links: [["/about", "About Us"], ["/privacy", "Privacy Policy"], ["/terms", "Terms & Conditions"], ["/gift-card-terms", "Gift Card Terms"], ["/account", "Account"]] },
 ];
@@ -14,6 +16,7 @@ export function Footer() {
   const wa = site?.settings.whatsappNumber ?? "";
   const ig = site?.settings.instagramUrl ?? "";
   const email = site?.settings.contactEmail ?? "";
+  const COLS = cols(site?.picks?.href ?? "/our-picks", site?.picks?.label ?? "Our Picks");
 
   return (
     <footer className="mt-16 border-t border-line bg-surface pb-24 lg:pb-12">

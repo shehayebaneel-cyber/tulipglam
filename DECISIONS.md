@@ -235,3 +235,63 @@ What is already done and is *not* the remaining win: admin is code-split out (55
 
 **Do not treat this as an optimisation ticket.** It is the difference between a store that
 paints in 3.5 s and one that paints in under 2 on the connection your customers actually have.
+
+---
+
+## Search-as-you-type: build it after Stage C, not before
+
+**Owner's ruling, 5 Aug 2026.** Closed with a trigger, not deferred.
+
+`/api/search` exists, is typo-tolerant, and returns six ranked cards in one round trip. It has
+**no caller.** `Header.tsx` submits a form and navigates to `/search?q=`, which is a different
+endpoint (`/api/products?q=`). The requirement that produced it said *"including while typing
+**if** the UI searches as you type"* — a conditional on a UI that does not exist, so the
+endpoint was made fast and the feature was left unbuilt rather than invented.
+
+**Why after Stage C and not now.** Live suggestions are the one feature where the round trip is
+the product. Against Neon in Ohio the floor is **145 ms per round trip** and the type-ahead path
+is two of them, so every keystroke costs ~300 ms before a pixel moves — on a Lebanese mobile
+connection, plus the client's own latency on top. Postgres does the actual work in **29 ms**.
+Shipping suggestions on that budget would mean shipping a feature that feels broken, then
+attributing it to the search rather than to the distance.
+
+Once the database is on the same box, that floor is sub-millisecond and the same endpoint —
+unchanged — becomes a genuine type-ahead.
+
+**The trigger:** Stage C complete and the round-trip number re-measured on the box
+(`server/scripts/search-perf.mjs` prints it). Until then this is closed, and the unwired
+endpoint is not a loose end — it is the half that was worth building early.
+
+**What building it would involve:** a debounced input in `Header.tsx`, an abortable fetch, a
+results popover with keyboard navigation, and a decision about whether Enter still navigates to
+the full results page. None of it is server work.
+
+---
+
+## The homepage rail: "Our Picks" now, "Best Sellers" when it is true
+
+**Owner's decision, 5 Aug 2026.** See `server/src/picks.ts` — that file is the decision; this is
+the summary.
+
+The rail was labelled **"Best sellers"** under **"Loved by everyone"**, linked to
+`/bestsellers`, and described in the server-rendered `<head>` as *"The most-ordered products"*.
+All four were fed by an admin checkbox. Nothing counted an order and nothing counted a review.
+No product has ever carried the flag, so the rail has never rendered — the claim was false and
+invisible at the same time.
+
+**Now:** the owner picks products by hand; the rail is called "Our Picks" and says "Chosen by
+us", which is checkable.
+
+**Later, automatically:** when **8 products have each been delivered 10+ times**, the rail
+recomputes itself from delivered orders and the label becomes "Best Sellers". Nobody has to
+remember — `resolveRail` asks the orders table and upgrades itself.
+
+**Why per-product units rather than a count of orders:** "best seller" is a claim about *this
+product*. A shop could take 500 delivered orders concentrated in three products and still have
+nothing honest to say about slots four to eight. Requiring 8 products to clear the bar implies a
+site-wide floor of 80 delivered units anyway.
+
+**Revisit when:** there is a year of orders, at which point "best sellers *this season*" becomes
+a better claim than all-time and a time window can be tuned against real data rather than
+guessed. Not before — a second number invented today is exactly the kind of unverifiable value
+this codebase keeps deleting.

@@ -219,7 +219,7 @@ export const adminApi = {
   catalogueHealth: () => req<CatalogueHealth>("/catalogue-health"),
   // products — paginated + filtered + sorted entirely on the server
   products: (p: ProductQuery) => req<ProductPage>(`/products${qs({ ...p })}`),
-  bulk: (body: { action: "status" | "category" | "brand" | "audience" | "delete"; ids: number[]; status?: string; categoryId?: number; brandId?: string; audience?: string }) =>
+  bulk: (body: { action: "status" | "category" | "brand" | "audience" | "pick" | "unpick" | "delete"; ids: number[]; status?: string; categoryId?: number; brandId?: string; audience?: string }) =>
     req<{ ok: boolean; count: number }>("/products/bulk", { method: "POST", body: JSON.stringify(body) }),
   product: (id: number) => req<AdminProductFull>(`/products/${id}`),
   createProduct: (b: unknown) => req<{ id: number }>("/products", { method: "POST", body: JSON.stringify(b) }),

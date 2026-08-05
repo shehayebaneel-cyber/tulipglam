@@ -34,6 +34,9 @@ export type Category = {
    */
   audience?: { men: number; women: number };
 };
+/** The owner-picked / best-selling rail, named by the server. See `server/src/picks.ts`. */
+export type PicksRail = { mode: "picks" | "bestsellers"; label: string; href: string; eyebrow?: string; products?: Card[] };
+
 export type Brand = { id: number; slug: string; name: string; blurb: string; featured: boolean; _count?: { products: number } };
 export type Area = { id: number; name: string; feeCents: number; active: boolean };
 export type StatusMeta = { key: string; label: string; hint: string; tone: string; terminal?: boolean };
@@ -68,6 +71,15 @@ export type SiteData = {
   brandCount: number;
   areas: Area[]; statuses: StatusMeta[];
   flags: SiteFlags;
+  /**
+   * What the hand-picked / best-selling rail is called right now, resolved on the server.
+   *
+   * The client has no copy of its own for this, deliberately. The rail used to be labelled
+   * "Best sellers" under "Loved by everyone" while its contents came from an admin checkbox —
+   * four claims about customer behaviour that nothing checked. `picks.ts` owns the wording and
+   * upgrades it to "Best Sellers" only once enough delivered orders exist to mean it.
+   */
+  picks: PicksRail;
   trust: TrustItem[];
 };
 
@@ -175,7 +187,7 @@ export const api = {
   site: () => req<SiteData>("/site"),
   // `promo` is resolved on the server against real brands/categories and real sale prices.
   // null means render nothing — the client must not substitute copy of its own.
-  home: () => req<{ promo: ResolvedPromo | null; bestSellers: Card[]; newArrivals: Card[]; reviews: Review[] }>("/home"),
+  home: () => req<{ promo: ResolvedPromo | null; picks: PicksRail; bestSellers: Card[]; newArrivals: Card[]; reviews: Review[] }>("/home"),
   products: (q: Record<string, string | undefined>) => {
     const qs = new URLSearchParams(Object.entries(q).filter(([, v]) => v != null && v !== "") as [string, string][]).toString();
     // paginated — `total` is the count across all pages, `pages` the page count

@@ -971,15 +971,48 @@ try {
   }
 } catch (e) {
   fail++;
-  console.log(`\n  FAIL  unexpected: ${e.stack?.split("\n").slice(0, 4).join("\n        ")}`);
+  // Prisma's `code` is the whole diagnosis and it is not in the first four stack lines —
+  // P2034 (write conflict / deadlock) reads identically to a real bug without it.
+  console.log(`\n  FAIL  unexpected: ${e.code ? `[${e.code}] ` : ""}${e.message?.split("\n").filter(Boolean).slice(0, 3).join(" ") ?? ""}`);
+  console.log(`        ${e.stack?.split("\n").slice(1, 3).join("\n        ")}`);
 } finally {
-  await db.loyaltyLedgerEntry.deleteMany({ where: { accountId: { in: made.accounts } } });
-  await db.loyaltyAccount.deleteMany({ where: { id: { in: made.accounts } } });
-  await db.orderEvent.deleteMany({ where: { orderId: { in: made.orders } } });
-  await db.orderItem.deleteMany({ where: { orderId: { in: made.orders } } });
-  await db.order.deleteMany({ where: { id: { in: made.orders } } });
-  await db.customer.deleteMany({ where: { id: { in: made.customers } } });
-  console.log(`\n  cleaned up ${made.accounts.length} accounts and ${made.orders.length} orders`);
+  /**
+   * Teardown that survives its own failures, and sweeps by TAG rather than only by tracked ids.
+   *
+   * A run died mid-suite on a transaction timeout and left **11 orders and 10 loyalty accounts**
+   * behind while printing "cleaned up 3 accounts and 2 orders". The ids were tracked correctly;
+   * one `deleteMany` threw inside this block, and because the steps were a bare sequence of
+   * awaits, everything after it was skipped — silently, since a throw in `finally` is swallowed
+   * by the process exiting on the original error.
+   *
+   * Those leftovers then poisoned the next runs: delivered test orders with live loyalty
+   * accounts are exactly the state these assertions set up for themselves, so the suite started
+   * failing in ways that looked like a code regression. Two full-suite runs were spent chasing
+   * it.
+   *
+   * So: every step is independent, and the sweep matches `number: startsWith(TAG)` — which
+   * catches rows this run created but never recorded, and cannot touch a real order, since TAG
+   * is unique per run and no customer order is numbered `LOYT…`.
+   */
+  const step = async (what, fn) => {
+    try { return await fn(); } catch (e) { console.log(`  cleanup WARNING (${what}): ${e.code ?? e.message?.split("\n")[0]}`); }
+  };
+
+  const strays = await step("find", () => db.order.findMany({ where: { number: { startsWith: TAG } }, select: { id: true } })) ?? [];
+  const orderIds = [...new Set([...made.orders, ...strays.map((o) => o.id)])];
+
+  await step("ledger entries", () => db.loyaltyLedgerEntry.deleteMany({ where: { accountId: { in: made.accounts } } }));
+  await step("accounts", () => db.loyaltyAccount.deleteMany({ where: { id: { in: made.accounts } } }));
+  await step("order events", () => db.orderEvent.deleteMany({ where: { orderId: { in: orderIds } } }));
+  await step("order items", () => db.orderItem.deleteMany({ where: { orderId: { in: orderIds } } }));
+  await step("orders", () => db.order.deleteMany({ where: { id: { in: orderIds } } }));
+  await step("customers", () => db.customer.deleteMany({ where: { id: { in: made.customers } } }));
+
+  // Verified, not assumed. "cleaned up N" was printed from the intent, not the outcome — which
+  // is how 11 stranded orders reported as 2.
+  const left = await step("verify", () => db.order.count({ where: { number: { startsWith: TAG } } })) ?? -1;
+  console.log(`\n  cleaned up ${made.accounts.length} accounts and ${orderIds.length} orders — ${left} left behind (want 0)`);
+  if (left !== 0) fail++;
   await db.$disconnect();
 }
 

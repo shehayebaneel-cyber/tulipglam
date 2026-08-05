@@ -536,7 +536,7 @@ nothing is advertised while the programme is off.
 stays correct — `sweepChangesNothing` asserts exactly that against the database.
 
 ### Tests — `npm run test:all -- --write`
-**19 suites, 1,014 checks.** Do not copy counts out of this file into a commit message; run the
+**20 suites, 1,041 checks.** Do not copy counts out of this file into a commit message; run the
 command and read the table. Three of the counts written here by hand had drifted at once (one
 suite had grown by twelve, one by one, one had shrunk), and a wrong number in the source of
 truth is how the next session learns to discount a green suite — at which point a suite that has
@@ -713,6 +713,85 @@ Do not tune further against Neon's latency profile; that is how a Neon-shaped in
 
 The same script verifies every capability actually runs off Neon (`pg_trgm` is contrib,
 `LATERAL` is core since 9.3) and greps the three search modules for Neon-specific APIs.
+
+## Prisma's 5-second transaction default was losing checkouts — `src/tx.ts`
+
+**Found 5 Aug 2026, in `/admin/errors`, recorded against `/api/orders` on four separate days:**
+
+```
+Transaction already closed: A query cannot be executed on an expired
+transaction. The timeout for this transaction was 5000 ms
+```
+
+Neither `placeOrder` nor `redeem` passed transaction options, so both ran on Prisma's defaults —
+`maxWait` 2 s, `timeout` 5 s. A customer who hits it sees **"Something went wrong."** and loses
+their checkout. `withSerialisationRetry` exists precisely so a conflict never loses a sale; a
+clock was doing the same thing by default, one layer down.
+
+**Why here and not on a normal stack.** The transaction is a dozen sequential round trips —
+claim coupon, claim gift card, re-price every line, create order, create items, write the
+ledger. At Neon's measured **145 ms** per trip the floor is already ~2 s, and the pooled
+endpoint's tail reaches **2 s for a single trivial statement** under concurrency. Two bad trips
+and the budget is gone. 5 s is a local-database number applied across an ocean.
+
+Now `TX_OPTIONS` (20 s timeout, 10 s maxWait) on both, with the arithmetic in `tx.ts`. Leave it
+set after Stage C: it costs nothing at 20 ms and removing it re-arms the trap for the next person
+who runs against a remote database.
+
+**This is also the answer to a flake that looked like a code regression.** `test-loyalty-ledger`
+began failing in full-suite runs while passing standalone. It was the same 5-second expiry inside
+`redeem()`, not the suite's own logic.
+
+### A `finally` that is a bare sequence of awaits is not cleanup
+The same run stranded **11 orders and 10 loyalty accounts** while printing *"cleaned up 3
+accounts and 2 orders"*. The ids were tracked correctly — one `deleteMany` threw inside the
+`finally`, and every step after it was skipped silently, because a throw there is swallowed by
+the process exiting on the original error. Those leftovers then poisoned the next runs, which is
+how two full-suite runs got spent chasing a phantom regression.
+
+Teardown in `test-loyalty-ledger.mjs` now runs each step independently, sweeps by the run's
+unique `TAG` prefix (catching rows created but never recorded), and **counts what is actually
+left** rather than printing its own intent. The rule generalises: *a cleanup message must report
+the outcome, not the plan.*
+
+## The homepage rail — `src/picks.ts` names it, nothing else may
+
+The rail read **"Best sellers"** under **"Loved by everyone"**, linked to `/bestsellers`, and its
+server-rendered `<head>` said *"The most-ordered products"*. Four claims about customer
+behaviour, all fed by `Product.isBestSeller` — an admin checkbox. No order was ever counted, no
+review was ever counted, and **no product has ever carried the flag**, so the rail has never
+rendered. False and invisible simultaneously, which is why it survived an audit.
+
+- **`picks.ts` is the only thing that decides the label, the link and the contents.** Homepage,
+  `/api/site`, the shop heading, nav, footer, `<head>` and the sitemap all ask it. The client
+  holds no copy of the wording — same rule as `promo`, and for the same reason: a label and its
+  data have to move together or someone changes one and not the other.
+- **Today it is "Our Picks" / "Chosen by us"**, because that is checkable. The owner flags
+  products in admin — per-product checkbox, or the **Add to Our Picks** bulk action in the
+  product list, which exists because choosing 8 of 1,178 through a form gets abandoned half-done.
+- **It upgrades itself.** When `RAIL_SIZE` (8) products have each been delivered
+  `BEST_SELLER_MIN_UNITS` (10) times, the rail recomputes from delivered orders and becomes
+  "Best Sellers". No setting, no migration, nothing to remember — `resolveRail` asks the orders
+  table and the words change when the claim becomes true.
+- **Per-product units, not a count of orders.** "Best seller" is a claim about *that product*. A
+  shop could take 500 delivered orders concentrated in three products and still have nothing
+  honest to say about slots four to eight. Requiring 8 to clear the bar implies an 80-unit
+  site-wide floor anyway.
+- **Delivered means delivered.** Counted only from `delivered` / `completed`. The SQL names the
+  two states it accepts rather than listing what to skip, so a status added later is excluded by
+  default instead of silently counted as a sale. A refused parcel is not a sale — asserted.
+- **`isBestSeller` keeps its name**; renaming a column is a destructive migration. It has only
+  ever meant "the owner flagged this", which is exactly what a pick is. What it must never do is
+  speak for customers.
+- **The product-card badge says "Our Pick" and deliberately does NOT follow the rail's mode.**
+  After the upgrade, a product the owner picked is still a pick. Two claims, both checkable,
+  neither borrowing the other's authority.
+- **The rail hides when empty** — `Home.tsx` guards on length, so an unpicked rail is absent
+  rather than an empty row. That guard predates this work and is why nobody noticed the flag was
+  never set.
+
+`/our-picks` and `/bestsellers` both route to the same shelf; the sitemap lists only the live
+one, and `/bestsellers` stays alive so an indexed URL never 404s when the rail upgrades.
 
 ## Sibling-hunt: a fix is not done until you have looked for the same shape elsewhere
 

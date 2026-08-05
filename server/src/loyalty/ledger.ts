@@ -54,6 +54,7 @@ import {
   type RedemptionQuote,
 } from "./rules.js";
 import { normaliseLebanesePhone } from "./phone.js";
+import { TX_OPTIONS } from "../tx.js";
 
 /** Anything that can run a query — the client, or a transaction handle. */
 type Db = PrismaClient | Prisma.TransactionClient;
@@ -895,7 +896,9 @@ async function redeemOnce(
 
       return { points: quote.points, cents: quote.cents };
     },
-    { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    // Same 5-second default was expiring this transaction mid-redemption against Neon —
+    // it is the failure test-loyalty-ledger hit in a full suite run. See ../tx.ts.
+    { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, ...TX_OPTIONS },
   );
 }
 

@@ -47,7 +47,16 @@ export function ProductCard({ p }: { p: Card }) {
         <div className="absolute left-2.5 top-2.5 flex flex-col items-start gap-1">
           {off > 0 && <span className="rounded-full bg-sale px-2 py-0.5 text-[10px] font-bold tracking-wide text-white">-{off}%</span>}
           {p.isNew && off === 0 && <span className="rounded-full bg-ink px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.1em] text-paper">New</span>}
-          {p.isBestSeller && off === 0 && !p.isNew && <span className="rounded-full bg-plum px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.1em] text-white">Bestseller</span>}
+          {/*
+            "Our Pick", not "Bestseller". `isBestSeller` is an admin checkbox — it records that
+            the owner chose this product, and has never counted an order. The badge now says
+            who chose, which is the only thing the flag knows.
+
+            It deliberately does NOT follow the rail's mode: after the rail upgrades to real
+            best sellers, a product the owner picked is still a pick. Two separate claims, both
+            checkable, neither borrowing the other's authority.
+          */}
+          {p.isBestSeller && off === 0 && !p.isNew && <span className="rounded-full bg-plum px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.1em] text-white">Our Pick</span>}
         </div>
         {/* Was a heavy dark bar across the whole image with text long enough to look clipped.
             Now a compact badge in the same corner language as the other flags. Discontinued

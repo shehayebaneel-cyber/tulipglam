@@ -271,11 +271,21 @@ export function Home() {
         request must not render "Nothing here yet" — a blank page with a stack trace on it is
         worse than either.
       */}
-      {/* ---------------- BEST SELLERS ---------------- */}
-      {!!data?.bestSellers?.length && (
+      {/* ---------------- OUR PICKS / BEST SELLERS ----------------
+        Every word here comes from the server. It used to read "Best sellers" under the eyebrow
+        "Loved by everyone", linking to /bestsellers — three claims about what customers had
+        bought and felt, all fed by a checkbox in admin that no product has ever carried.
+
+        `picks.mode` flips to "bestsellers" on its own once enough delivered orders exist to
+        mean it (see server/src/picks.ts). Nothing here needs to change when it does, which is
+        the point: the label cannot drift from the data if the client never holds one.
+
+        Still guarded on length, so an unpicked rail is absent rather than an empty row.
+      */}
+      {!!data?.picks?.products?.length && (
         <section className="wrap mt-14">
-          <SectionHead eyebrow="Loved by everyone" title="Best sellers" to="/bestsellers" />
-          <Row items={data.bestSellers} />
+          <SectionHead eyebrow={data.picks.eyebrow ?? ""} title={data.picks.label} to={data.picks.href} />
+          <Row items={data.picks.products} />
         </section>
       )}
 

@@ -119,7 +119,11 @@ const router = createBrowserRouter([
       { path: "/shop", element: <Shop mode="all" /> },
       { path: "/category/:slug", element: <Shop mode="category" /> },
       { path: "/new", element: <Shop mode="new" /> },
+      // Both paths render the same shelf; the server decides which name it goes by, and the
+      // sitemap lists only the live one. Keeping /bestsellers alive means an existing link or
+      // an indexed URL never 404s when the rail upgrades.
       { path: "/bestsellers", element: <Shop mode="bestsellers" /> },
+      { path: "/our-picks", element: <Shop mode="bestsellers" /> },
       { path: "/sale", element: <Shop mode="sale" /> },
       { path: "/search", element: <Shop mode="search" /> },
       { path: "/product/:slug", element: <Product /> },

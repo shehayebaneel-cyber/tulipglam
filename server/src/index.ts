@@ -14,6 +14,8 @@ import { queueMail, flushOutbox, outboxStatus } from "./outbox.js";
 import { validateRequest, createRequest, requestSummary } from "./productRequests.js";
 import { searchProductIds } from "./search.js";
 import { loadCards, type CardRow } from "./cards.js";
+import { resolveRail, railProductIds, invalidateRail, RAIL_SIZE } from "./picks.js";
+import { TX_OPTIONS } from "./tx.js";
 import { recordError, countRequest, pulse, recentErrors, resolveError } from "./observe.js";
 // No `sendMail` here any more, and that absence is the point: every message this file sends now
 // goes through `queueMail`, so there is a row proving it was attempted. The password reset was
@@ -450,6 +452,9 @@ app.get("/api/site", asyncH(async (_req, res) => {
     // `loyalty` gates the Rewards link in the account area. Off means the programme is not
     // mentioned anywhere on the storefront — no link, no teaser, no disabled entry.
     flags: { hasSale: saleCount > 0, loyalty: LOYALTY_ENABLED },
+    // Published so the nav, footer and shop heading cannot name this rail differently from the
+    // homepage. One resolver, every surface.
+    picks: await resolveRail(db).then((r) => ({ mode: r.mode, label: r.label, href: r.href })),
     trust: trustItems(settings),
   });
 }));
@@ -467,8 +472,12 @@ app.get("/api/home", asyncH(async (_req, res) => {
    *
    * The id reads sit in the existing `Promise.all`; the card loads run as a pair afterwards.
    */
+  // Which rail is live, and therefore what it may be called. Resolved before the ids, because
+  // the mode decides which ids to ask for. Cached, so this is not a round trip most of the time.
+  const rail = await resolveRail(db);
+
   const [bestIds, freshIds, reviews] = await Promise.all([
-    db.product.findMany({ where: { status: "active", isBestSeller: true }, select: { id: true }, take: 8, orderBy: { updatedAt: "desc" } }),
+    railProductIds(db, rail, RAIL_SIZE).then((ids) => ids.map((id) => ({ id }))),
     // Over-fetched so spreadBrands() has something to backfill from: the newest 12 products
     // were all Lattafa, which made "New arrivals" read like a bug.
     db.product.findMany({ where: { status: "active" }, select: { id: true }, orderBy: { createdAt: "desc" }, take: 120 }),
@@ -484,6 +493,15 @@ app.get("/api/home", asyncH(async (_req, res) => {
   const { promo } = await resolvePromo(db, settings);
   res.json({
     promo,
+    /**
+     * The rail carries its own label, so the client cannot name it independently.
+     *
+     * `Home.tsx` used to hardcode "Best sellers" over "Loved by everyone" — two claims about
+     * customer behaviour that no code checked. Shipping the wording with the data is the same
+     * fix as `promo`: the client renders what it is given and has no copy of its own.
+     */
+    picks: { mode: rail.mode, label: rail.label, eyebrow: rail.eyebrow, href: rail.href, products: best.map((p) => cardOf(p, newDays)) },
+    // Kept so an old cached bundle does not lose the rail mid-deploy. Remove after one release.
     bestSellers: best.map((p) => cardOf(p, newDays)),
     newArrivals: (newArrivals.length ? newArrivals : spreadBrands(fresh, 8, 2)).map((p) => cardOf(p, newDays)),
     reviews: reviews.map((r) => ({ id: r.id, author: r.author, rating: r.rating, text: r.text, title: r.title, product: r.product?.name ?? "" })),
@@ -524,7 +542,18 @@ app.get("/api/products", asyncH(async (req, res) => {
   if (brandSlugs.length) and.push({ brand: { slug: { in: brandSlugs } } });
 
   if (bool(req.query.sale)) and.push({ AND: [{ saleCents: { not: null } }] });
-  if (bool(req.query.best)) and.push({ isBestSeller: true });
+  /**
+   * `?best=1` resolves through the same rail as the homepage.
+   *
+   * Otherwise `/bestsellers` would list owner picks under the word "Best sellers" while the
+   * homepage called the identical products "Our Picks" — one flag, two claims. In best-seller
+   * mode this becomes the delivered-units list, so the page and the rail always agree.
+   */
+  if (bool(req.query.best)) {
+    const rail = await resolveRail(db);
+    const ids = await railProductIds(db, rail, 200);
+    and.push({ id: { in: ids.length ? ids : [-1] } });
+  }
 
   // Who it's for. Men's and women's product spans every department, so this is a field rather
   // than a category. "unisex" is included in both so a unisex fragrance still shows on /men.
@@ -1110,8 +1139,11 @@ app.post("/api/orders", withCustomer, asyncH(async (req, res) => {
     //
     // Every other checkout — and ALL of them while redemption is switched off — keeps the
     // default isolation and is completely unaffected.
-    ? { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }
-    : undefined);
+    // TX_OPTIONS on BOTH branches: the 5-second default was losing checkouts to Neon's latency,
+    // not to contention, so the plain read-committed path needs the same headroom as the
+    // serialisable one. See tx.ts.
+    ? { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, ...TX_OPTIONS }
+    : { ...TX_OPTIONS });
 
   /**
    * Place it, retrying a serialisation conflict, and NEVER losing the sale to one.
@@ -1769,6 +1801,25 @@ admin.post("/products/bulk", asyncH(async (req, res) => {
   if (!ids.length) return res.status(400).json({ error: "Select at least one product." });
   const action = str(req.body.action);
 
+  /**
+   * Add to / remove from Our Picks.
+   *
+   * A bulk action rather than only the per-product checkbox, because choosing eight products out
+   * of 1,178 through an editor form is the kind of chore that gets abandoned halfway — which
+   * would leave a rail half-picked and the owner believing it was done.
+   *
+   * `isBestSeller` is the column, and the name predates this decision. It has only ever meant
+   * "the owner flagged this by hand", which is exactly what a pick is; renaming it would be a
+   * destructive migration for no gain. What it must NOT do is speak for customers — see
+   * `picks.ts`.
+   */
+  if (action === "pick" || action === "unpick") {
+    const r = await db.product.updateMany({ where: { id: { in: ids } }, data: { isBestSeller: action === "pick" } });
+    // The rail caches its mode and contents; a pick must show up now, not in a minute.
+    invalidateRail();
+    return res.json({ ok: true, updated: r.count });
+  }
+
   if (action === "status") {
     const status = str(req.body.status);
     if (!STATUS_PRODUCT.includes(status)) return res.status(400).json({ error: "Bad status." });
@@ -2068,6 +2119,10 @@ admin.put("/orders/:id/status", asyncH(async (req, res) => {
   // status. Swallowed on failure — an admin must never be blocked from moving an order because
   // the ledger is unhappy.
   await safely(`status hook for order ${order.number}`, () => onOrderStatusChanged(db, { orderId: order.id, to: status }));
+
+  // A delivery can be the one that tips the rail from "Our Picks" to "Best Sellers", so the
+  // cached decision is dropped here rather than waiting out its TTL.
+  if (status === "delivered" || status === "completed") invalidateRail();
 
   if (order.email) {
     const settings = await getSettings();

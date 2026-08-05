@@ -1,4 +1,5 @@
 import type { PrismaClient, Prisma } from "@prisma/client";
+import { resolveRail } from "./picks.js";
 
 /**
  * Server-rendered <head> for the single-page app.
@@ -262,13 +263,25 @@ export async function metaForPath(pathname: string, ctx: Ctx): Promise<PageMeta>
   // The `audience` field is still very much in use — it drives the "For him / For her" filter
   // and the department dropdowns. It just no longer has shelves of its own.
 
+  // Resolved once per head render; cached inside picks.ts so this is not a round trip.
+  const rail = await resolveRail(db);
+
   const STATIC: Record<string, [string, string]> = {
     shop: ["All products", `Every product at ${siteName}, delivered across Lebanon.`],
     request: ["Request a product", `Ask ${siteName} to source something we do not list.`],
     categories: ["All categories", `Every department and shelf at ${siteName}, from makeup to fragrance.`],
     brands: ["Our brands", `The brands carried at ${siteName}, sourced to order and delivered across Lebanon.`],
     new: ["New arrivals", `The latest additions at ${siteName}.`],
-    bestsellers: ["Best sellers", `The most-ordered products at ${siteName}.`],
+    /**
+     * Both spellings resolve through `picks.ts`, so the `<head>` cannot outlive the claim.
+     *
+     * This entry read *"The most-ordered products"* while the list came from a checkbox in
+     * admin and no order had ever been counted — a factual claim about customer behaviour,
+     * rendered server-side into the one surface WhatsApp's crawler reads when a link is pasted
+     * into a chat. Now the words come from whichever rail is live.
+     */
+    bestsellers: [rail.label, rail.blurb],
+    "our-picks": [rail.label, rail.blurb],
     sale: ["On sale", `Reduced products at ${siteName}.`],
     "gift-cards": ["Gift cards", `Send a ${siteName} gift card, arranged over WhatsApp.`],
     contact: ["Contact us", `Get in touch with ${siteName}.`],
@@ -341,6 +354,9 @@ export function robotsTxt(origin: string): string {
  */
 export async function sitemapXml(ctx: Ctx): Promise<string> {
   const { db, origin, visible } = ctx;
+  // Only the rail that is actually live is listed, so the sitemap never advertises a
+  // /bestsellers page whose heading says something else.
+  const rail = await resolveRail(db);
   const [categories, products] = await Promise.all([
     // Category has no updatedAt, so its entries carry no lastmod rather than a made-up one.
     db.category.findMany({ where: { active: true }, select: { slug: true } }),
@@ -354,7 +370,7 @@ export async function sitemapXml(ctx: Ctx): Promise<string> {
     { loc: "/request", priority: "0.6" },
     { loc: "/brands", priority: "0.7" },
     { loc: "/new", priority: "0.7" },
-    { loc: "/bestsellers", priority: "0.7" },
+    { loc: rail.href, priority: "0.7" },
     { loc: "/gift-cards", priority: "0.5" },
     { loc: "/contact", priority: "0.4" },
     { loc: "/shipping", priority: "0.3" },

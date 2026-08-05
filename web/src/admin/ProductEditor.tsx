@@ -144,7 +144,11 @@ export function ProductEditor({ product, cats, brands, onClose, onSaved }: {
                 {PRODUCT_STATUSES.find((s) => s.value === f.status)?.help}
               </span>
             </Field>
-            <label className="flex items-center gap-2 text-[13px]"><input type="checkbox" checked={f.isBestSeller} onChange={(e) => set("isBestSeller", e.target.checked)} className="focus-ring accent-plum" /> Mark as best seller</label>
+            {/* Was "Mark as best seller" — a claim about customers, set by hand. It has only ever
+                meant "the owner chose this", which is what Our Picks is. The column keeps its
+                old name (renaming it would be a destructive migration); the words people read
+                do not. */}
+            <label className="flex items-center gap-2 text-[13px]"><input type="checkbox" checked={f.isBestSeller} onChange={(e) => set("isBestSeller", e.target.checked)} className="focus-ring accent-plum" /> Show in Our Picks</label>
             <Field label="New badge"><Combobox value={f.isNewMode} onChange={(v) => set("isNewMode", v)} ariaLabel="New badge behaviour" buttonClassName="py-2.5"
               options={[{ value: "auto", label: "Auto (recent)" }, { value: "always", label: "Always show New" }, { value: "never", label: "Never" }]} /></Field>
             {/* Drives the "For him / For her" filter in the shop sidebar and the department

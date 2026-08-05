@@ -17,7 +17,9 @@ const SORTS = [
 ] as const;
 
 const titleFor: Record<Mode, string> = {
-  all: "All products", category: "", new: "New arrivals", bestsellers: "Best sellers", sale: "On sale", search: "Search",
+  // "Our Picks" is the honest fallback: it is true in both modes, whereas "Best sellers"
+  // is only true in one. First paint must never make the stronger claim.
+  all: "All products", category: "", new: "New arrivals", bestsellers: "Our Picks", sale: "On sale", search: "Search",
 };
 
 const label = (t: string) => t.replace(/-/g, " ");
@@ -146,7 +148,13 @@ export function Shop({ mode }: { mode: Mode }) {
     return m;
   }, [site]);
   const cat = catBySlug.get(catParam);
-  const heading = mode === "category" ? cat?.name ?? "Category" : mode === "search" ? (q ? `Results for “${q}”` : "Search") : titleFor[mode];
+  // The picks rail names itself on the server (see server/src/picks.ts), so this page shows
+  // whatever the homepage rail and the nav are showing. `titleFor.bestsellers` is only the
+  // fallback for a first paint before /api/site has landed.
+  const heading = mode === "category" ? cat?.name ?? "Category"
+    : mode === "search" ? (q ? `Results for “${q}”` : "Search")
+    : mode === "bestsellers" ? (site?.picks?.label ?? titleFor[mode])
+    : titleFor[mode];
   const sub = mode === "category" ? cat?.blurb : undefined;
 
   const setP = (key: string, val: string) => {

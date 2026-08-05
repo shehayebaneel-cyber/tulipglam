@@ -301,7 +301,10 @@ export function MobileNav({ site, onNavigate }: { site: SiteData | null; onNavig
       {([
         ["/categories", "All categories"],
         ["/new", "New Arrivals"],
-        ["/bestsellers", "Best Sellers"],
+        // Named by the server, so the nav cannot promise "Best Sellers" while the page it opens
+        // says "Our Picks". Falls back to the picks wording if /api/site has not landed yet —
+        // the safe direction, since that claim is true either way.
+        [site?.picks?.href ?? "/our-picks", site?.picks?.label ?? "Our Picks"],
         ...(site?.flags?.hasSale ? [["/sale", "Sale"]] : []),
         ["/brands", "Brands"],
         ["/gift-cards", "Gift Cards"],
