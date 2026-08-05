@@ -16,6 +16,7 @@ import { searchProductIds } from "./search.js";
 import { loadCards, type CardRow } from "./cards.js";
 import { resolveRail, railProductIds, invalidateRail, RAIL_SIZE } from "./picks.js";
 import { TX_OPTIONS } from "./tx.js";
+import { clientErrorsRouter } from "./clientErrors.js";
 import { recordError, countRequest, pulse, recentErrors, resolveError } from "./observe.js";
 // No `sendMail` here any more, and that absence is the point: every message this file sends now
 // goes through `queueMail`, so there is a row proving it was attempted. The password reset was
@@ -340,7 +341,10 @@ function cardOf(p: CardRow, newDays: number) {
     isNew: computeIsNew(p, newDays),
   };
 }
-const cardInclude = { brand: true, category: true, images: { orderBy: { sortOrder: "asc" as const }, take: 1 } };
+// `cardInclude` is gone. It was the Prisma `include` shape every card used to be loaded with,
+// and its last two callers (related products) now go through `loadCards`, so nothing customer-
+// facing pays four round trips for one card query any more. Re-adding it is the regression:
+// there is exactly one way to load a card, and `cards.ts` is it.
 
 /**
  * How many ranked matches a search resolves to before the other filters apply.
@@ -385,7 +389,11 @@ function publicSettings(all: Record<string, string>): Record<string, string> {
 
 // header/footer/home bootstrap: settings + categories + featured brands + areas
 app.get("/api/site", asyncH(async (_req, res) => {
-  const [settings, tops, brands, areas, saleCount, audienceByCat] = await Promise.all([
+  // 2 sequential round trips -> 1. `resolveRail` was awaited inside the response object, so the
+  // rail lookup waited for this whole block to finish before it even started. It depends on
+  // nothing here, so it belongs in the block. (`_count` inside an include is inlined by Prisma
+  // as a subquery — measured, one statement — so these six really are one trip.)
+  const [settings, tops, brands, areas, saleCount, audienceByCat, rail] = await Promise.all([
     getSettings(),
     // full two-level tree: the nav needs children to build its dropdown panels
     db.category.findMany({ where: { active: true }, orderBy: { sortOrder: "asc" },
@@ -396,6 +404,9 @@ app.get("/api/site", asyncH(async (_req, res) => {
     // Per-category audience split, so a department that holds its products directly can offer
     // "For him / For her" in the nav without inventing subcategories for them.
     db.product.groupBy({ by: ["categoryId", "audience"], where: { AND: [VISIBLE, { audience: { in: ["men", "women"] } }] }, _count: { _all: true } }),
+    // Which rail is live, and therefore what the nav and footer may call it. 60s-cached, so
+    // most requests pay nothing for it — but a cold one used to be a whole extra trip.
+    resolveRail(db),
   ]);
 
   // categoryId -> { men, women }, rolled up into the department the same way product counts are.
@@ -454,15 +465,13 @@ app.get("/api/site", asyncH(async (_req, res) => {
     flags: { hasSale: saleCount > 0, loyalty: LOYALTY_ENABLED },
     // Published so the nav, footer and shop heading cannot name this rail differently from the
     // homepage. One resolver, every surface.
-    picks: await resolveRail(db).then((r) => ({ mode: r.mode, label: r.label, href: r.href })),
+    picks: { mode: rail.mode, label: rail.label, href: rail.href },
     trust: trustItems(settings),
   });
 }));
 
 // home collections
 app.get("/api/home", asyncH(async (_req, res) => {
-  const settings = await getSettings();
-  const newDays = num(settings.newArrivalDays, 30);
   /**
    * Ids then `loadCards`, for the same reason as the search path.
    *
@@ -472,25 +481,37 @@ app.get("/api/home", asyncH(async (_req, res) => {
    *
    * The id reads sit in the existing `Promise.all`; the card loads run as a pair afterwards.
    */
-  // Which rail is live, and therefore what it may be called. Resolved before the ids, because
-  // the mode decides which ids to ask for. Cached, so this is not a round trip most of the time.
-  const rail = await resolveRail(db);
+  /**
+   * 8 sequential round trips -> 5, in three steps rather than five.
+   *
+   * Two things were queued behind results they do not use. `resolveRail` reads the orders table
+   * and `getSettings` reads the settings table; neither has any bearing on the other, so they
+   * are one step. `resolvePromo` needs only `settings` — it was last, after both card loads,
+   * even though nothing it does depends on a single product id, and when the promo is scoped to
+   * a brand or category it is three trips of its own on the end of the chain.
+   *
+   * The rail still resolves before the ids, because its mode decides WHICH ids to ask for. That
+   * one is a real dependency and is left alone.
+   */
+  const [settings, rail] = await Promise.all([getSettings(), resolveRail(db)]);
+  const newDays = num(settings.newArrivalDays, 30);
 
-  const [bestIds, freshIds, reviews] = await Promise.all([
+  const [bestIds, freshIds, reviews, promoResolution] = await Promise.all([
     railProductIds(db, rail, RAIL_SIZE).then((ids) => ids.map((id) => ({ id }))),
     // Over-fetched so spreadBrands() has something to backfill from: the newest 12 products
     // were all Lattafa, which made "New arrivals" read like a bug.
     db.product.findMany({ where: { status: "active" }, select: { id: true }, orderBy: { createdAt: "desc" }, take: 120 }),
     db.review.findMany({ where: { approved: true }, orderBy: { createdAt: "desc" }, take: 6, include: { product: { select: { name: true } } } }),
+    // Resolved server-side against real rows; null means the homepage renders no promo at
+    // all. The client must not fall back to any copy of its own.
+    resolvePromo(db, settings),
   ]);
   const [best, fresh] = await Promise.all([
     loadCards(db, bestIds.map((r) => r.id)),
     loadCards(db, freshIds.map((r) => r.id)),
   ]);
   const newArrivals = spreadBrands(fresh.filter((p) => computeIsNew(p, newDays)), 8, 2);
-  // Resolved server-side against real rows; null means the homepage renders no promo at
-  // all. The client must not fall back to any copy of its own.
-  const { promo } = await resolvePromo(db, settings);
+  const { promo } = promoResolution;
   res.json({
     promo,
     /**
@@ -510,8 +531,6 @@ app.get("/api/home", asyncH(async (_req, res) => {
 
 // product listing with filters, search, sort
 app.get("/api/products", asyncH(async (req, res) => {
-  const settings = await getSettings();
-  const newDays = num(settings.newArrivalDays, 30);
   const q = str(req.query.q).trim();
   const where: Prisma.ProductWhereInput = { status: { in: ["active", "unavailable"] } };
   const and: Prisma.ProductWhereInput[] = [];
@@ -520,15 +539,48 @@ app.get("/api/products", asyncH(async (req, res) => {
   // so the search ranking and the shelf it feeds cannot disagree about what is visible.
   const includeUnavailable = req.query.available === "0";
   const searchStatuses = includeUnavailable ? ["active", "unavailable"] : ["active"];
+  const categorySlug = req.query.category ? str(req.query.category) : "";
 
-  // A department (Nails, Makeup…) holds no products itself — they sit in its
-  // subcategories, so match the category AND its children or the department pages
-  // come back empty.
-  if (req.query.category) {
-    const slug = str(req.query.category);
-    const cat = await db.category.findUnique({ where: { slug }, select: { id: true, children: { select: { id: true } } } });
-    if (!cat) return res.json({ products: [], total: 0 });
-    and.push({ categoryId: { in: [cat.id, ...cat.children.map((c) => c.id)] } });
+  /**
+   * Three round trips collapsed into one, at the head of the busiest endpoint on the site.
+   *
+   * Settings, the category scope and the search ranking were each awaited in turn, one after
+   * another, and not one of them reads a result from the others — they were sequential only
+   * because that is the order the handler happens to build its `where` clause in. A category
+   * search (`/category/skincare?q=serum`) paid all three.
+   *
+   * The category scope is also ONE statement now instead of two. `findUnique` + a `children`
+   * relation select is two queries — Prisma does not join — and `parent: { slug }` is a relation
+   * FILTER, which it inlines as a subquery. Verified against every one of the 41 category slugs
+   * plus a slug that does not exist: identical id sets, 2 statements down to 1.
+   */
+  const [settings, catRows, hits] = await Promise.all([
+    getSettings(),
+    // A department (Nails, Makeup…) holds no products itself — they sit in its
+    // subcategories, so match the category AND its children or the department pages
+    // come back empty.
+    categorySlug
+      ? db.category.findMany({
+          where: { OR: [{ slug: categorySlug }, { parent: { slug: categorySlug } }] },
+          select: { id: true, slug: true },
+        })
+      : Promise.resolve([]),
+    /**
+     * The statuses the ranking is allowed to contain are the ones this request can show.
+     *
+     * Passing the *effective* visibility rather than a fixed pair means the ranked ids are
+     * already a valid answer, which is what lets the redundant second id query be skipped
+     * below. It also keeps one rule in one place: `available=0` is the customer ticking
+     * "include temporarily unavailable", and search must agree with the shelf it feeds.
+     */
+    q ? searchProductIds(db, q, searchStatuses, SEARCH_RESULT_CAP) : Promise.resolve(null),
+  ]);
+  const newDays = num(settings.newArrivalDays, 30);
+
+  if (categorySlug) {
+    // The row for the slug itself must be present; everything else in `catRows` is its children.
+    if (!catRows.some((c) => c.slug === categorySlug)) return res.json({ products: [], total: 0 });
+    and.push({ categoryId: { in: catRows.map((c) => c.id) } });
   }
   // Brand is multi-select: a filter that only allows one brand at a time is not a filter.
   // Accepts `brand=a&brand=b` or `brand=a,b`.
@@ -587,16 +639,9 @@ app.get("/api/products", asyncH(async (req, res) => {
    * the worst possible answer to "we don't have that".
    */
   let rank: Map<number, number> | null = null;
-  if (q) {
-    /**
-     * The statuses the ranking is allowed to contain are the ones this request can show.
-     *
-     * Passing the *effective* visibility rather than a fixed pair means the ranked ids are
-     * already a valid answer, which is what lets the redundant second id query be skipped
-     * below. It also keeps one rule in one place: `available=0` is the customer ticking
-     * "include temporarily unavailable", and search must agree with the shelf it feeds.
-     */
-    const hits = await searchProductIds(db, q, searchStatuses, SEARCH_RESULT_CAP);
+  // Ranked at the top of the handler, in parallel with the settings and category reads; the
+  // clause is still pushed here so the filter pipeline is assembled in the order it always was.
+  if (hits) {
     and.push({ id: { in: hits.length ? hits.map((h) => h.id) : [-1] } });
     // Kept, because it is the answer to "which of these did the customer most likely mean".
     // Before this, it was computed and thrown away one line later.
@@ -732,24 +777,37 @@ app.get("/api/products", asyncH(async (req, res) => {
 
   // Relevance order is applied here, to the ids that survived every other filter — so a brand
   // or price filter narrows the ranking rather than reshuffling it.
-  let products: CardRow[];
   let total: number;
+  let cardIds: number[] = [];
   if (rankedIsAnswer) {
     total = total0;
-    products = preCards!;
   } else if (byRelevance) {
     const ordered = idRows.map((r) => r.id).sort((a, b) => (rank!.get(a) ?? 1e9) - (rank!.get(b) ?? 1e9));
     total = ordered.length;
-    products = await loadCards(db, ordered.slice((page - 1) * limit, page * limit));
+    cardIds = ordered.slice((page - 1) * limit, page * limit);
   } else {
     total = countOrZero;
-    products = await loadCards(db, idRows.map((r) => r.id));
+    cardIds = idRows.map((r) => r.id);
   }
+
+  /**
+   * The last two round trips were sequential for no reason: 2 -> 1.
+   *
+   * The cards are loaded from the ids the block above returned, and the brand facet's NAMES are
+   * looked up from the brandIds the same block returned. Neither reads the other, they were
+   * simply written one after the other — and the cards are the half the customer is waiting for,
+   * so it was sitting behind a facet lookup on every filtered shelf.
+   */
+  const facetBrandIds = wantFacets ? brandFacet.map((b) => b.brandId).filter((v): v is number => v !== null) : [];
+  const [products, brandRows] = await Promise.all([
+    rankedIsAnswer ? Promise.resolve(preCards!) : loadCards(db, cardIds),
+    facetBrandIds.length
+      ? db.brand.findMany({ where: { id: { in: facetBrandIds } }, select: { id: true, slug: true, name: true } })
+      : Promise.resolve([]),
+  ]);
 
   let facets: unknown = undefined;
   if (wantFacets) {
-    const ids = brandFacet.map((b) => b.brandId).filter((v): v is number => v !== null);
-    const brandRows = ids.length ? await db.brand.findMany({ where: { id: { in: ids } }, select: { id: true, slug: true, name: true } }) : [];
     const nameById = new Map(brandRows.map((b) => [b.id, b]));
     facets = {
       brands: brandFacet
@@ -777,8 +835,6 @@ app.get("/api/products", asyncH(async (req, res) => {
 app.get("/api/search", asyncH(async (req, res) => {
   const q = str(req.query.q).trim();
   if (!q) return res.json({ products: [] });
-  const settings = await getSettings();
-  const newDays = num(settings.newArrivalDays, 30);
   /**
    * Typo-tolerant, and the visible statuses are passed in explicitly.
    *
@@ -787,8 +843,16 @@ app.get("/api/search", asyncH(async (req, res) => {
    * VISIBLE, which is what the rest of the storefront shows: an `unavailable` product is on the
    * shelf with a badge, and a search that could not find a product a customer can see would be
    * a different bug.
+   *
+   * 3 sequential round trips -> 2. The settings read was in front of the ranking and the ranking
+   * does not use it; on the one path in this codebase that runs per KEYSTROKE, that was a whole
+   * round trip of type-ahead latency spent waiting for `newArrivalDays`.
    */
-  const hits = await searchProductIds(db, q, ["active", "unavailable"], 6);
+  const [settings, hits] = await Promise.all([
+    getSettings(),
+    searchProductIds(db, q, ["active", "unavailable"], 6),
+  ]);
+  const newDays = num(settings.newArrivalDays, 30);
   if (hits.length === 0) return res.json({ products: [] });
 
   /**
@@ -809,35 +873,61 @@ app.get("/api/search", asyncH(async (req, res) => {
 
 // single product
 app.get("/api/products/:slug", asyncH(async (req, res) => {
-  const settings = await getSettings();
+  /**
+   * The worst endpoint on the site: 11 sequential round trips -> 8 (16 -> 10 in a thin
+   * subcategory). It is also the page most often opened cold, because a product link pasted
+   * into WhatsApp is how this shop gets shared.
+   *
+   * Two separate instances of the same shape:
+   *
+   *   settings, then the product   two reads that know nothing about each other, in series.
+   *                                Now one step — the block costs what the product read alone
+   *                                cost, since `getSettings` is usually a cache hit anyway.
+   *
+   *   related via `cardInclude`    4 round trips each time, and it runs TWICE when the first
+   *                                query cannot fill four slots. Ids first, then ONE `loadCards`
+   *                                over the combined list: 4 (or 8) becomes 1 (or 2) + 1.
+   *
+   * `loadCards` returns rows in the order of the ids it is given, so "same subcategory first,
+   * then the siblings" survives the merge without a re-sort. Equivalence with the `include`
+   * payload is asserted in scripts/test-search.mjs.
+   *
+   * The product read itself is left as 6 trips. Collapsing it means a second serialiser for the
+   * full product view — five relations, none of them the card shape — and that is the
+   * rules.ts/ledger.ts split all over again for one page's worth of latency.
+   */
+  const [settings, p] = await Promise.all([
+    getSettings(),
+    db.product.findUnique({
+      where: { slug: str(req.params.slug) },
+      include: {
+        brand: true, category: true,
+        images: { orderBy: { sortOrder: "asc" } },
+        variants: { orderBy: { sortOrder: "asc" } },
+        reviews: { where: { approved: true }, orderBy: { createdAt: "desc" } },
+      },
+    }),
+  ]);
   const newDays = num(settings.newArrivalDays, 30);
-  const p = await db.product.findUnique({
-    where: { slug: str(req.params.slug) },
-    include: {
-      brand: true, category: true,
-      images: { orderBy: { sortOrder: "asc" } },
-      variants: { orderBy: { sortOrder: "asc" } },
-      reviews: { where: { approved: true }, orderBy: { createdAt: "desc" } },
-    },
-  });
   if (!p || p.status === "hidden" || p.status === "discontinued") return res.status(404).json({ error: "Product not found." });
 
   // Related: same subcategory first, then topped up from the sibling subcategories in
   // the same department — several subcategories hold only one or two products, which
   // would otherwise leave this empty.
-  const related = await db.product.findMany({
+  const relatedIds = (await db.product.findMany({
     where: { status: "active", categoryId: p.categoryId, id: { not: p.id } },
-    include: cardInclude, take: 4, orderBy: { isBestSeller: "desc" },
-  });
-  if (related.length < 4) {
+    select: { id: true }, take: 4, orderBy: { isBestSeller: "desc" },
+  })).map((r) => r.id);
+  if (relatedIds.length < 4) {
     const deptId = p.category.parentId ?? p.categoryId;
     const siblings = await db.category.findMany({ where: { OR: [{ id: deptId }, { parentId: deptId }] }, select: { id: true } });
     const fill = await db.product.findMany({
-      where: { status: "active", categoryId: { in: siblings.map((c) => c.id) }, id: { notIn: [p.id, ...related.map((r) => r.id)] } },
-      include: cardInclude, take: 4 - related.length, orderBy: { isBestSeller: "desc" },
+      where: { status: "active", categoryId: { in: siblings.map((c) => c.id) }, id: { notIn: [p.id, ...relatedIds] } },
+      select: { id: true }, take: 4 - relatedIds.length, orderBy: { isBestSeller: "desc" },
     });
-    related.push(...fill);
+    relatedIds.push(...fill.map((r) => r.id));
   }
+  const related = await loadCards(db, relatedIds);
   const ratingAvg = p.reviews.length ? p.reviews.reduce((s, r) => s + r.rating, 0) / p.reviews.length : 0;
   res.json({
     id: p.id, slug: p.slug, name: p.name, status: p.status,
@@ -1332,9 +1422,21 @@ app.get("/api/loyalty/me", requireCustomer, asyncH(async (req, res) => {
   if (!account) return res.json(emptyView());
 
   const now = new Date();
-  const { state } = await readAccount(db, account.id, now);
-
-  const [entries, totalEntries] = await Promise.all([
+  /**
+   * 7 sequential round trips -> 6.
+   *
+   * `readAccount` is three of them (account, entries, the orders behind them) and it was awaited
+   * in front of the history block, which reads the same table for a different purpose. Neither
+   * uses the other's result — the state is the arithmetic, the history is the display — so they
+   * are one step. `readAccount` is documented read-only, so running it beside a read changes
+   * nothing about what is written.
+   *
+   * The two writes above it stay sequential on purpose: the sign-up bonus has to land BEFORE the
+   * state is computed or a new customer sees an empty balance and their welcome points appear on
+   * some later visit.
+   */
+  const [{ state }, entries, totalEntries] = await Promise.all([
+    readAccount(db, account.id, now),
     db.loyaltyLedgerEntry.findMany({
       where: { accountId: account.id },
       orderBy: { createdAt: "desc" },
@@ -2749,6 +2851,19 @@ admin.post("/import", asyncH(async (req, res) => {
 }));
 
 app.use("/api/admin", admin);
+
+/**
+ * Errors from customers' browsers.
+ *
+ * The client half was installed in `web/src/main.tsx` and this mount was missed, so every report
+ * a real phone sent would have POSTed into the SPA catch-all and been answered with an HTML
+ * page. A reporting feature that silently discards reports is worse than none — it is a control
+ * everyone downstream believes is working.
+ *
+ * First-party only: same origin, errors only, no identifiers, no page views. See clientErrors.ts
+ * for the privacy-policy sentence it is written to keep true.
+ */
+app.use("/api/client-errors", clientErrorsRouter(db));
 
 // ---- crawler-facing routes ----
 // Both are served whether or not the built web exists, so they can be checked in development.

@@ -144,10 +144,63 @@ It loses only the link back to the product page.
 
 ---
 
+## The real drill: `pg_dump` against production, restored and RUN — 5 Aug 2026
+
+Everything above this line was written when `pg_dump` was not available and the backup path had
+to be JSON. It still works and is still the emergency path. **This section supersedes it for
+routine use**, and it is the one that matters after Stage C, when Neon's undelete goes away and
+this becomes the only safety net the business has.
+
+```
+cd server
+node --env-file=.env --import tsx scripts/pg-restore-drill.mjs
+```
+
+It dumps **production read-only**, restores into a **local** database, and then does the thing
+that makes it a drill rather than a file copy: it **starts the store on the restored copy** and
+checks the shop, search and a product page all work.
+
+### What it measured, on real data
+
+Note the difference from the JSON path above: **`pg_dump` takes everything**, catalogue included,
+because at 3.5 MB the asymmetry that justified skipping products stops being worth the thought.
+A restore from this needs no importer run.
+
+| | |
+|---|---|
+| dumped | **31,750 rows** across 18 tables — the whole database, catalogue and all |
+| dump | **54.1 s**, **3.5 MB** (custom format, compressed) |
+| restore | **1.1 s** |
+| whole drill, dump to store-serving-pages | **67.9 s** |
+| row counts, table by table | identical, source to restore |
+| `pg_trgm` + the trigram index | survived the round trip |
+
+**Recovery is not the slow part.** Restoring is one second; the dump across the Atlantic is the
+minute. After Stage C, on a local disk, the whole drill is seconds — which means the real
+recovery time is however long it takes a human to decide to do it.
+
+### The check this drill added, and why
+
+`pg_dump` **refuses to dump a server newer than itself.** Production is PostgreSQL 18.4; a
+PostgreSQL 17 `pg_dump` fails outright. Finding that out during an incident is the worst possible
+moment, so the drill now asserts the version relationship as its **first** check.
+
+Keep the client binaries at least as new as the server. Windows binaries without an installer:
+`https://get.enterprisedb.com/postgresql/postgresql-<version>-windows-x64-binaries.zip` — unzip,
+and `pgsql/bin/pg_dump.exe` is what you need. The drill takes `PG18_BIN` to point at them.
+
+### What it does not do
+
+It still does not **write to production**. There is deliberately no `restore-into-prod` script:
+the drill proves the data comes back and shows exactly how, and a script whose only purpose is to
+overwrite the live database is more dangerous than the five minutes it saves. The restore command
+for a real incident is the one printed at the end of the drill, run by a human who has read it.
+
 ## Known gaps — read this before you need it
 
-**There is no one-command restore.** `backup.ts` and `restore-drill.ts` exist and are
-proven; a `restore.ts` that writes into a live database does not. That was deliberate for
+**There is no one-command restore.** `backup.ts`, `restore-drill.ts` and now
+`pg-restore-drill.mjs` exist and are proven; a `restore.ts` that writes into a live database
+does not. That was deliberate for
 tonight: a script whose whole purpose is to overwrite production, written at 2am and never
 run in anger, is more dangerous than not having one. The drill proves the data is
 recoverable and shows exactly how.
@@ -157,10 +210,10 @@ has no cron, and the app's own sweep endpoint is the wrong place for this — a 
 writes files on an ephemeral filesystem is not a backup either. Until there is somewhere to
 put them, this is a manual habit: **run it before every risky change, and once a week.**
 
-**Neon may have its own point-in-time restore.** Their paid tiers keep a history window that
-would beat all of the above. Worth checking what the current plan includes — if it has
-seven-day PITR, that becomes the primary recovery path and this becomes the belt to its
-braces.
+**Neon may have its own point-in-time restore, and it is going away.** Their paid tiers keep a
+history window that would beat all of the above. It is worth knowing what the current plan
+includes — but MIGRATION.md withdraws Neon entirely, so whatever it offers is temporary. From
+cutover, the drill above is the whole safety net.
 
 ---
 

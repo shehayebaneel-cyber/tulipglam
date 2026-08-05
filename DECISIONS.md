@@ -5,6 +5,101 @@ Nothing here has been applied.
 
 ---
 
+## WhatsApp templates — wording awaiting your sign-off
+
+**Built 5 Aug 2026.** `server/src/waTemplates.ts`. Every template ships with `approved: false`
+and the admin surface badges it **DRAFT**. Approving one is a one-line edit in that file — flip
+the flag. Nothing here needs a deploy variable or a dashboard.
+
+**Why they are drafts:** a message to a customer is a promise, and promises are yours. The
+mechanism is mine; the words are yours.
+
+**The rules I wrote them under**, so you can check I kept them:
+
+- **No delivery date or duration, ever.** There is no courier integration and the store cannot
+  check such a claim. This codebase already removed one ("2–5 working days"). The "running late"
+  template deliberately gives no new time.
+- **No invented discount, refund policy or guarantee.**
+- **Every money value is interpolated from the order**, never typed — so a message can never
+  quote a total the server did not compute.
+- **Every message ends with what happens next and who does it.** One that does not generates a
+  phone call.
+
+### The seven drafts
+
+Interpolated values are in `{braces}`.
+
+**1 · Confirm the order** — first message after an order arrives.
+> Hello {first name}, this is TulipGlam.
+>
+> We have your order {number}:
+> • {each item}
+>
+> Total to pay on delivery: {total} ({area}).
+>
+> We are checking availability now and will message you as soon as it is confirmed. Reply here if
+> anything needs changing.
+
+**2 · One item unavailable — offer a swap.** Asks for the item, and optionally an alternative.
+> Hello {first name}, this is TulipGlam about order {number}.
+>
+> Unfortunately we cannot get {item} at the moment.
+>
+> We can offer {alternative} instead, or remove it from your order — whichever you prefer.
+> *(If no alternative is given: "We can remove it from your order and adjust the total, or hold
+> the order until it is back.")*
+>
+> Just reply and we will sort it. Nothing is dispatched until you confirm.
+
+**3 · Confirmed and being prepared**
+> Hello {first name}, your TulipGlam order {number} is confirmed.
+>
+> • {each item}
+>
+> Total to pay on delivery: {total}.
+>
+> We are preparing it now and will message you when it is on the way.
+
+**4 · Out for delivery**
+> Hello {first name}, your TulipGlam order {number} is on its way to you today.
+>
+> Please have {total} ready in cash.
+>
+> We will call when we are close.
+
+**5 · Delivered — thank you**
+> Thank you {first name} — your TulipGlam order {number} is delivered.
+>
+> We hope you love it. If anything is not right, reply here and we will make it right.
+
+**6 · Running late** — gives no new time on purpose.
+> Hello {first name}, this is TulipGlam about order {number}.
+>
+> We are running behind today and have not reached you yet. Your order is safe with us.
+>
+> We will message you as soon as we are on our way. Sorry for the wait.
+
+**7 · Could not source the order**
+> Hello {first name}, this is TulipGlam about order {number}.
+>
+> We are sorry — we have not been able to get these items for you:
+> • {each item}
+>
+> Nothing has been charged. If you would like us to look for something similar, reply here and we
+> will help.
+
+### Three I want your judgement on
+
+1. **"We hope you love it"** (5) is the only line with any warmth in it. Everything else is
+   plain. Your call whether the voice should be warmer throughout, or whether plain is right for
+   a shop confirming cash-on-delivery.
+2. **"If anything is not right, reply here and we will make it right"** (5) is close to a returns
+   promise. The policy is yours; if it overstates what you will do, cut the second clause.
+3. **"Nothing has been charged"** (7) is true today because payment is cash on delivery. It stops
+   being automatically true the day any prepayment exists.
+
+---
+
 ## 1 · Product framing — the flea-market feel that survived uniform tiles
 
 **This is the "deeper than sizing" question, with the sample you asked for.**

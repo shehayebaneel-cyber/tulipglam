@@ -1,0 +1,281 @@
+{
+  "at": "2026-08-05T02:46:55.670Z",
+  "phases": {
+    "browse_c1": {
+      "total": 6,
+      "conc": 1,
+      "wall": 280,
+      "rps": 21.4,
+      "ok": 6,
+      "failed": 0,
+      "statuses": {
+        "200": 6
+      },
+      "p50": 28,
+      "p90": 163,
+      "p99": 163,
+      "max": 163
+    },
+    "browse_c5": {
+      "total": 30,
+      "conc": 5,
+      "wall": 273,
+      "rps": 109.9,
+      "ok": 30,
+      "failed": 0,
+      "statuses": {
+        "200": 30
+      },
+      "p50": 30,
+      "p90": 47,
+      "p99": 272,
+      "max": 272
+    },
+    "browse_c20": {
+      "total": 120,
+      "conc": 20,
+      "wall": 625,
+      "rps": 192,
+      "ok": 120,
+      "failed": 0,
+      "statuses": {
+        "200": 120
+      },
+      "p50": 101,
+      "p90": 115,
+      "p99": 128,
+      "max": 133
+    },
+    "browse_c50": {
+      "total": 300,
+      "conc": 50,
+      "wall": 1825,
+      "rps": 164.4,
+      "ok": 300,
+      "failed": 0,
+      "statuses": {
+        "200": 300
+      },
+      "p50": 270,
+      "p90": 379,
+      "p99": 415,
+      "max": 419
+    },
+    "search_c1": {
+      "total": 6,
+      "conc": 1,
+      "wall": 541,
+      "rps": 11.1,
+      "ok": 6,
+      "failed": 0,
+      "statuses": {
+        "200": 6
+      },
+      "p50": 91,
+      "p90": 135,
+      "p99": 135,
+      "max": 135
+    },
+    "search_c5": {
+      "total": 30,
+      "conc": 5,
+      "wall": 756,
+      "rps": 39.7,
+      "ok": 30,
+      "failed": 0,
+      "statuses": {
+        "200": 30
+      },
+      "p50": 91,
+      "p90": 232,
+      "p99": 363,
+      "max": 363
+    },
+    "search_c20": {
+      "total": 120,
+      "conc": 20,
+      "wall": 2298,
+      "rps": 52.2,
+      "ok": 120,
+      "failed": 0,
+      "statuses": {
+        "200": 120
+      },
+      "p50": 342,
+      "p90": 648,
+      "p99": 781,
+      "max": 854
+    },
+    "search_c50": {
+      "total": 300,
+      "conc": 50,
+      "wall": 5286,
+      "rps": 56.8,
+      "ok": 300,
+      "failed": 0,
+      "statuses": {
+        "200": 300
+      },
+      "p50": 791,
+      "p90": 1194,
+      "p99": 1585,
+      "max": 1798
+    },
+    "product_c10": {
+      "total": 60,
+      "conc": 10,
+      "wall": 169,
+      "rps": 355,
+      "ok": 60,
+      "failed": 0,
+      "statuses": {
+        "200": 60
+      },
+      "p50": 22,
+      "p90": 48,
+      "p99": 70,
+      "max": 70
+    },
+    "product_c40": {
+      "total": 240,
+      "conc": 40,
+      "wall": 717,
+      "rps": 334.7,
+      "ok": 240,
+      "failed": 0,
+      "statuses": {
+        "200": 240
+      },
+      "p50": 115,
+      "p90": 166,
+      "p99": 210,
+      "max": 215
+    },
+    "checkout_c5": {
+      "total": 15,
+      "conc": 5,
+      "wall": 177,
+      "rps": 84.7,
+      "ok": 15,
+      "failed": 0,
+      "statuses": {
+        "200": 15
+      },
+      "p50": 32,
+      "p90": 113,
+      "p99": 113,
+      "max": 113
+    },
+    "checkout_c20": {
+      "total": 60,
+      "conc": 20,
+      "wall": 442,
+      "rps": 135.7,
+      "ok": 60,
+      "failed": 0,
+      "statuses": {
+        "200": 60
+      },
+      "p50": 143,
+      "p90": 155,
+      "p99": 205,
+      "max": 205
+    },
+    "cgnat_browse_c20": {
+      "total": 100,
+      "conc": 20,
+      "wall": 298,
+      "rps": 335.6,
+      "ok": 100,
+      "failed": 0,
+      "statuses": {
+        "200": 100
+      },
+      "p50": 52,
+      "p90": 80,
+      "p99": 84,
+      "max": 84
+    },
+    "cgnat_browse_c60": {
+      "total": 300,
+      "conc": 60,
+      "wall": 650,
+      "rps": 461.5,
+      "ok": 300,
+      "failed": 0,
+      "statuses": {
+        "200": 300
+      },
+      "p50": 113,
+      "p90": 183,
+      "p99": 198,
+      "max": 219
+    },
+    "cgnat_orders": {
+      "total": 30,
+      "conc": 10,
+      "wall": 231,
+      "rps": 129.9,
+      "ok": 30,
+      "failed": 0,
+      "statuses": {
+        "200": 30
+      },
+      "p50": 60,
+      "p90": 81,
+      "p99": 174,
+      "max": 174
+    },
+    "cgnat_limiter": {
+      "attempts": 90,
+      "blocked": 30,
+      "firstBlockAt": 61
+    },
+    "mixed_c25": {
+      "total": 100,
+      "conc": 25,
+      "wall": 597,
+      "rps": 167.5,
+      "ok": 100,
+      "failed": 0,
+      "statuses": {
+        "200": 100
+      },
+      "p50": 125,
+      "p90": 191,
+      "p99": 307,
+      "max": 307
+    },
+    "mixed_c75": {
+      "total": 300,
+      "conc": 75,
+      "wall": 1723,
+      "rps": 174.1,
+      "ok": 300,
+      "failed": 0,
+      "statuses": {
+        "200": 300
+      },
+      "p50": 406,
+      "p90": 482,
+      "p99": 780,
+      "max": 936
+    },
+    "mixed_c150": {
+      "total": 600,
+      "conc": 150,
+      "wall": 3688,
+      "rps": 162.7,
+      "ok": 600,
+      "failed": 0,
+      "statuses": {
+        "200": 600
+      },
+      "p50": 886,
+      "p90": 1070,
+      "p99": 1565,
+      "max": 1843
+    }
+  },
+  "ordersCreated": 106
+}

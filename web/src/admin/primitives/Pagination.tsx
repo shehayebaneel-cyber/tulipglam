@@ -27,12 +27,28 @@ export function Pagination({
   const from = total === 0 ? 0 : (page - 1) * pageSize + 1;
   const to = Math.min(total, page * pageSize);
 
-  const window: number[] = [];
-  for (let i = Math.max(1, page - 2); i <= Math.min(pages, page + 2); i++) window.push(i);
-  if (window[0] > 1) window.unshift(1);
-  if (window[window.length - 1] < pages) window.push(pages);
+  /**
+   * Two windows: ±2 pages with room, ±1 on a phone.
+   *
+   * Raising the buttons to 44px for thumbs immediately pushed this pager to 429px inside a 390px
+   * screen — a fix for one accessibility problem that created a worse usability one. Seven
+   * 44px buttons do not fit, so the phone shows five and the desktop keeps all seven. Rendering
+   * both and hiding one with CSS keeps it a pure layout decision, with no viewport guess in JS.
+   */
+  const windowOf = (span: number) => {
+    const w: number[] = [];
+    for (let i = Math.max(1, page - span); i <= Math.min(pages, page + span); i++) w.push(i);
+    if (w[0] > 1) w.unshift(1);
+    if (w[w.length - 1] < pages) w.push(pages);
+    return w;
+  };
+  const window = windowOf(2);
+  const windowPhone = windowOf(1);
 
-  const btn = "focus-ring grid h-8 min-w-8 place-items-center rounded-lg px-2.5 text-[12.5px] font-medium transition-colors";
+  // 44px on a phone, 32px from `sm:` up. Paging is a thumb action on a list of 194 pages, and
+  // 32px is below every touch guideline there is. Flagged by the admin-phone work as a primitive
+  // no call site could fix.
+  const btn = "focus-ring grid h-11 min-w-11 place-items-center rounded-lg px-2.5 text-[12.5px] font-medium transition-colors sm:h-8 sm:min-w-8";
 
   return (
     <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line px-3 py-2.5">
@@ -57,18 +73,25 @@ export function Pagination({
           <nav aria-label="Pagination" className="flex items-center gap-1">
             <button type="button" onClick={() => onPage(1)} disabled={page <= 1} aria-label="First page" className={`${btn} border border-line text-ink disabled:opacity-35`}>«</button>
             <button type="button" onClick={() => onPage(page - 1)} disabled={page <= 1} aria-label="Previous page" className={`${btn} border border-line text-ink disabled:opacity-35`}>‹</button>
-            {window.map((n, i) => (
-              <span key={n} className="flex items-center gap-1">
-                {i > 0 && n - window[i - 1] > 1 && <span className="px-0.5 text-muted-strong">…</span>}
-                <button
-                  type="button"
-                  onClick={() => onPage(n)}
-                  aria-label={`Page ${n}`}
-                  aria-current={n === page ? "page" : undefined}
-                  className={`${btn} num-tabular ${n === page ? "bg-plum text-white" : "border border-line text-ink hover:border-ink"}`}
-                >
-                  {n}
-                </button>
+            {[
+              { list: windowPhone, cls: "sm:hidden" },
+              { list: window, cls: "hidden sm:flex" },
+            ].map(({ list, cls }) => (
+              <span key={cls} className={`items-center gap-1 ${cls === "sm:hidden" ? "flex sm:hidden" : cls}`}>
+                {list.map((n, i) => (
+                  <span key={n} className="flex items-center gap-1">
+                    {i > 0 && n - list[i - 1] > 1 && <span className="px-0.5 text-muted-strong">…</span>}
+                    <button
+                      type="button"
+                      onClick={() => onPage(n)}
+                      aria-label={`Page ${n}`}
+                      aria-current={n === page ? "page" : undefined}
+                      className={`${btn} num-tabular ${n === page ? "bg-plum text-white" : "border border-line text-ink hover:border-ink"}`}
+                    >
+                      {n}
+                    </button>
+                  </span>
+                ))}
               </span>
             ))}
             <button type="button" onClick={() => onPage(page + 1)} disabled={page >= pages} aria-label="Next page" className={`${btn} border border-line text-ink disabled:opacity-35`}>›</button>

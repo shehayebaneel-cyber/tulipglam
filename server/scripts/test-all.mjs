@@ -55,6 +55,18 @@ const SUITES = [
   // build this suite reports a pass over a page that was never rendered the way production
   // renders it. Skipped loudly rather than counted.
   { file: "test-seo.mjs", needsWrite: false, needsBuild: true },
+  /**
+   * The browser suite. Needs `web/dist`, Chrome, and a LOCAL Postgres — it places real orders,
+   * so it builds its own database rather than touching the shared one. It reports SKIPPED with
+   * the reason when any of those is missing, and the missing-summary rule below still applies:
+   * if it crashes instead of skipping, that is a failure, not a zero.
+   */
+  { file: "e2e/test-e2e.mjs", needsWrite: false, needsBuild: true },
+  /**
+   * Performance budgets. Fails when the bundle grows past its ceiling, so the image and
+   * code-splitting gains cannot erode one feature at a time. Needs a build to measure.
+   */
+  { file: "test-perf-budget.mjs", needsWrite: false, needsBuild: true },
 ];
 
 const run = (file, args) => new Promise((resolve) => {

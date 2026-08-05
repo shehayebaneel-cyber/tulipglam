@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { adminApi, ApiError, type LoyaltyAccountDetail, type LoyaltyClaim, type LoyaltyDashboard, type LoyaltyHit } from "./adminApi";
+import { adminApi, ApiError, type LoyaltyAccountDetail, type LoyaltyClaim, type LoyaltyDashboard, type LoyaltyHit, type LoyaltyLedgerRow } from "./adminApi";
 import { Spinner, SearchIcon, StarIcon, UsersIcon } from "../components/ui";
 import { useToast } from "./primitives/Toast";
 import { money } from "./primitives/format";
@@ -19,6 +19,15 @@ const when = (iso: string | Date | null | undefined) => {
     ? d.toLocaleString("en-GB", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })
     : "—";
 };
+
+/**
+ * Anything a thumb presses is 44px at phone width, and back to the denser admin scale above
+ * `sm`. This screen is read one-handed while a customer is on the phone asking why their
+ * balance moved, and Approve/Reject on a claim were ~30px tall and eight apart — which is how
+ * the wrong one gets pressed on a decision that grants points and is not undone from here.
+ */
+const TAP = "min-h-[44px] sm:min-h-0";
+const FIELD = `w-full rounded-xl border border-line-strong bg-paper px-3 py-2 text-[13px] outline-none focus:border-plum ${TAP}`;
 
 /**
  * TulipGlam Rewards — the operator's view.
@@ -71,10 +80,10 @@ export function AdminLoyalty() {
               value={term}
               onChange={(e) => setTerm(e.target.value)}
               placeholder="Phone number — any format"
-              className="w-full rounded-xl border border-line-strong bg-paper py-2.5 pl-9 pr-3 text-[14px] outline-none focus:border-plum"
+              className={`w-full rounded-xl border border-line-strong bg-paper py-2.5 pl-9 pr-3 text-[14px] outline-none focus:border-plum ${TAP}`}
             />
           </div>
-          <button type="submit" className="btn btn-primary px-5 py-2.5 text-[13px]">Search</button>
+          <button type="submit" className={`btn btn-primary px-5 py-2.5 text-[13px] ${TAP}`}>Search</button>
         </form>
         {/* Says what it does, because "03 123 456" finding "+9613123456" looks like magic
             otherwise, and an operator who thinks the search is literal will format by hand. */}
@@ -92,7 +101,9 @@ export function AdminLoyalty() {
                     <button onClick={() => setOpenId(h.id)} className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left hover:bg-soft">
                       <div className="min-w-0">
                         <p className="text-[14px] font-medium text-ink">{h.phoneDisplay}</p>
-                        <p className="truncate text-[12px] text-muted">
+                        {/* Wraps below sm rather than truncating: an email clipped with no
+                            title attribute is unrecoverable on a phone. */}
+                        <p className="break-words text-[13px] leading-snug text-muted sm:truncate sm:text-[12px]">
                           {h.customerId ? `${h.customerName} · ${h.customerEmail}` : "Not linked to a login"}
                         </p>
                       </div>
@@ -193,7 +204,7 @@ function AccountPanel({ id, onClose }: { id: number; onClose: () => void }) {
             {data.customer ? ` · ${data.customer.fullName} (${data.customer.email})` : " · not linked to a login"}
           </p>
         </div>
-        <button onClick={onClose} className="btn btn-ghost px-4 py-2 text-[13px]">Close</button>
+        <button onClick={onClose} className={`btn btn-ghost px-4 py-2 text-[13px] ${TAP}`}>Close</button>
       </header>
 
       <div className="grid gap-4 p-4 sm:p-5 lg:grid-cols-3">
@@ -240,7 +251,7 @@ function AccountPanel({ id, onClose }: { id: number; onClose: () => void }) {
               try { await adminApi.loyaltyMaterialise(id); push("ok", "Written down."); setReload((n) => n + 1); }
               catch (e) { push("error", (e as Error).message); }
             }}
-            className="btn btn-ghost px-4 py-2 text-[13px]"
+            className={`btn btn-ghost w-full px-4 py-2 text-[13px] sm:w-auto ${TAP}`}
           >Write it down now</button>
         </div>
       )}
@@ -283,30 +294,34 @@ function Claims({ accountId, title, rows, blurb, onDone }: {
       <p className="mt-1 text-[12px] leading-relaxed text-muted">{blurb}</p>
 
       <div className="mt-3 grid gap-2 sm:grid-cols-[120px_1fr]">
-        <input value={by} onChange={(e) => setBy(e.target.value)} placeholder="Your initials"
-          className="rounded-xl border border-line-strong bg-paper px-3 py-2 text-[13px] outline-none focus:border-plum" />
-        <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Why — recorded against the decision"
-          className="rounded-xl border border-line-strong bg-paper px-3 py-2 text-[13px] outline-none focus:border-plum" />
+        <input value={by} onChange={(e) => setBy(e.target.value)} placeholder="Your initials" className={FIELD} />
+        <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Why — recorded against the decision" className={FIELD} />
       </div>
       <p className="mt-1 text-[12px] text-muted">Initials are not verified — they identify who to ask, not who is authorised.</p>
 
       <ul className="mt-3 divide-y divide-line overflow-hidden rounded-xl border border-line">
         {rows.map((c) => (
-          <li key={c.orderId} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
+          /* Below sm the decision becomes a full-width footer under the order it decides, the
+             way a dispatch card carries its actions. Two 12px pills sitting inline at the end
+             of a wrapped row are the smallest, most crowded thing on the screen — and the one
+             press here is irreversible from this form. */
+          <li key={c.orderId} className="px-4 py-3 sm:flex sm:flex-wrap sm:items-center sm:justify-between sm:gap-3">
             <div className="min-w-0">
               <p className="text-[14px] font-medium text-ink">{c.number} · {money(c.merchandiseCents)} · {c.basePoints} pts</p>
-              <p className="text-[12px] text-muted">
+              <p className="text-[13px] leading-snug text-muted sm:text-[12px]">
                 {c.customerName} · delivered {c.deliveredAt ? when(c.deliveredAt) : "—"} · matched on {c.matchedOn}
               </p>
             </div>
             {c.decision ? (
-              <span className="text-[12px] text-muted">
+              <p className="mt-1.5 text-[13px] text-muted sm:mt-0 sm:shrink-0 sm:text-[12px]">
                 {c.decision.decision} by {c.decision.decidedBy || "—"} · {when(c.decision.decidedAt)}
-              </span>
+              </p>
             ) : (
-              <div className="flex gap-2">
-                <button disabled={busy === c.orderId} onClick={() => rule(c.orderId, "rejected")} className="btn btn-ghost px-3 py-1.5 text-[12px]">Reject</button>
-                <button disabled={busy === c.orderId} onClick={() => rule(c.orderId, "approved")} className="btn btn-primary px-3 py-1.5 text-[12px]">Approve</button>
+              <div className="mt-3 flex gap-2 border-t border-line pt-3 sm:mt-0 sm:border-0 sm:pt-0">
+                <button disabled={busy === c.orderId} onClick={() => rule(c.orderId, "rejected")}
+                  className={`btn btn-ghost flex-1 px-4 text-[13px] sm:flex-none sm:px-3 sm:py-1.5 sm:text-[12px] ${TAP}`}>Reject</button>
+                <button disabled={busy === c.orderId} onClick={() => rule(c.orderId, "approved")}
+                  className={`btn btn-primary flex-1 px-4 text-[13px] sm:flex-none sm:px-3 sm:py-1.5 sm:text-[12px] ${TAP}`}>Approve</button>
               </div>
             )}
           </li>
@@ -344,13 +359,10 @@ function Adjust({ accountId, onDone }: { accountId: number; onDone: () => void }
         reconstructable a year from now, so it is required and it is shown to nobody but you.
       </p>
       <div className="mt-3 grid gap-2 sm:grid-cols-[110px_110px_1fr_auto]">
-        <input value={points} onChange={(e) => setPoints(e.target.value)} placeholder="±points" inputMode="numeric"
-          className="rounded-xl border border-line-strong bg-paper px-3 py-2 text-[13px] outline-none focus:border-plum" />
-        <input value={by} onChange={(e) => setBy(e.target.value)} placeholder="Initials"
-          className="rounded-xl border border-line-strong bg-paper px-3 py-2 text-[13px] outline-none focus:border-plum" />
-        <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Reason (at least 8 characters)"
-          className="rounded-xl border border-line-strong bg-paper px-3 py-2 text-[13px] outline-none focus:border-plum" />
-        <button disabled={busy} type="submit" className="btn btn-primary px-5 py-2 text-[13px]">Record</button>
+        <input value={points} onChange={(e) => setPoints(e.target.value)} placeholder="±points" inputMode="numeric" className={FIELD} />
+        <input value={by} onChange={(e) => setBy(e.target.value)} placeholder="Initials" className={FIELD} />
+        <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Reason (at least 8 characters)" className={FIELD} />
+        <button disabled={busy} type="submit" className={`btn btn-primary px-5 py-2 text-[13px] ${TAP}`}>Record</button>
       </div>
     </form>
   );
@@ -362,7 +374,25 @@ function Ledger({ entries }: { entries: LoyaltyAccountDetail["entries"] }) {
     <div className="border-t border-line p-4 sm:p-5">
       <h3 className="text-[13px] font-semibold uppercase tracking-[0.14em] text-muted">Ledger</h3>
       <p className="mt-1 text-[12px] text-muted">Newest first, most recent 200. Append-only — the balance is the sum of these rows.</p>
-      <div className="mt-3 overflow-x-auto">
+
+      {/*
+        TWO RENDERINGS OF THE SAME ROWS. Below 640px, cards.
+
+        This was one nine-column table in a 720px horizontal scroller, and the column carrying
+        the answer — Reason — was `max-w-[260px] truncate` with the full text only in a `title`
+        attribute. A phone fires no hover, so on the device the operator is actually holding
+        while a customer asks why their balance moved, the reason was unreadable at any width
+        and by any gesture. On the card it is set in full and never clipped.
+
+        The points delta leads because it is the one figure the question is about; the row id,
+        multiplier and initials drop to provenance size — they identify the entry afterwards,
+        they are not what is being read.
+      */}
+      <ul className="mt-3 space-y-3 sm:hidden">
+        {entries.map((e) => <EntryCard key={e.id} e={e} />)}
+      </ul>
+
+      <div className="mt-3 hidden overflow-x-auto sm:block">
         <table className="w-full min-w-[720px] text-[13px]">
           <thead className="border-b border-line text-left text-[12px] uppercase tracking-wide text-muted">
             <tr>
@@ -398,5 +428,40 @@ function Ledger({ entries }: { entries: LoyaltyAccountDetail["entries"] }) {
         <p className="mt-3 flex items-center gap-2 text-[13px] text-muted"><UsersIcon className="h-4 w-4" /> Nothing yet — this account has never earned.</p>
       )}
     </div>
+  );
+}
+
+/**
+ * One ledger entry, as read on a phone.
+ *
+ * A void entry is struck through and dimmed rather than removed — the table does the same, and
+ * an entry that was reversed is part of how the balance got where it is.
+ */
+function EntryCard({ e }: { e: LoyaltyLedgerRow }) {
+  const voided = e.status === "void";
+  return (
+    <li className={`rounded-2xl border border-line bg-surface p-4 ${voided ? "opacity-60" : ""}`}>
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className={`text-[15px] font-medium leading-tight text-ink ${voided ? "line-through" : ""}`}>{e.type}</p>
+          <p className="mt-0.5 text-[11px] uppercase tracking-[0.14em] text-muted">{e.status}</p>
+        </div>
+        <p className={`serif shrink-0 text-[26px] font-medium leading-none tabular ${e.points < 0 ? "text-sale" : "text-ink"} ${voided ? "line-through" : ""}`}>
+          {e.points > 0 ? "+" : ""}{e.points}
+        </p>
+      </div>
+
+      {/* In full. This is the sentence the operator came here to read. */}
+      {e.reason && <p className="mt-2 break-words text-[13px] leading-snug text-ink">{e.reason}</p>}
+
+      {e.orderNumber && <p className="mt-1.5 text-[13px] text-muted">Order {e.orderNumber}</p>}
+
+      <p className="mt-2 text-[12px] text-muted">
+        {e.confirmedAt ? "Confirmed" : "Created"} {when(e.confirmedAt ?? e.createdAt)}
+      </p>
+      <p className="mt-0.5 text-[11px] text-muted">
+        #{e.id} · ×{e.multiplierApplied}{e.enteredBy ? ` · by ${e.enteredBy}` : ""}
+      </p>
+    </li>
   );
 }

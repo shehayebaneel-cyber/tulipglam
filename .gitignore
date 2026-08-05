@@ -42,3 +42,8 @@ TulipGlam-brands.xlsx
 TulipGlam-brand-names.xlsx
 products-shelves.json
 reclassify-untagged.json
+
+# Overnight working artefacts: reports, measurements, and a production dump.
+# .night/backup/ holds a real pg_dump with customer names, phones and addresses —
+# it must never be committed. See BACKUP.md.
+.night/backup/

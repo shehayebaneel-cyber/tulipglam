@@ -4,6 +4,9 @@ import { Spinner, UsersIcon, ChatIcon, CheckIcon } from "../components/ui";
 import { useToast } from "./primitives/Toast";
 import { money, relativeTime } from "./primitives/format";
 
+/** 44px for anything a thumb presses; the denser admin scale returns above `sm`. */
+const TAP = "min-h-[44px] sm:min-h-0";
+
 /**
  * What is happening on the store.
  *
@@ -70,11 +73,11 @@ export function AdminPulse() {
       {/* ── errors ── */}
       <section className="rounded-2xl border border-line bg-surface">
         <div className="flex items-center justify-between gap-3 border-b border-line px-4 py-3 sm:px-5">
-          <div>
+          <div className="min-w-0">
             <h2 className="text-[13px] font-semibold uppercase tracking-[0.14em] text-muted">Errors</h2>
             <p className="text-[12px] text-muted">Grouped by what broke, not by how often — one row per distinct problem.</p>
           </div>
-          <button onClick={() => setReload((n) => n + 1)} className="btn btn-ghost px-3 py-1.5 text-[12px]">Refresh</button>
+          <button onClick={() => setReload((n) => n + 1)} className={`btn btn-ghost shrink-0 px-4 text-[13px] sm:px-3 sm:py-1.5 sm:text-[12px] ${TAP}`}>Refresh</button>
         </div>
         {errors.length === 0 ? (
           <p className="px-4 py-8 text-center text-[13px] text-muted sm:px-5">
@@ -86,21 +89,23 @@ export function AdminPulse() {
               <li key={e.id} className={`px-4 py-3 sm:px-5 ${e.resolvedAt ? "opacity-50" : ""}`}>
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="min-w-0 flex-1">
-                    <p className="text-[13px] font-medium text-ink">
+                    <p className="break-words text-[13px] font-medium text-ink">
                       <span className="text-muted">{e.method}</span> {e.path}
                     </p>
-                    <p className="mt-0.5 break-words text-[12px] text-sale">{e.message}</p>
+                    <p className="mt-0.5 break-words text-[13px] leading-snug text-sale sm:text-[12px]">{e.message}</p>
                     <p className="mt-1 text-[11px] text-muted">
                       {e.count}× · first {relativeTime(e.firstSeen)} · last {relativeTime(e.lastSeen)}
                     </p>
                   </div>
+                  {/* Full-width footer on a phone, inline pill from sm up. A 30px pill wedged
+                      beside a wrapping stack trace is a target that has to be aimed at. */}
                   {!e.resolvedAt && (
                     <button
                       onClick={async () => {
                         try { await adminApi.resolveError(e.id); push("ok", "Marked as dealt with"); setReload((n) => n + 1); }
                         catch (err) { push("error", (err as Error).message); }
                       }}
-                      className="shrink-0 rounded-full border border-line-strong px-3 py-1.5 text-[12px] font-semibold hover:border-plum hover:text-plum"
+                      className={`w-full shrink-0 rounded-full border border-line-strong px-4 text-[13px] font-semibold hover:border-plum hover:text-plum sm:w-auto sm:px-3 sm:py-1.5 sm:text-[12px] ${TAP}`}
                     >Dealt with</button>
                   )}
                 </div>
@@ -119,7 +124,7 @@ export function AdminPulse() {
         {/* ── launch list ── */}
         <section className="rounded-2xl border border-line bg-surface p-4 sm:p-5">
           <div className="flex items-start justify-between gap-3">
-            <div>
+            <div className="min-w-0">
               <h2 className="flex items-center gap-1.5 text-[13px] font-semibold uppercase tracking-[0.14em] text-muted">
                 <UsersIcon className="h-4 w-4" /> Launch list
               </h2>
@@ -145,7 +150,7 @@ export function AdminPulse() {
                     URL.revokeObjectURL(url);
                   } catch (e) { push("error", (e as Error).message); }
                 }}
-                className="shrink-0 rounded-full border border-line-strong px-3 py-1.5 text-[12px] font-semibold hover:border-plum hover:text-plum"
+                className={`shrink-0 rounded-full border border-line-strong px-4 text-[13px] font-semibold hover:border-plum hover:text-plum sm:px-3 sm:py-1.5 sm:text-[12px] ${TAP}`}
               >Export CSV</button>
             )}
           </div>
@@ -156,15 +161,17 @@ export function AdminPulse() {
             </p>
           ) : (
             <>
-              <div className="mt-3 flex flex-wrap gap-x-6 gap-y-1 text-[13px]">
-                <span><b className="serif text-lg text-ink">{list.subscribed}</b> <span className="text-muted">subscribed</span></span>
-                <span><b className="serif text-lg text-ink">{list.today}</b> <span className="text-muted">today</span></span>
-                <span><b className="serif text-lg text-ink">{list.last7}</b> <span className="text-muted">this week</span></span>
+              <div className="mt-3 grid grid-cols-3 gap-2 sm:flex sm:flex-wrap sm:gap-x-6 sm:gap-y-1">
+                <Tally value={list.subscribed} label="subscribed" />
+                <Tally value={list.today} label="today" />
+                <Tally value={list.last7} label="this week" />
               </div>
               <ul className="mt-3 divide-y divide-line rounded-xl border border-line">
                 {list.recent.slice(0, 8).map((s) => (
-                  <li key={s.id} className="flex items-center justify-between gap-3 px-3 py-2 text-[13px]">
-                    <span className="min-w-0 truncate text-ink">{s.email}</span>
+                  <li key={s.id} className="flex items-center justify-between gap-3 px-3 py-2.5 text-[13px] sm:py-2">
+                    {/* Wraps on a phone. A clipped address with no title attribute is a value
+                        nobody can recover on the device it is clipped on. */}
+                    <span className="min-w-0 break-all text-ink sm:truncate">{s.email}</span>
                     <span className="shrink-0 text-[11px] text-muted">{relativeTime(s.createdAt)}</span>
                   </li>
                 ))}
@@ -186,13 +193,13 @@ export function AdminPulse() {
                   : <>SMTP is <b>not configured</b>, so nothing has been sent — but nothing has been lost either.</>}
               </p>
               <p className="mt-1 text-[13px] text-muted">
-                <b className="serif text-lg text-ink">{outbox.waiting}</b> message{outbox.waiting === 1 ? "" : "s"} queued
+                <b className="serif text-[22px] leading-none text-ink sm:text-lg">{outbox.waiting}</b> message{outbox.waiting === 1 ? "" : "s"} queued
                 {outbox.oldestWaiting && <> · oldest {relativeTime(outbox.oldestWaiting)}</>}
               </p>
               {outbox.byKind.length > 0 && (
-                <ul className="mt-3 space-y-1 text-[12px] text-muted">
+                <ul className="mt-3 space-y-1 text-[13px] text-muted sm:text-[12px]">
                   {outbox.byKind.map((k) => (
-                    <li key={k.kind} className="flex justify-between"><span>{k.kind}</span><span className="tabular">{k.waiting}</span></li>
+                    <li key={k.kind} className="flex justify-between gap-4"><span className="min-w-0 break-words">{k.kind}</span><span className="tabular shrink-0">{k.waiting}</span></li>
                   ))}
                 </ul>
               )}
@@ -207,7 +214,7 @@ export function AdminPulse() {
                     try { const r = await adminApi.flushOutbox(); push("ok", `Sent ${r.sent}`); setReload((n) => n + 1); }
                     catch (e) { push("error", (e as Error).message); }
                   }}
-                  className="btn btn-primary mt-4 px-4 py-2 text-[13px]"
+                  className={`btn btn-primary mt-4 w-full px-4 py-2 text-[13px] sm:w-auto ${TAP}`}
                 >Send what’s waiting</button>
               )}
             </>
@@ -223,16 +230,17 @@ export function AdminPulse() {
           hosting tier that is often — so it answers “is anything happening right now”, not “how many
           visitors did we have in July”.
         </p>
-        <div className="mt-3 flex flex-wrap gap-x-8 gap-y-2 text-[13px]">
-          <span><b className="serif text-lg text-ink">{p.traffic.pageViews}</b> <span className="text-muted">page views</span></span>
-          <span><b className="serif text-lg text-ink">{p.traffic.apiCalls}</b> <span className="text-muted">API calls</span></span>
-          <span className="text-muted">since {relativeTime(p.traffic.since)}</span>
+        <div className="mt-3 grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-baseline sm:gap-x-8 sm:gap-y-2">
+          <Tally value={p.traffic.pageViews} label="page views" />
+          <Tally value={p.traffic.apiCalls} label="API calls" />
+          <p className="col-span-2 text-[12px] text-muted sm:col-span-1 sm:text-[13px]">since {relativeTime(p.traffic.since)}</p>
         </div>
         {p.traffic.topPaths.length > 0 && (
-          <ul className="mt-3 space-y-1 text-[12px]">
+          <ul className="mt-3 space-y-1 text-[13px] sm:text-[12px]">
             {p.traffic.topPaths.map((t) => (
               <li key={t.path} className="flex justify-between gap-4">
-                <span className="truncate text-muted">{t.path}</span>
+                {/* A path is the identifying detail here — clipped, one row looks like another. */}
+                <span className="min-w-0 break-all text-muted sm:truncate">{t.path}</span>
                 <span className="tabular shrink-0 text-ink">{t.hits}</span>
               </li>
             ))}
@@ -243,15 +251,37 @@ export function AdminPulse() {
   );
 }
 
+/**
+ * A glance figure. Set at 32px on a phone and back to the desktop scale above `sm`.
+ *
+ * These four cards are the whole reason the screen gets opened, and on a phone they are one
+ * column — so there is nothing competing for the width and no reason for the number to be the
+ * same size as the sentence explaining it.
+ */
 function Stat({ label, value, note, tone }: { label: string; value: string; note: string; tone?: "ok" | "bad" }) {
   return (
     <div className={`rounded-2xl border p-4 ${tone === "bad" ? "border-sale/40 bg-sale/5" : "border-line bg-surface"}`}>
       <p className="text-[12px] font-semibold uppercase tracking-[0.12em] text-muted">{label}</p>
-      <p className="serif mt-1 flex items-center gap-2 text-2xl text-ink">
+      <p className="serif mt-1.5 flex items-center gap-2 text-[32px] leading-none text-ink sm:mt-1 sm:text-2xl">
         {value}
         {tone === "ok" && <CheckIcon className="h-4 w-4 text-plum" />}
       </p>
-      <p className="mt-1 text-[12px] leading-snug text-muted">{note}</p>
+      <p className="mt-1.5 text-[13px] leading-snug text-muted sm:mt-1 sm:text-[12px]">{note}</p>
+    </div>
+  );
+}
+
+/**
+ * The small figures inside a panel — launch list and traffic.
+ *
+ * Three across on a phone rather than a wrapped inline sentence: at 390px "12 subscribed 3
+ * today 9 this week" wraps mid-pair and the numbers stop belonging to their labels.
+ */
+function Tally({ value, label }: { value: number; label: string }) {
+  return (
+    <div className="sm:flex sm:items-baseline sm:gap-1.5">
+      <p className="serif text-[22px] leading-none text-ink sm:text-lg">{value}</p>
+      <p className="mt-1 text-[12px] leading-snug text-muted sm:mt-0 sm:text-[13px]">{label}</p>
     </div>
   );
 }

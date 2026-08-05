@@ -176,7 +176,17 @@ export function ProductEditor({ product, cats, brands, onClose, onSaved }: {
               {images.map((im, i) => (
                 <div key={i} className="group relative aspect-square overflow-hidden rounded-lg border border-line">
                   <img src={im.url} alt="" className="h-full w-full object-cover" />
-                  <button onClick={() => setImages((a) => a.filter((_, j) => j !== i))} aria-label={`Remove image ${i + 1}`} className="focus-ring absolute right-1 top-1 grid h-6 w-6 place-items-center rounded-full bg-ink/70 text-white opacity-0 group-hover:opacity-100 focus-visible:opacity-100"><CloseIcon className="h-3.5 w-3.5" /></button>
+                  {/*
+                    Always visible on touch, hover-revealed on a pointer.
+
+                    This was `opacity-0 group-hover:opacity-100 focus-visible:opacity-100`. A
+                    phone fires no hover and `focus-visible` needs a keyboard, so on the device
+                    the owner actually works from, the only way to delete a product image was a
+                    permanently invisible 24px button. Now it shows by default and only hides
+                    itself from `sm:` up, where a hover exists to bring it back — and it is 36px,
+                    not 24, because it is a destructive control under a thumb.
+                  */}
+                  <button onClick={() => setImages((a) => a.filter((_, j) => j !== i))} aria-label={`Remove image ${i + 1}`} className="focus-ring absolute right-1 top-1 grid h-9 w-9 place-items-center rounded-full bg-ink/70 text-white sm:h-6 sm:w-6 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100"><CloseIcon className="h-4 w-4 sm:h-3.5 sm:w-3.5" /></button>
                 </div>
               ))}
               <label className="focus-ring grid aspect-square cursor-pointer place-items-center rounded-lg border border-dashed border-line-strong text-muted-strong hover:border-plum hover:text-plum">

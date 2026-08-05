@@ -1,0 +1,922 @@
+{
+  "surveys": [
+    {
+      "summary": "Dispatch is the only admin screen with a phone branch — `sm:hidden` appears exactly once in the whole of `web/src/admin/` (AdminDispatch.tsx:110), where a card list replaces a 720px table below 640px, the one number that matters is set at 26px, and the phone number is a `tel:` link; everything else is a desktop layout that merely stacks. At 390px the daily loop breaks concretely: the products table needs ~728px of a 358px viewport, the Rewards ledger is still literally a `min-w-[720px]` scroller, Coupons/Gift Cards/Customers clip their Edit/Delete column off the right edge with `overflow-hidden` and no scroller, the order-status control sits below the entire item list and event history, and the bulk action bar wraps to roughly seven rows over the content it acts on. Touch targets are the systemic problem — the inline status chip is ~21px, row checkboxes 16px, row Edit/Delete 26–32px, and Approve/Reject on loyalty claims 30px — against the ~44px the task asks for.",
+      "findings": [
+        {
+          "title": "THE PATTERN TO COPY: dispatch's phone branch, and it is used exactly once in admin",
+          "file": "web/src/admin/AdminDispatch.tsx",
+          "line": 98,
+          "detail": "The established treatment, verbatim from this codebase, so it can be copied rather than reinvented:\n\n1. TWO RENDERINGS, NOT ONE RESPONSIVE ONE. `<ul className=\"space-y-3 sm:hidden print:hidden\">` (line 110) renders `PhoneCard` below 640px; `<div className=\"hidden ... sm:block print:block\">` (line 114) renders the same rows as a table from 640px up. Same data, same figures, no second source of truth. The comment at 98-109 states the rule: the phone rendering is NOT a fallback.\n2. HIERARCHY IS THE JOB, NOT THE RECORD (comment at 221-231). On the card the *amount to collect* is `serif text-[26px] leading-none` (line 255) with a 10px `collect` caption under it; name/address are 15px/13px; the order number drops to 11px at the bottom (line 285). The desktop table shows the same figure at `text-[17px]` in the fourth column.\n3. THE ROW'S ACTIONS BECOME A FULL-WIDTH FOOTER. Lines 269-283: a `border-t` strip with a `flex-1` `tel:` link (`px-3 py-2` ≈ 40px tall, full width) plus one 44px icon button (`p-2.5` + 16px icon). The `tel:` link exists because \"copying a number out of a table one-handed while holding a bag is not a thing anyone does twice\".\n4. CONDITIONAL DETAIL ONLY WHEN TRUE. `whyDifferent` and `notes` render only when set (lines 261-267), so a field that would be blank on every row is absent rather than empty.\n5. NOTHING IS DROPPED ON THE PHONE. Every column of the desktop table survives into the card, re-ranked.\n\nGrep confirms the reach: `sm:hidden` appears in `web/src/admin/**` only at AdminDispatch.tsx:110. No other admin screen has a phone branch.",
+          "severity": "info",
+          "effort": "trivial"
+        },
+        {
+          "title": "Product images cannot be removed on a phone — the delete button is hover-only",
+          "file": "web/src/admin/ProductEditor.tsx",
+          "line": 179,
+          "detail": "`className=\"... opacity-0 group-hover:opacity-100 focus-visible:opacity-100\"`. A touch device fires no `hover`, and `focus-visible` needs a keyboard, so the button is permanently at `opacity: 0`. It still occupies its box and is tappable in principle, but it is invisible — there is no affordance and no discoverable way to delete an uploaded image from a phone. This is the only delete path for images. Fix: drop the opacity gate at phone width (`opacity-100 sm:opacity-0 sm:group-hover:opacity-100`) and grow it from `h-6 w-6` (24px).",
+          "severity": "blocker",
+          "effort": "trivial"
+        },
+        {
+          "title": "Bulk action bar wraps to ~7 rows and covers the bottom half of the screen, over the rows it acts on",
+          "file": "web/src/admin/ProductList.tsx",
+          "line": 515,
+          "detail": "`fixed inset-x-0 bottom-4 z-40` with an inner `flex max-w-full flex-wrap gap-2`. At 358px of usable width its children each need their own line: count+Clear (~130px), status Combobox `w-[10.5rem]`=168, category `w-[12rem]`=192, brand `w-[12rem]`=192, audience `w-[9.5rem]`=152, then ★/☆ Our Picks, then Delete. That is roughly 7 rows ≈ 330px of fixed overlay against an 844px screen. The page reserves only `pb-24` (96px, line 408), so the bar sits on top of the last ~5 table rows and the pagination strip — the rows you are trying to select are underneath the bar selecting them. The toast container (`fixed bottom-5 z-[60]`, primitives/Toast.tsx:26) then lands on top of the bar's first row. Follow dispatch: below 640px this should be a one-line summary bar (\"12 selected · Actions\") that opens a sheet.",
+          "severity": "blocker",
+          "effort": "medium"
+        },
+        {
+          "title": "Products table needs ~728px inside a 358px viewport — status and Edit are off-screen",
+          "file": "web/src/admin/ProductList.tsx",
+          "line": 223,
+          "detail": "Columns without a `hideBelow` all survive to 390px: product (`cellClass: \"min-w-[15rem]\"` = 240px, line 223), price (`w-28`, line 312), status (`w-36`, line 331), actions (`w-24`, line 380), plus the 40px selection column. With `px-3` on every cell that is ≈728px of minimum width against 358px available. DataTable.tsx:160 wraps it in `overflow-x-auto lg:overflow-x-visible`, so the answer at phone width is a sideways swipe — the exact failure dispatch's comment describes and removed (\"a 720px table inside a horizontal scroller ... reachable by swiping sideways with the hand holding the parcel\"). `Column.hideBelow` (DataTable.tsx:28) only offers sm/md/lg/xl, so there is no way to drop a column *at* phone width, and price/status/actions declare none. Needs a `sm:hidden` card list like AdminDispatch.tsx:110.",
+          "severity": "blocker",
+          "effort": "large"
+        },
+        {
+          "title": "Rewards ledger is still a literal min-w-[720px] horizontal scroller with 9 undroppable columns",
+          "file": "web/src/admin/AdminLoyalty.tsx",
+          "line": 366,
+          "detail": "`<table className=\"w-full min-w-[720px] text-[13px]\">` inside `overflow-x-auto` (line 365). Nine columns (#, Type, Status, Points, ×, Order, Reason, By, When), none with a `hidden sm:table-cell`, and the Reason cell is `max-w-[260px] truncate` with the full text only in a `title` attribute — hover-only, so on a phone the reason is unrecoverable. This is the same 720px shape, to the pixel, that AdminDispatch.tsx:98-109 was rewritten to remove. \"Why does this customer have the balance they have\" is answered only by swiping a table sideways.",
+          "severity": "high",
+          "effort": "medium"
+        },
+        {
+          "title": "Coupons/Gift Cards/Customers clip their action column off the right edge with no way to scroll to it",
+          "file": "web/src/admin/AdminCoupons.tsx",
+          "line": 38,
+          "detail": "`<div className=\"mt-5 overflow-hidden rounded-2xl ...\">` wrapping a plain `<table className=\"w-full text-left text-[13px]\">` — `overflow-hidden`, not `overflow-x-auto`. At 390px the visible columns are Code, Discount, Used, Status, actions: five cells × `px-4` = 160px of padding alone out of 358px, leaving ~200px for a 9-character code, a discount, a used count, a status pill and an Edit+Delete pair. The overflow is clipped, not scrollable, so the last column (Edit / Delete) is simply gone. Identical construction at AdminGiftCards.tsx:45-47 (code is `font-mono` \"TG-GIFT-5000\", wider) and AdminCustomers.tsx:22-24. This is the same defect as commit 268695e \"fix: the Edit button was off-screen on every laptop\", which was fixed in DataTable via `stickyRight` but never carried to these three hand-rolled tables — the sibling hunt CLAUDE.md mandates was not done here.",
+          "severity": "blocker",
+          "effort": "medium"
+        },
+        {
+          "title": "Order detail: 'Update status' sits below the whole item list and the full event history",
+          "file": "web/src/admin/AdminOrders.tsx",
+          "line": 317,
+          "detail": "`<div className=\"mt-6 grid gap-6 lg:grid-cols-[1.5fr_1fr]\">` (line 255). Below `lg` it is one column, and the second column — Customer, WhatsApp, and the Update-status card (line 345) — renders after the entire left column: every line item (line 259-274), the full money breakdown, and the complete `events` history (line 300-314, unbounded). Changing an order's status is the single most common action on this screen and on a phone it is several screens of scrolling away, behind data the owner has already read. Dispatch's rule applies directly: the hierarchy should be the job, not the record. Put the status control (and the WhatsApp button) directly under the header at phone width, or make it a sticky footer like ProductEditor.tsx:201.",
+          "severity": "high",
+          "effort": "small"
+        },
+        {
+          "title": "Customers hides the phone number on phones — the exact key needed to find them in Rewards",
+          "file": "web/src/admin/AdminCustomers.tsx",
+          "line": 29,
+          "detail": "`<td className=\"hidden px-4 py-3 text-muted sm:table-cell\">{c.phone || \"—\"}</td>`. Loyalty accounts are keyed by phone and `/admin/loyalty` searches by phone only (AdminLoyalty.tsx:70-74, and CLAUDE.md is explicit that there is deliberately no lookup by anything else). So the daily task \"find a customer, adjust their loyalty points\" is broken at 390px: the one field that bridges the two screens is the field the breakpoint drops. Rows are also not tappable — there is no customer detail view and no link to their loyalty account.",
+          "severity": "high",
+          "effort": "small"
+        },
+        {
+          "title": "Pagination's page-number strip is unwrappable and pushes the page into sideways scroll",
+          "file": "web/src/admin/primitives/Pagination.tsx",
+          "line": 57,
+          "detail": "`<nav aria-label=\"Pagination\" className=\"flex items-center gap-1\">` — no `flex-wrap`. On the products list (194 pages) the window is up to 7 numbered buttons plus « ‹ › » and two ellipses; each button is `grid h-8 min-w-8 px-2.5` so ~38-42px, giving ~460px of unshrinkable content against ~334px available inside the strip's `px-3`. The whole admin page scrolls horizontally as a result. Every one of those buttons is also 32px tall — below the ~44px target — and they sit 4px apart.",
+          "severity": "high",
+          "effort": "small"
+        },
+        {
+          "title": "The inline status chip — the most-used control in the catalogue — is ~21px tall",
+          "file": "web/src/admin/primitives/StatusBadge.tsx",
+          "line": 76,
+          "detail": "`className=\"... rounded-full px-2.5 py-0.5 text-[11px] ...\"` on the `StatusBadgeEditable` trigger: 2px padding top and bottom around an 11px label ≈ 21px of tap height, with an 12px chevron inside it. It is the primary way to change a product's status from the list (ProductList.tsx:333) and it is less than half the ~44px target. Enlarging it below `sm` (e.g. `py-2 text-[12px] sm:py-0.5 sm:text-[11px]`) costs nothing on desktop, where the comment's \"stays a badge until you use it\" argument was made.",
+          "severity": "high",
+          "effort": "trivial"
+        },
+        {
+          "title": "ConfirmDialog has no max-height and no internal scroll while body scroll is locked",
+          "file": "web/src/admin/primitives/ConfirmDialog.tsx",
+          "line": 66,
+          "detail": "The panel is `relative w-full max-w-md rounded-2xl ... p-5` inside a `grid place-items-center` overlay, and the effect at line 34 sets `document.body.style.overflow = \"hidden\"`. Nothing can scroll if the panel is taller than the viewport. The worst case is the 'Which item can't you source?' dialog (AdminOrders.tsx:375-390): explanatory paragraph, item Combobox, a `rows={3}` textarea whose note is *required*, hint text, then Cancel/Confirm. With a soft keyboard open the usable height on a 390×844 phone is ~420px; the confirm button ends up below it with no way to reach it. The fix already exists in this codebase — `Modal` in AdminCategories.tsx:81 uses `max-h-[88vh] overflow-y-auto`. ConfirmDialog should do the same.",
+          "severity": "high",
+          "effort": "trivial"
+        },
+        {
+          "title": "Product filter bar is ~9 stacked rows of controls before the first product",
+          "file": "web/src/admin/ProductList.tsx",
+          "line": 424,
+          "detail": "`FilterBar` is `flex flex-wrap items-center gap-2` (primitives/FilterBar.tsx:40) and its children carry fixed widths that each exceed half of 358px: search `min-w-[13rem]`, status `w-[10.5rem]`, category `w-[12rem]`, brand `w-[12rem]`, source `w-[9.5rem]`, audience `w-[9.5rem]`, plus the price min/max pair and two labelled yes/no comboboxes (lines 444-475). Every one lands on its own line — roughly 400px of filter controls, plus the chip row, above the first row of the table. On a phone the list you came to see starts below the fold. These should collapse behind a single \"Filters (2)\" button opening a sheet at phone width.",
+          "severity": "high",
+          "effort": "medium"
+        },
+        {
+          "title": "Order list drops the 'waiting N days' badge exactly where it matters most",
+          "file": "web/src/admin/AdminOrders.tsx",
+          "line": 125,
+          "detail": "`className=\"hidden shrink-0 items-center gap-1 ... sm:inline-flex\"` — the `awaiting_customer` age badge is visible only from 640px up. That badge is the one thing on the row that says an order is stuck and how long a customer has been waiting; on a phone the row is indistinguishable from any other. Compare AdminRequests.tsx:73-81, which deliberately leads with the age of the oldest open request for precisely this reason. Nothing on this row should be hidden by breakpoint; the row should be re-laid-out instead.",
+          "severity": "high",
+          "effort": "small"
+        },
+        {
+          "title": "Order list rows have no truncation, so name and metadata wrap into ragged 3–4 line blocks",
+          "file": "web/src/admin/AdminOrders.tsx",
+          "line": 117,
+          "detail": "`flex w-full items-center gap-4 px-4 py-3.5` with `shrink-0` on the StatusPill and the money, leaving the `min-w-0 flex-1` block ~150px at 390px. Neither `<p>` truncates: line 119 (`{o.number} · {o.fullName}`) and line 120-122 (`{o.phone} · {o.area} · {relativeTime} · {n} items` at `text-[12px]`) both wrap. Rows become uneven and unscannable, and the 12px metadata line carries the phone number. Dispatch's PhoneCard solves the same row shape with an explicit two-block layout (AdminDispatch.tsx:247-258).",
+          "severity": "medium",
+          "effort": "small"
+        },
+        {
+          "title": "Row-level Edit and Delete are 32px and 4px apart, with Delete adjacent",
+          "file": "web/src/admin/ProductList.tsx",
+          "line": 388,
+          "detail": "Both action buttons are `grid h-8 w-8 place-items-center` (lines 388 and 398) inside `flex items-center justify-end gap-1`, separated only by a 1px divider. 32px is below the ~44px target and the two are ~36px apart centre-to-centre, with the destructive one on the right where a thumb naturally lands. Same shape at AdminBrands.tsx:166 (`h-7 w-7` = 28px), AdminCategories.tsx:50, AdminCoupons.tsx:49, AdminGiftCards.tsx:56.",
+          "severity": "high",
+          "effort": "small"
+        },
+        {
+          "title": "Selection checkboxes are 16px, and range-selection is shift+click only",
+          "file": "web/src/admin/primitives/DataTable.tsx",
+          "line": 236,
+          "detail": "`className=\"focus-ring h-4 w-4 accent-plum\"` on both the row checkbox (line 236) and the select-all header checkbox (line 174). 16px is roughly a third of the target. The only bulk-selection accelerator is shift+click (`toggleRow(i, e.shiftKey)`, line 234, comment at 113) which no touch device can produce — so gathering 20 products on a phone is 20 individual 16px taps, and the bulk bar that consumes the selection is itself covering the bottom of the list.",
+          "severity": "high",
+          "effort": "small"
+        },
+        {
+          "title": "Approve / Reject on loyalty claims are 30px tall and grant real points",
+          "file": "web/src/admin/AdminLoyalty.tsx",
+          "line": 308,
+          "detail": "`className=\"btn btn-ghost px-3 py-1.5 text-[12px]\"` and `btn btn-primary px-3 py-1.5 text-[12px]` sit side by side in a `flex gap-2` (lines 307-310): ~30px tall, 8px apart, and one of them irreversibly grants points against a guest-order claim the blurb explicitly says is only a candidate. The two most consequential buttons on the screen are the smallest.",
+          "severity": "high",
+          "effort": "trivial"
+        },
+        {
+          "title": "Adjusting points needs three ~34px inputs and a 30px Record button with no confirmation",
+          "file": "web/src/admin/AdminLoyalty.tsx",
+          "line": 346,
+          "detail": "`grid gap-2 sm:grid-cols-[110px_110px_1fr_auto]` collapses to one column below 640px, which is right, but every control is `px-3 py-2 text-[13px]` ≈ 34px tall and the submit is `px-5 py-2 text-[13px]`. Reaching this form is also a long scroll on a phone: the Liability block above it is `grid gap-3 sm:grid-cols-2 lg:grid-cols-4` (line 123), so four stat cards plus the tiers card stack full-width before the search box, and the AccountPanel then renders three more full-width blocks (line 199) before Claims and Adjust. \"Adjust loyalty points\" is ~6 screens of scrolling from the top.",
+          "severity": "medium",
+          "effort": "small"
+        },
+        {
+          "title": "Pulse stacks four stat cards full-width — checking the pulse is four screens for four numbers",
+          "file": "web/src/admin/AdminPulse.tsx",
+          "line": 58,
+          "detail": "`grid gap-3 sm:grid-cols-2 lg:grid-cols-4` — one column below 640px, and each card is `p-4` with a `text-2xl` value plus a note, ~110px tall. Orders today / Taken today / Signups / Open errors should be a single glance. Dashboard.tsx:34 already does the right thing with `grid grid-cols-2 gap-3 lg:grid-cols-4`; Pulse, Loyalty (line 123), Requests (line 69) and Dispatch (line 59) all use the `sm:` variant instead. Making the base 2-up is a one-word change per file and fixes the most-visited screen in the list.",
+          "severity": "medium",
+          "effort": "trivial"
+        },
+        {
+          "title": "Pulse's 'Dealt with' and 'Refresh' buttons are 30px",
+          "file": "web/src/admin/AdminPulse.tsx",
+          "line": 103,
+          "detail": "`className=\"shrink-0 rounded-full border border-line-strong px-3 py-1.5 text-[12px] font-semibold hover:border-plum hover:text-plum\"` — ~30px tall, and its only visual affordance is a `hover:` border/text colour change that never fires on touch, so it reads as static text. Same at line 77 (Refresh) and line 148 (Export CSV). The error message above it uses `break-words` correctly, so nothing overflows — the problem is purely target size and hover-only affordance.",
+          "severity": "medium",
+          "effort": "trivial"
+        },
+        {
+          "title": "Dashboard puts catalogue health above orders on a phone",
+          "file": "web/src/admin/Dashboard.tsx",
+          "line": 41,
+          "detail": "`<div className=\"mt-6 grid gap-6 lg:grid-cols-[1.4fr_1fr]\">` — below `lg` the first grid child renders first, and that is the Catalogue-health card plus the \"Where the catalogue came from\" import list (lines 43-95). \"Needs attention\" (open orders by status, line 99) and \"Recent orders\" (line 124) come after it. For the stated daily task — see new orders — the phone ordering is backwards. Reorder with `order-` utilities at phone width, or swap the DOM order and use `lg:order-*` on the catalogue block.",
+          "severity": "medium",
+          "effort": "trivial"
+        },
+        {
+          "title": "Product variant rows fragment into ~3 wrapped lines each at phone width",
+          "file": "web/src/admin/ProductEditor.tsx",
+          "line": 112,
+          "detail": "`flex flex-wrap items-center gap-2 rounded-xl border border-line p-2` holding a `w-24` type Combobox, a 36px swatch image, a `min-w-[7rem] flex-1` label, a `w-28` SKU, a `h-9 w-10` colour input, a `w-24` price override, an 'Available' checkbox label and a 32px delete — ~614px of minimum content in a 318px box. Each variant becomes a ~120px multi-row blob with no visual grouping, and a Dali product carries many shades. The `w-24`/`w-28` fixed widths are the specific obstacle; below `sm` this wants to be a labelled two-column grid per variant.",
+          "severity": "medium",
+          "effort": "medium"
+        },
+        {
+          "title": "Orders renders a rows-per-page control that does nothing",
+          "file": "web/src/admin/AdminOrders.tsx",
+          "line": 137,
+          "detail": "`onPageSize={() => { /* orders use a fixed page size */ }}`. Pagination.tsx:44-54 unconditionally renders the \"Rows\" label plus a `w-[5.25rem]` Combobox, so the orders list shows a dropdown that silently discards the choice. On a 358px pagination strip it also consumes ~120px of the space that is already overflowing (see the pagination finding). Pagination should accept an optional `onPageSize` and omit the control when it is absent.",
+          "severity": "medium",
+          "effort": "trivial"
+        },
+        {
+          "title": "Customers fires a request per keystroke and never paginates",
+          "file": "web/src/admin/AdminCustomers.tsx",
+          "line": 11,
+          "detail": "`useEffect(() => { setLoading(true); adminApi.customers(q)... }, [q])` where `q` is set straight from `onChange` (line 17) — no `useDebounced`, though the hook exists at primitives/hooks.ts:7 and is used by both Orders and Products. On a phone on mobile data in a van, typing a name issues one round trip per character and the list blanks to a spinner each time. There is also no pagination and no `limit`, so the whole customer table comes down every time. `.catch` is absent too, so a failed request leaves the screen spinning with no error state.",
+          "severity": "medium",
+          "effort": "small"
+        },
+        {
+          "title": "Truncated names are recoverable only by hovering a title attribute",
+          "file": "web/src/admin/ProductList.tsx",
+          "line": 243,
+          "detail": "`title={p.name}` on a `cell-truncate` button (`.cell-truncate` in index.css:459 is `overflow:hidden; text-overflow:ellipsis; white-space:nowrap`). At 390px the product column is the narrowest it will ever be while carrying the longest strings in the catalogue (\"Beesline Propolis Whitening Facial Soap 1+1 Free 200ml\"), so most rows are ellipsed and the full text is behind a desktop-only tooltip. Same pattern at lines 282 (brand), 301 (category), 363 (SKU), AdminBrands.tsx:121, and AdminLoyalty.tsx:389 (`title={e.reason}`). A phone card layout should wrap to two lines instead.",
+          "severity": "medium",
+          "effort": "small"
+        },
+        {
+          "title": "Categories, Coupons, Gift Cards and Reviews still use native confirm()/alert()",
+          "file": "web/src/admin/AdminCategories.tsx",
+          "line": 29,
+          "detail": "`if (!confirm(`Delete “${c.name}”?`)) return;` and `alert((e as Error).message)` on line 30. Also AdminCoupons.tsx:28, AdminGiftCards.tsx:28, AdminReviews.tsx:14. `ConfirmDialog` exists precisely so a delete can state what is at stake (AdminBrands.tsx:252-270 has the good version, with the comment \"Was a native confirm(), which can't say what is actually at stake\"). On a phone the native sheet is also the only thing on screen that does not look like the app, and `alert` for a server error loses the message the moment it is dismissed.",
+          "severity": "medium",
+          "effort": "small"
+        },
+        {
+          "title": "Brands table overflows at 390px and the audience column is dropped at md",
+          "file": "web/src/admin/AdminBrands.tsx",
+          "line": 113,
+          "detail": "Columns surviving to phone width are name (no width cap), products `w-24`, state `w-32` and actions `w-24` — ≈416px including `px-3` on each cell, against 358px, so DataTable's `overflow-x-auto` kicks in and the Edit/Delete pair is the part that scrolls away (it has no `stickyRight`, unlike ProductList.tsx:379). The 'Shop for' column is `hideBelow: \"md\"` (line 139), so the default-audience value — which the header text at line 181 counts and promotes — is invisible on the device it is being counted on. The filter bar above (search `w-[14rem]` + three comboboxes) wraps to four rows.",
+          "severity": "medium",
+          "effort": "medium"
+        },
+        {
+          "title": "Requests: Reply / Sourced / Can't get it are 30px tall in a wrapping row",
+          "file": "web/src/admin/AdminRequests.tsx",
+          "line": 159,
+          "detail": "The WhatsApp Reply anchor is `px-3.5 py-1.5 text-[12px]` and the three status buttons are `btn btn-ghost px-3.5 py-1.5 text-[12px]` (lines 164-171) — ~30px each in a `flex flex-wrap gap-2`. This screen is otherwise the closest to phone-ready in admin (card list, no table, WhatsApp reply as the primary action, and the comment at 19-25 states the one-tap-reply intent). Compare AdminDispatch.tsx:270-282, which gives its primary action `flex-1` full width and its secondary a 44px icon button — the same treatment here would finish the screen.",
+          "severity": "medium",
+          "effort": "trivial"
+        },
+        {
+          "title": "Settings' delivery-area row has no wrap and a 'on' checkbox with an 11px label",
+          "file": "web/src/admin/AdminSettings.tsx",
+          "line": 201,
+          "detail": "`<div key={i} className=\"flex items-center gap-2\">` — no `flex-wrap` — holding a `flex-1` name input, a `w-28` fee field, a bare checkbox with a `text-[11px]` \"on\" label (line 209-211), and a 32px delete button. It squeezes into 318px but the name field ends up ~90px wide, and the checkbox is a browser-default ~13px control with an 11px word next to it. Everything else on this screen is fine at 390px — `.field` (index.css:378) is `padding: 0.75rem 0.9rem` at 14px, ≈44px tall, and the save buttons are `px-6 py-3`. This one row is the exception.",
+          "severity": "low",
+          "effort": "trivial"
+        },
+        {
+          "title": "Admin topbar hamburger is 40px and there is no fast path between the daily screens",
+          "file": "web/src/admin/AdminLayout.tsx",
+          "line": 141,
+          "detail": "`className=\"grid h-10 w-10 place-items-center rounded-full hover:bg-soft\"` — 40px, just under target, and it is the only navigation control below `lg`. Every move between the six daily destinations (orders → dispatch → pulse → products → customers → rewards) costs: tap 40px hamburger, scroll a 16-item drawer whose links are `px-3 py-2 text-[13.5px]` ≈ 36px tall (line 93), tap, wait for a lazy chunk. The drawer close button is `h-9 w-9` (line 154). A persistent bottom bar with the four screens the owner actually uses in a van would remove that loop entirely.",
+          "severity": "medium",
+          "effort": "medium"
+        },
+        {
+          "title": "Search placeholder advertises a keyboard shortcut that cannot exist on a phone",
+          "file": "web/src/admin/ProductList.tsx",
+          "line": 431,
+          "detail": "`placeholder=\"Search name…  (press /)\"`, backed by `useSearchHotkeys` (primitives/hooks.ts:20). On a phone the hint is noise consuming placeholder width in a `min-w-[13rem]` box, and it makes the field look narrower than it is. Hide the parenthetical below `sm`.",
+          "severity": "low",
+          "effort": "trivial"
+        },
+        {
+          "title": "The 390px screenshot harness photographs no admin screen, so none of this was ever caught",
+          "file": "web/scripts/shots.mjs",
+          "line": 67,
+          "detail": "`SURFACES` (lines 67-84) lists 16 storefront routes and zero `/admin/*` routes, yet the script already plants the admin key at line 147 (`localStorage.setItem(\"tg_admin_key\", ...)`) so it is one array entry away from covering them. It emulates 390×844 at DPR 2 (line 139) and, at lines 241-254, detects sideways scroll and names the outermost offending elements — exactly the check that would have flagged the products table, the pagination strip and the loyalty ledger. Adding `/admin`, `/admin/orders`, `/admin/orders?id=<n>`, `/admin/products`, `/admin/customers`, `/admin/loyalty`, `/admin/pulse`, `/admin/coupons` and `/admin/gift-cards` to SURFACES gives a before/after for this whole survey. The harness at web/scripts/shot-bulkbar.mjs is the companion for the interactive cases (it already hit-tests popovers with elementFromPoint rather than trusting a bounding rect) and should gain a 390px run of the bulk bar.",
+          "severity": "medium",
+          "effort": "small"
+        }
+      ]
+    },
+    {
+      "summary": "The Coupon model gives you three of the six things a launch promo needs — percentage-off, an expiry, and a global usage counter claimed correctly under concurrency (the conditional-UPDATE pattern in CLAUDE.md is real, at server/src/index.ts:1023, and exercised by test-checkout-money.mjs:166) — and a coupon already flows through the dispatch run correctly (dispatch.ts reads order.totalCents and names the coupon in the driver's \"why different\" line). What is entirely missing is the maximum-discount cap, any first-order-only or per-customer concept, and the no-stacking-with-points rule: the loyalty code does the exact opposite of what the owner wants, applying points on top of the coupon by explicit design (index.ts:1036-1054), while schema.prisma:382 asserts \"That combination is disallowed\" — a comment that has never been true. Two blockers sit on top of that: coupon+points stacking is live today, and the awaiting_customer \"remove item\" path re-runs evalCoupon against a coupon that is by then expired or used-up and silently zeroes a discount the customer was already granted, raising the amount collected at the door.",
+      "findings": [
+        {
+          "title": "No-stacking-with-points does not exist; the loyalty code deliberately stacks them, and the schema claims the opposite",
+          "file": "server/src/index.ts",
+          "line": 1054,
+          "severity": "blocker",
+          "effort": "small",
+          "detail": "The owner's requirement (\"must NOT stack with loyalty points\") has no implementation anywhere. Grepping server/src/loyalty/ for coupon returns exactly two hits, and neither is a prohibition.\n\nWhat the loyalty code ACTUALLY says (server/src/index.ts:1036-1048, the comment above the code that runs):\n  \"Points, applied to MERCHANDISE only and after any coupon. The order of the three is deliberate and it is not interchangeable: coupon — a discount on the goods; points — a discount on the goods, capped at a share of what is left after the coupon ... And the 50% cap is measured against the post-coupon figure, which is what the customer is actually paying for the items.\"\n\nAnd rules.ts:85-87, which anticipates both being present on one order: \"Both discounts come off, coupon and points alike, because points are earned on what was actually paid for goods; leaving the points discount in would let someone farm points by redeeming and re-earning on the same money.\" merchandiseCentsOf (rules.ts:92-101) subtracts discountCents AND pointsDiscountCents in the same expression.\n\nMeanwhile server/prisma/schema.prisma:379-384 states: \"a shared field makes that unanswerable the first time a coupon and a redemption touch the same order. That combination is disallowed — so if both are ever non-zero, that is a bug worth being able to see rather than one silently averaged away.\" Nothing disallows it. The line 1054 code path (`merchandiseAfterCoupon = Math.max(0, subtotal - discount)` then previewRedemption against that figure) is the stacking, and it is live whenever LOYALTY_REDEMPTION_ENABLED is on.\n\nWhere the rule has to go: (1) in placeOrder, after the coupon claim at index.ts:1027 — if couponCode was claimed, force spendPoints to 0 (or refuse the coupon if points were requested — the owner must pick which wins); (2) as a refusal reason in quoteRedemption (rules.ts:497-506 RedemptionRefusal union) so the refusal is stated in the customer's own words rather than silently zeroed; (3) in web/src/pages/Checkout.tsx:81-83, which mirrors the stacking arithmetic client-side (`merchandiseAfterCoupon`, `pointsOff`) and in web/src/components/RedeemPoints.tsx:30 whose prop is documented as \"Goods after any coupon\"; (4) the schema comment at line 382 becomes true rather than aspirational. Note the invariant the schema comment wanted is worth asserting for real: discountCents > 0 && pointsDiscountCents > 0 should be impossible."
+        },
+        {
+          "title": "Removing an unsourceable line wipes an expiring/capped coupon's discount and raises the amount collected at the door",
+          "file": "server/src/index.ts",
+          "line": 2209,
+          "severity": "blocker",
+          "effort": "medium",
+          "detail": "The awaiting_customer \"remove\" resolution re-prices the order with `const { discount } = await evalCoupon(order.couponCode, subtotal);` and writes the result straight to the row at index.ts:2266 (`discountCents: discount`). The error field is discarded.\n\nevalCoupon (index.ts:890-899) is a VALIDATION function, not a re-pricing function. It refuses on three conditions that a launch promo satisfies by construction:\n  - index.ts:895 `c.maxUses != null && c.usedCount >= c.maxUses` — the order under repair already consumed a use, so a maxUses:1 code ALWAYS fails here, and a capped promo fails here the moment the cap fills;\n  - index.ts:894 expiresAt in the past — a promo is expiring by definition, and awaiting_customer orders sit for days while the shop chases the customer;\n  - index.ts:893 `!c.active` — the owner switching the promo off at the end of the campaign.\n\nIn every case discount becomes 0, totalCents rises by the full coupon value, and because couponCode stays on the row while discountCents is 0, dispatch.ts:83 stops printing the \"$X coupon\" line too. The driver now asks for more money than the customer agreed to, with nothing on the sheet explaining it. This is the exact failure dispatch.ts was built to prevent.\n\nThe fix is to separate \"may this coupon be used\" from \"what is this already-granted coupon worth against a smaller basket\": re-price from the stored Coupon row's type/value/minOrderCents (and the new cap) without re-checking expiry, active or maxUses, since this order already holds a claimed use. Same treatment the neighbouring code already gives points at index.ts:2222-2235 (\"POINTS ALREADY SPENT STAY SPENT\") and gift cards at 2240-2257 — the coupon is the one of the three that was missed. Not covered by any test: test-checkout-money.mjs never exercises /api/orders/:id/resolve."
+        },
+        {
+          "title": "No maximum-discount cap exists anywhere, and the discount formula is duplicated in two places",
+          "file": "server/src/index.ts",
+          "line": 897,
+          "severity": "high",
+          "effort": "small",
+          "detail": "There is no maxDiscountCents field on Coupon (schema.prisma:399-410) and no clamp in code — grepping the repo for maxDiscount/discountCap/capCents returns only the loyalty redemption cap in rules.ts:542, which is unrelated. \"20% off up to $10\" cannot be expressed today; a 20% code on a $400 basket gives away $80.\n\nThe capping arithmetic has to go in TWO places, because the discount formula is written out twice and they must not drift:\n  - index.ts:897  `const discount = c.type === \"percent\" ? Math.round((subtotal * c.value) / 100) : Math.min(c.value, subtotal);`  (the validate path, what the customer is shown)\n  - index.ts:1028 the identical expression inside the claim, after the conditional UPDATE succeeds (what they are actually charged)\n\nThis is precisely the rules.ts/ledger.ts split CLAUDE.md warns about: two copies of one calculation that are self-consistent individually. Adding the cap to one and not the other means the checkout page promises $80 off and the doorstep collects $10 less than the goods — a discrepancy the customer discovers with the driver standing there. Extract one `couponDiscountCents(coupon, subtotal)` helper and have both call sites use it, then add the cap inside it. Also note the fixed branch already clamps (`Math.min(c.value, subtotal)`) while percent does not — see the separate finding on unbounded percent values."
+        },
+        {
+          "title": "No first-order-only concept, no per-customer usage limit, and no identity key to build one on",
+          "file": "server/prisma/schema.prisma",
+          "line": 399,
+          "severity": "high",
+          "effort": "large",
+          "detail": "Coupon has code/type/value/minOrderCents/maxUses/usedCount/expiresAt/active and nothing else. There is no per-customer dimension at all: no CouponRedemption table (the model list in schema.prisma has 24 models, none of them coupon-scoped), no firstOrderOnly flag, no perCustomerLimit. Grepping the whole repo for firstOrder/first-order/perCustomer/oncePerCustomer finds only unrelated UI copy (present.ts:339 \"Your first order starts the count.\", AdminCustomers orderCount).\n\nThe harder half is that the identity to key it on does not exist either:\n  - Order.phone is stored RAW (index.ts:925 `const phone = str(b.phone).trim();`, written unchanged at index.ts:1103). \"03 123456\", \"03123456\" and \"+96103123456\" are three different customers to any query over that column. A first-order rule keyed on it is bypassed by adding a space.\n  - The codebase already learned this: LoyaltyAccount.phoneE164 (schema.prisma:482-489) carries the comment \"Only ever written through normaliseLebanesePhone() (src/loyalty/phone.ts); writing a raw string here is what splits one human into two accounts.\" server/src/loyalty/phone.ts is the existing, tested normaliser and is what a first-order check must use.\n  - Order.customerId is nullable (guest checkout is fully supported), so customerId alone cannot be the key.\n  - Order has indexes on status, createdAt, deliveredAt only (schema.prisma:393-395). There is no index on customerId, phone or couponCode, so \"has this person ordered before\" is a sequential scan.\n\nMinimum shape: add `phoneE164 String @default(\"\")` to Order (written through normaliseLebanesePhone at index.ts:925, backfilled), plus `firstOrderOnly Boolean` and `perCustomerLimit Int?` on Coupon, plus a CouponRedemption table with @@unique([couponId, phoneE164]) — see the next finding for why a table and not a check."
+        },
+        {
+          "title": "The conditional-UPDATE claim protects only the global counter — a per-customer rule cannot reuse it and must not be a check",
+          "file": "server/src/index.ts",
+          "line": 1023,
+          "severity": "high",
+          "effort": "medium",
+          "detail": "VERIFIED: the pattern CLAUDE.md describes is real and correct. index.ts:1023-1026 claims the global use with `tx.coupon.updateMany({ where: { id, usedCount: { lt: coupon.maxUses } }, data: { usedCount: { increment: 1 } } })`, inside the same transaction as the order, and count===0 falls back to full price rather than failing the sale (index.ts:1031). test-checkout-money.mjs:166-177 races two orders on a maxUses:1 coupon and asserts exactly one gets the discount and usedCount stops at 1. Under READ COMMITTED Postgres re-evaluates the WHERE after the row lock, so this is sound.\n\nBut it protects ONE shared integer. A first-order-only or one-per-customer rule has no counter to decrement — the natural implementation is `count orders for this phone === 0`, which is check-then-act. Two checkout tabs from the same phone both read zero prior orders and both get the discount, and the existing machinery does nothing to stop them: the coupon claim succeeds twice (usedCount 0→2, both under maxUses), and the transaction runs at READ COMMITTED for every non-points order (index.ts:1146), which does not serialise a phantom read.\n\nThe claim has to be the INSERT itself: a CouponRedemption row with @@unique([couponId, phoneE164]) created inside placeOrder's transaction, where a P2002 unique violation is the \"someone took it first\" signal — the same shape as the updateMany count===0 branch, and it must fall back to full price the same way rather than failing the order. Two further details: (1) `coupon` at index.ts:987 is read OUTSIDE the transaction by evalCoupon, so any per-customer predicate must be re-evaluated inside placeOrder, not carried in from that read; (2) placeOrder is re-run by withSerialisationRetry (index.ts:1163) and by the points-off fallback at index.ts:1175, so the claim must be idempotent or scoped to the order id, or a retry will collide with its own rolled-back insert."
+        },
+        {
+          "title": "A percent coupon's value is never bounded to 0-100, so a typo produces a negative order total",
+          "file": "server/src/index.ts",
+          "line": 2395,
+          "severity": "high",
+          "effort": "trivial",
+          "detail": "admin.post(\"/coupons\") writes `value: b.type === \"fixed\" ? toCents(b.value) : num(b.value)` with no range check, and admin.put does the same at index.ts:2405. `num` is `Number(v)` with no NaN or sign guard (index.ts:115). The admin UI is a free-text input (web/src/admin/AdminCoupons.tsx:63) with inputMode=\"decimal\" and no min/max.\n\nevalCoupon does not clamp the percent branch either (index.ts:897) — only the fixed branch has `Math.min(c.value, subtotal)`. So value=110 on a $50 basket gives discount=$55, afterDiscount = 50 - 55 + delivery, and a negative totalCents is written to the order at index.ts:1108. That figure then becomes collectCents on the dispatch run (dispatch.ts:123) and is summed into expectedCashCents (dispatch.ts:165), corrupting the day's reconciliation. A negative value is equally unguarded and silently increases the price.\n\nClamp at both the admin write (0-100 for percent, >=0 for fixed, reject NaN) and in the shared discount helper, since admin validation alone leaves existing rows unguarded. Note server/src/setup.ts is the established home for save-time validators (\"Settings are validated, never guessed\") — coupons currently have none."
+        },
+        {
+          "title": "usedCount is incremented at placement and never released when an order is cancelled or refused",
+          "file": "server/src/index.ts",
+          "line": 1025,
+          "severity": "medium",
+          "effort": "small",
+          "detail": "The only write to usedCount in the entire repo is the increment at index.ts:1025 (grep for usedCount returns 5 code hits: the read at 895, the claim at 1023-1025, the schema default, the admin display). Nothing decrements it. admin.put(\"/orders/:id/status\") at index.ts:2089 and the awaiting_customer cancel at index.ts:2185-2189 both move orders to cancelled without touching the coupon — and neither does the terminal-status hook onOrderStatusChanged, which handles the loyalty side only.\n\nFor a launch promo with a hard cap this is money: on COD, refusals at the door are a normal outcome, and every cancelled or refused order permanently burns one of the N uses the owner paid for. It also makes the cap unpredictable — the owner sees \"200/200 used\" with 30 of those never delivered.\n\nCompare the gift card, which DOES get its money back on the remove path (index.ts:2254-2257, \"THE GIFT CARD GETS THE DIFFERENCE BACK ... not writing it back is not 'a manual decision', it is a silent loss\"). The same argument applies to a coupon use. Decide deliberately: releasing on cancel opens a cheap way to farm a one-per-customer code (place, cancel, repeat), so if you add a CouponRedemption table the release should void the row's effect while keeping the row, not delete it."
+        },
+        {
+          "title": "/api/coupons/validate is an unauthenticated, unthrottled oracle for guessing codes; /api/orders is unthrottled too",
+          "file": "server/src/index.ts",
+          "line": 901,
+          "severity": "medium",
+          "effort": "small",
+          "detail": "app.post(\"/api/coupons/validate\") has no rate limiter. The six routes that do are listed at index.ts:1224, 1261, 1518, 1557, 1571, 1614 (product-requests, launch-signup, register, login, forgot, reset) and coupons are not among them — nor is app.get(\"/api/gift-cards/:code\") at index.ts:907, nor app.post(\"/api/orders\") at index.ts:918.\n\nThe endpoint distinguishes \"Invalid coupon code.\" from a successful discount, and from \"This coupon has expired\" / \"no longer available\" / \"Spend at least $X\" (index.ts:893-896), so it confirms not just existence but the code's state. Guessable patterns (LAUNCH20, TULIP20, WELCOME20, OPENING20) fall in seconds. server/src/rateLimit.ts:5 already frames the intended scope — \"the endpoints where guessing is the attack\" — and coupon codes are that, more directly than registration is.\n\nSecond, unrelated exposure through the same gap: /api/orders being unthrottled means the cap on a launch promo can be exhausted deliberately by scripted orders, denying the promo to real customers and leaving the owner with N fake COD orders to cancel. Add LIMITS.couponValidate (and consider one for order placement) in rateLimit.ts:92-108 alongside the existing entries. Note the limiter's own documented caveats still apply: in-memory, per-process, resets on deploy, fails open."
+        },
+        {
+          "title": "promo.ts will refuse to render a homepage banner announcing the code",
+          "file": "server/src/promo.ts",
+          "line": 100,
+          "severity": "medium",
+          "effort": "small",
+          "detail": "resolvePromo refuses outright when the wording promises money off and nothing in scope carries a sale price: \"the wording promises a discount but nothing in scope has a sale price.\" (promo.ts:101). mentionsDiscount (promo.ts:136) catches \"20% off\", \"save $10\", \"-20%\" etc., and the check applies to promoTitle and promoText, not only promoDiscountText (promo.ts:100), specifically so the claim cannot be smuggled into the copy.\n\nA launch promo is a discount claim backed by a COUPON, not by Product.saleCents, so the truth test at promo.ts:94 (`db.product.count({ where: { AND: [scope, { saleCents: { not: null } }] } })`) returns 0 and the whole band disappears. The owner will write the banner, see nothing render, and have no idea why — the reason string is returned but only surfaces server-side.\n\nThis is the guard working as designed (\"Nothing on the storefront may state a fact it cannot check\"), so the answer is to teach it a second way for the claim to be true: an active, unexpired, not-exhausted coupon in scope makes \"20% off with LAUNCH20\" checkable. That belongs in promo.ts next to the saleCents count, and it should also refuse once the coupon expires or its cap fills — otherwise the banner outlives the promo, which is the exact failure promo.ts was written for."
+        },
+        {
+          "title": "A date-only expiry is parsed as midnight UTC, so a promo dies at 03:00 Beirut time on the day the owner set",
+          "file": "server/src/index.ts",
+          "line": 2397,
+          "severity": "medium",
+          "effort": "small",
+          "detail": "`expiresAt: b.expiresAt ? new Date(str(b.expiresAt)) : null` (also index.ts:2407 on update). The admin UI sends a bare date: `<input type=\"date\">` at web/src/admin/AdminCoupons.tsx:69, with the value sliced to 10 chars on load (AdminCoupons.tsx:10). new Date(\"2026-08-31\") is 2026-08-31T00:00:00Z.\n\nLebanon is UTC+2/+3. An owner who sets the promo to expire \"31 August\" gets it dying at 02:00 or 03:00 local ON the 31st — the entire final day of the campaign is lost, silently, and evalCoupon (index.ts:894) just starts answering \"This coupon has expired.\" There is no admin surface showing the resolved instant, only the date the owner typed back to them, so the two never visibly disagree.\n\nEither store end-of-day in Asia/Beirut when only a date is supplied, or take a datetime in admin and display the resolved local instant next to the field. Note the storefront has no timezone helper today, so pick one and put it where both the writer and the display read it."
+        },
+        {
+          "title": "maxUses: 0 sent to the API means UNLIMITED, the opposite of what it reads as",
+          "file": "server/src/index.ts",
+          "line": 2396,
+          "severity": "medium",
+          "effort": "trivial",
+          "detail": "`maxUses: b.maxUses ? num(b.maxUses) : null` — 0 is falsy, so it becomes null, and null means unlimited (schema.prisma:405 \"null = unlimited\", and the claim at index.ts:1024 drops the usedCount predicate entirely for null). Same expression on update at index.ts:2406.\n\nThrough the current UI this happens to be masked: AdminCoupons.tsx:24 sends `edit.maxUses || null` where the value is the string \"0\", which is truthy, so num(\"0\") = 0 reaches the DB and then evalCoupon's `0 >= 0` blocks the coupon. So the two paths disagree — the same intent gives \"blocked\" through the form and \"unlimited\" through the API. Either is defensible; both at once is not, and \"unlimited\" is the dangerous one to arrive at by accident on a capped launch promo. Use `b.maxUses == null || b.maxUses === \"\" ? null : num(b.maxUses)` and reject negatives."
+        },
+        {
+          "title": "No per-use audit trail, and no index to reconstruct one",
+          "file": "server/prisma/schema.prisma",
+          "line": 393,
+          "severity": "low",
+          "effort": "small",
+          "detail": "usedCount is a bare integer. The only record of who used a code is Order.couponCode (schema.prisma:352), and Order's indexes are status, createdAt and deliveredAt only (schema.prisma:393-395) — nothing on couponCode. Answering \"who used LAUNCH20\", \"was it abused\", or \"why does usedCount say 187 when I count 160 orders\" means a sequential scan over the orders table, and after the cancellation gap above the two numbers will not reconcile anyway.\n\nCLAUDE.md's own rule applies here: \"A sum that does not reconcile is a confession.\" A promo where usedCount and the order count are guaranteed to disagree, with no per-use rows to explain the difference, cannot be audited after the fact — which is the position you least want to be in when discount fraud is the concern. A CouponRedemption table (needed anyway for the per-customer limit) solves this and the reconciliation at once; if you skip it, at minimum add @@index([couponCode]) to Order."
+        },
+        {
+          "title": "The courier WhatsApp message drops the coupon explanation whenever delivery outweighs the discount",
+          "file": "server/src/dispatch.ts",
+          "line": 195,
+          "severity": "low",
+          "effort": "trivial",
+          "detail": "courierMessage gates the explanation on `const reduced = line.collectCents < line.itemsFaceValueCents;` (dispatch.ts:195), while the printed run sheet includes it whenever any reduction exists (whyDifferent, dispatch.ts:82-97, `if (o.discountCents > 0)`). On a small basket the two disagree: $12 of goods, 20% off = $2.40, $3.00 delivery gives collectCents $12.60 against a face value of $12.00, so the sheet prints \"$2.40 coupon · $3.00 delivery\" and the WhatsApp message prints nothing.\n\nThe suppressed case is the benign direction (the driver is asking for more than the bag looks worth, so they will not assume a mistake), which is presumably why it was written this way. Flagging it because a launch promo makes small discounted baskets common and the two artefacts describing one order should not say different things — and because if a cap is added, the capped case is exactly where the amounts get close. Worth a deliberate decision rather than leaving it as an accident of the inequality. Everything else about the dispatch path is correct for coupons: collectCents is order.totalCents untouched (dispatch.ts:123), the reduction is named without leaking the code (dispatch.ts:78-81), manifest sums it (dispatch.ts:165), discountedCount flags it (dispatch.ts:173), and reconcile counts the discounted total as the cash actually collected (dispatch.ts:342)."
+        },
+        {
+          "title": "Checkout's displayed discount is a server echo against a client-supplied subtotal and is never revalidated",
+          "file": "web/src/pages/Checkout.tsx",
+          "line": 77,
+          "severity": "low",
+          "effort": "small",
+          "detail": "`const discount = coupon?.discountCents ?? 0;` where coupon.discountCents came from api.validateCoupon(code, cartSubtotal) at Checkout.tsx:92, and /api/coupons/validate takes the subtotal straight from the request body (`num(req.body.subtotalCents)`, index.ts:902). Nothing re-runs it when the cart changes afterwards (the cart lives in localStorage via StoreProvider and can change in another tab), so the summary can show a discount computed against a basket that no longer exists.\n\nNo fraud vector — every figure is recomputed server-side at index.ts:1017-1098 and the order response carries the real numbers — but it is a visible mismatch between what checkout promised and what the driver collects, which is the class of problem dispatch.ts exists to eliminate.\n\nRelevant to the new work in one specific way: because the client uses the ECHOED discount rather than deriving it, a server-side cap flows through the display correctly for free (including merchandiseAfterCoupon at Checkout.tsx:81 and the points cap built on it) — provided /api/coupons/validate returns the capped figure. Do not add a client-side copy of the cap arithmetic."
+        },
+        {
+          "title": "The seeded demo coupon WELCOME10 is an uncapped, unlimited, never-expiring 10% code",
+          "file": "server/prisma/seed.ts",
+          "line": 281,
+          "severity": "info",
+          "effort": "trivial",
+          "detail": "`db.coupon.create({ data: { code: \"WELCOME10\", type: \"percent\", value: 10, minOrderCents: 0, active: true } })` — maxUses null (unlimited), expiresAt null (never), no minimum, no cap. GLOW5 at seed.ts:282 is $5 fixed over $30, same unlimited/never-expiring shape. CLAUDE.md records both as seeded demo data.\n\nThis is the exact shape the launch promo must not have, and it is a well-known code on a store about to go public. I did not query the database (it is shared with production), so I cannot say whether these rows exist live — worth checking /admin/coupons before launch and deleting or bounding them. Also note seed.ts:194 does `db.coupon.deleteMany()`, so re-running the seed destroys every real coupon along with the demo ones."
+        }
+      ]
+    },
+    {
+      "summary": "Every customer-facing endpoint was read handler-by-handler and counted against the repo's own model (Prisma 6.1, no `relationJoins` preview in the generator block, so each `include` relation and each relation `_count` is one more sequential statement; queries inside one `Promise.all` count as one step). The product page is the worst by a wide margin — `GET /api/products/:slug` makes 10 sequential round trips, 15 when related products need topping up, and the SSR `<head>` for the same URL adds 5 more before the first byte, so a cold product view is ~2.5–3 s of pure Ohio latency; `cardInclude` now survives *only* in that handler, making it the last holdout of the exact defect `loadCards` was built to kill. Checkout is second (9 trips with loyalty off, ~35 with points on, plus a fully-awaited ~5-trip loyalty hook the customer waits on for nothing), and a cross-cutting category-tree cache would remove sequential trips from five separate call sites at once.",
+      "findings": [
+        {
+          "title": "GET /api/products/:slug — 10 sequential round trips (15 when related tops up)",
+          "file": "server/src/index.ts",
+          "line": 811,
+          "severity": "blocker",
+          "effort": "medium",
+          "detail": "COUNT: 10 minimum, 15 worst case (~1.45–2.2 s at 145 ms/trip).\n\n  1. getSettings() (line 812) — 0 warm, 1 cold\n  2. db.product.findUnique with include {brand, category, images, variants, reviews} (line 814) = 1 root + 5 relations = 6 trips\n  3. related: db.product.findMany({ include: cardInclude }) (line 828) = 1 + 3 = 4 trips\n  4. only if related.length < 4: db.category.findMany siblings (line 834) = 1, then fill findMany({ include: cardInclude }) (line 835) = 4 → +5\n\nThis is the ONLY surviving user of `cardInclude` — grep shows index.ts:343 defined, used only at 830 and 837. CLAUDE.md line 698 still says \"cardInclude is still used by home and related\", but home was converted to loadCards at 479–489. Related was not. The sibling-hunt rule this codebase made standing policy (CLAUDE.md line 823) missed exactly one site, and it is the highest-traffic page on the store.\n\nCOLLAPSE (all low-contortion, all patterns already in this codebase):\n  a. Related/fill → ids-then-loadCards, exactly as /api/home and /api/search do. 4→2 and 4→2.\n  b. The sibling category ids at 834 depend only on p.category.parentId, which is already in hand from step 2 — so it can run in the SAME Promise.all as the first related query instead of conditionally after it. Then issue one id query over [subcategory + siblings] ordered `(categoryId = p.categoryId) DESC, isBestSeller DESC` and take 4, and a single loadCards for the union. Kills the whole conditional top-up branch: 9 trips → 3.\n  c. The 6-trip findUnique → one raw LEFT JOIN for product+brand+category (the loadCards shape plus shortDesc/description/howToUse/ingredients/videoUrl/concerns/attributes) issued inside a Promise.all alongside images/variants/reviews fetched by `where: { product: { slug } }` — no id needed first, so all four are one level. 6 → 1.\n\nRealistic landing point: 10–15 → 3."
+        },
+        {
+          "title": "GET * (SSR catch-all) for /product/:slug — 5 sequential round trips before the first byte",
+          "file": "server/src/seo.ts",
+          "line": 181,
+          "severity": "high",
+          "effort": "small",
+          "detail": "COUNT: 5 (~725 ms), paid on every product page load in production and on every WhatsApp link-preview fetch.\n\n  metaForPath's product branch: db.product.findUnique with include { brand, category: { include: { parent } }, images } = 1 root + brand + category + parent + images = 5 sequential trips. getSettings() ahead of it (seo.ts:770 via seoContext) adds 1 on a cold cache.\n\nThis COMPOUNDS with the finding above: the browser gets the HTML after 5 trips, then fetches /api/site (2–3) and /api/products/:slug (10–15). A cold product view is ~15–20 sequential round trips deep.\n\nCOLLAPSE: one raw query — LEFT JOIN Brand, JOIN Category, LEFT JOIN Category parent, LEFT JOIN LATERAL first ProductImage. Literally loadCards' SQL (server/src/cards.ts:89) plus `parent.name`, `p.shortDesc`, `p.description`, `p.status`, `p.saleCents`. 5 → 1. Either extend cards.ts with a second exported loader that shares the SQL, or accept a small dedicated query here — the head needs columns CardRow deliberately does not carry, so reusing loadCards verbatim would mean widening CardRow, which is the wrong trade."
+        },
+        {
+          "title": "GET * (SSR catch-all) for /category/:slug — a relation _count is fetched and never read",
+          "file": "server/src/seo.ts",
+          "line": 244,
+          "severity": "medium",
+          "effort": "trivial",
+          "detail": "COUNT: 3 sequential trips (root + parent + _count aggregate).\n\n  `include: { parent: true, _count: { select: { products: { where: ctx.visible } } } }`\n\nThe returned PageMeta (seo.ts:247–256) reads only `c.name`, `c.blurb`, `c.active`, `c.parent.name` and `c.parent.slug`. `c._count` is never referenced anywhere in the function. It is a filtered COUNT over ~9.5k Product rows, executed as its own round trip, on the HTML of every department and shelf page, and the result is discarded.\n\nCOLLAPSE: delete the `_count` clause. 3 → 2, free, no behaviour change. `ctx.visible` stays in the Ctx type — sitemapXml still uses it (seo.ts:363). Then fold `parent` into a raw self-join if you want 2 → 1."
+        },
+        {
+          "title": "POST /api/orders — 9 sequential round trips with loyalty off, ~35 with points on",
+          "file": "server/src/index.ts",
+          "line": 918,
+          "severity": "high",
+          "effort": "medium",
+          "detail": "COUNT, loyalty OFF, plain COD order: 4 (product findMany with include {brand, images, variants}, line 929) + 0–1 getSettings (950) + 0–1 deliveryArea.findUnique (952) + 0–1 evalCoupon (987) + transaction (BEGIN + order.create with nested items/events + include read-back + COMMIT ≈ 5) = 9–12.\n\nCOUNT, loyalty + redemption ON, with coupon and gift card: add tierDeliveryCents (965) = account findUnique 1 + readAccount→load 3 = 4; loyaltyAccount findUnique (1001) = 1; inside the tx: coupon updateMany 1, previewRedemption→load 3, gift findUnique + updateMany 2, order.create ~4, redeemWithin→load 3 + redeemedCentsOnOrder 2 + entry create 1 + account update 1 = 7; then the AWAITED onOrderPlaced hook (1187) = getOrCreateAccount 1–2 + recordEarn→load 3 + create 1 = 5. Total ≈ 35, ~5 s of pure latency. CLAUDE.md line 731 estimates \"a dozen sequential round trips\" for the transaction; the real figure with points on is roughly double, which is why TX_OPTIONS had to be 20 s.\n\nCOLLAPSE:\n  a. Line 1187, `await safely(... onOrderPlaced ...)` runs AFTER the transaction has committed, is already swallowed by safely() with a 4 s timeout, and is explicitly documented as not required for the order. The customer waits ~725 ms for it and gets nothing. Fire it without awaiting, exactly as queueMail already is at line 1195. TRIVIAL, and the single biggest win on checkout once points are on.\n  b. Line 929's include {brand, images, variants} = 4 trips. Brand + first image is loadCards' join; variants is one findMany by productId IN (…). Run those two in one Promise.all → 4 → 1. Saves ~435 ms on EVERY checkout, loyalty on or off.\n  c. getSettings (950) and deliveryArea.findUnique (952) depend on nothing from step (b) — move both into the same Promise.all. Saves 1–2 trips.\n  d. loyaltyAccount.findUnique at 1001 and the account lookup inside tierDeliveryCents (hooks.ts:135) are two lookups of the same table in sequence — merge into the parallel block.\n\nNOT COLLAPSIBLE: previewRedemption (1062) and redeemWithin (1120) each call load() inside the same transaction, ~6 duplicated read trips. That re-quote is a deliberate invariant (index.ts:1128 throws if the two disagree) and CLAUDE.md line 1061 argues for it explicitly. Leave it; fix load() itself instead (see the ledger finding)."
+        },
+        {
+          "title": "GET /api/products — 5 sequential round trips on a faceted category page",
+          "file": "server/src/index.ts",
+          "line": 512,
+          "severity": "high",
+          "effort": "small",
+          "detail": "COUNT by shape:\n  /category/makeup?facets=1 → getSettings 0 + category slug lookup 2 (line 529) + main Promise.all 1 (710) + loadCards 1 (746) + brand-name lookup 1 (752) = 5 (~725 ms)\n  /shop?facets=1 → 3\n  search, no filters (rankedIsAnswer) → searchProductIds 1 + Promise.all 1 (loadCards rides inside it, line 717) + brand names 1 = 3\n  search + a brand filter → 4\n\nThe Promise.all at 710 is already well built — count, ids, cards and all four facet aggregates in one step. The remaining sequential cost is at the two ends.\n\nCOLLAPSE:\n  a. Line 529: `findUnique({ select: { id, children: { select: { id } } } })` = 2 trips because `children` is a relation. Replace with one `db.category.findMany({ where: { OR: [{ slug }, { parent: { slug } }] }, select: { id: true, slug: true } })` → 1 trip. Better still, serve it from a cached category tree (see the separate finding) → 0. Every department and shelf page pays this.\n  b. Line 752: the brand-name lookup runs after the loadCards await at 743/746, but it depends only on `brandFacet`, which the Promise.all already returned. Wrap lines 743–752 so loadCards and brand.findMany run in ONE Promise.all → saves 145 ms on every faceted request. TRIVIAL. Even better: 405 brands change on an import, not per request — cache the id→{slug,name} map in memory next to the settings cache and the round trip disappears entirely.\n\nNOT COLLAPSIBLE: the final loadCards at 746 genuinely needs idRows from the Promise.all. Fusing the id query and the card join into one SQL statement would mean hand-translating a WhereInput assembled from ~10 optional clauses (lines 527–605) plus the facet-exclusion logic at 658 into raw SQL. That is a rewrite, not a collapse — leave it."
+        },
+        {
+          "title": "loyalty load() makes 3 sequential trips where 2 will do — and it is on every loyalty path",
+          "file": "server/src/loyalty/ledger.ts",
+          "line": 251,
+          "severity": "medium",
+          "effort": "small",
+          "detail": "COUNT: 3 sequential — loyaltyAccount.findUnique (252), then loyaltyLedgerEntry.findMany (255), then order.findMany (272).\n\nThe account row and the entry rows are independent: nothing in the entries query uses anything from the account query. Only the orders query is genuinely dependent (it needs orderIds derived from the entries).\n\nCOLLAPSE: `Promise.all([account findUnique, entries findMany])` then the orders query. 3 → 2. TRIVIAL, and it pays out in six places at once: readAccount, materialise, recordEarn, previewRedemption, redeemWithin, and the sweep. On the checkout path with points on, load() is called three separate times, so this alone removes 3 round trips (~435 ms) from a single order."
+        },
+        {
+          "title": "GET /api/loyalty/me — 7 sequential round trips, 12 on a customer's first read",
+          "file": "server/src/index.ts",
+          "line": 1293,
+          "severity": "medium",
+          "effort": "medium",
+          "detail": "COUNT, existing account: 1 (loyaltyAccount.findUnique, 1304) + 1 (awaited recordSignupBonus create, 1330) + 3 (readAccount→load, 1335) + 1 (Promise.all of entries+count, 1337) + 1 (order.findMany, 1358) = 7 (~1 s).\nCOUNT, first authenticated read: add customer.findUnique (1324) + autoLinkOnFirstRead (ledger.ts:194 findUnique, 204 order.findMany take 5000, 218 create) + re-read account (1327) = ~12.\n\nCOLLAPSE:\n  a. Line 1358 re-reads the SAME Order rows that load() already fetched at ledger.ts:272 — load selects {id, status, deliveredAt, subtotalCents, discountCents, pointsDiscountCents} for exactly the orderIds behind those entries; the handler then re-selects {id, number, status, deliveredAt}. Add `number` to load's select and return orderRows from readAccount. Removes one whole round trip, no new query shape. SMALL.\n  b. Line 1337's entries findMany overlaps load()'s entries findMany at ledger.ts:255 — same table, same accountId, load reads ALL of them ascending, the handler reads the newest HISTORY_FETCH with two extra columns (reason, dedupeKey). Adding those two to load's select and slicing in JS removes another level. MEDIUM, because LedgerFacts is the shape rules.ts computes on and CLAUDE.md treats the rules/ledger boundary as load-bearing — widen the select, do not widen what rules.ts reads.\n  c. load() 3 → 2 per the ledger finding.\n\nNOT COLLAPSIBLE: recordSignupBonus at 1330 must be awaited before the view is built, or a brand-new customer's welcome points are missing from the page that just auto-linked them — index.ts:1320 states that ordering as the intent. Leave it."
+        },
+        {
+          "title": "GET /api/home — 3 sequential round trips warm, 8 with a configured promo",
+          "file": "server/src/index.ts",
+          "line": 463,
+          "severity": "medium",
+          "effort": "small",
+          "detail": "COUNT: getSettings 0/1 (464) + resolveRail 0/1 (477, 60 s cache) + Promise.all 2 (479 — the reviews query at 484 has `include: { product: { select: { name } } }`, so that branch is 2 trips deep and sets the level) + Promise.all of the two loadCards 1 (486) + resolvePromo 0–3 (493) = 3 warm/promo-off, 8 cold-cache with an active discount-claiming promo.\n\nCOLLAPSE:\n  a. Line 493, resolvePromo, runs AFTER both card loads but depends only on `settings`, which is available at line 464. Move it into the Promise.all at 479. Saves 1–3 sequential trips whenever a promo is switched on — which is the state the homepage is meant to be in. TRIVIAL.\n  b. Line 484's `include: { product: { select: { name: true } } }` is the only 2-deep branch in the first Promise.all. A raw join (6 reviews + product name) makes that block 1 level. Saves 145 ms. SMALL.\n  c. promo.ts:62's category lookup is itself 2 trips (`children` is a relation) — a cached category tree removes it.\n\nNOT COLLAPSIBLE: resolveRail at 477 must precede the id queries because the mode decides which ids to ask for (index.ts:475 says so). It is cached at 60 s, so it is a round trip once a minute, not once a request."
+        },
+        {
+          "title": "GET /api/search — 2 round trips per keystroke, 3 while the customer is mid-word",
+          "file": "server/src/index.ts",
+          "line": 777,
+          "severity": "medium",
+          "effort": "medium",
+          "detail": "COUNT: getSettings 0/1 (780) + searchProductIds 1 (791) + loadCards 1 (805) = 2 warm, 3 whenever the strict 0.42 pass returns nothing and search.ts:180 fires the 0.30 fallback — which is precisely the state a type-ahead is in for the first few characters of every query.\n\nThis is the endpoint where CLAUDE.md already spent the most effort (696 ms → 152 ms), so what is left is the genuinely hard part.\n\nCOLLAPSE:\n  a. getSettings at 780 is used only for `newDays` and is independent of the search — move it into a Promise.all with searchProductIds. Removes a 145 ms head-of-line stall on the first keystroke of every session (5 s TTL means the first keystroke often finds a cold cache). TRIVIAL.\n  b. searchProductIds → loadCards is a real dependency, but both are already raw SQL over the same connection. One statement with the ranking as a CTE and cards.ts' JOIN/LATERAL applied to it collapses 2 → 1. MEDIUM effort and it means the ranking SQL and the card SQL stop being separately testable — weigh that against 145 ms on every keystroke.\n\nNOT COLLAPSIBLE: the two-threshold retry. Making it one query would mean always running at 0.30 and filtering, which is exactly the flooding search.ts:98 was designed to prevent."
+        },
+        {
+          "title": "GET /api/orders/:number — 3 sequential round trips on the tracking page",
+          "file": "server/src/index.ts",
+          "line": 1477,
+          "severity": "medium",
+          "effort": "small",
+          "detail": "COUNT: 3. `findUnique({ include: { items: true, events: { orderBy } } })` = 1 root + 2 relations (~435 ms).\n\nThis is the page customers refresh — it is the only visibility they have into a cash-on-delivery order, and there is no push channel, so refreshing is the intended behaviour.\n\nCOLLAPSE: all three are keyed by the order number, and Prisma can filter a relation by the parent's unique field without knowing the id — `Promise.all([order.findUnique({ where: { number } }), orderItem.findMany({ where: { order: { number } } }), orderEvent.findMany({ where: { order: { number } }, orderBy: { createdAt: 'asc' } })])`. 3 → 1. The redaction allowlist at 1491 is unaffected; it operates on the assembled object. SMALL."
+        },
+        {
+          "title": "GET /api/site — resolveRail sits outside the Promise.all it could join",
+          "file": "server/src/index.ts",
+          "line": 457,
+          "severity": "medium",
+          "effort": "trivial",
+          "detail": "COUNT: 2 warm, 3 cold. The Promise.all at 388 is 6 branches, deepest being 2 (category.findMany and brand.findMany each carry a relation `_count`, which is its own aggregate). Then `picks: await resolveRail(db)` at 457 is evaluated inside the res.json object literal, i.e. strictly after the Promise.all returns.\n\nresolveRail depends on nothing in that block.\n\nCOLLAPSE: add it as a seventh entry in the Promise.all at 388. 3 → 2 on a cold rail cache. TRIVIAL. It is cached at 60 s so the amortised saving is small — but this endpoint is the storefront bootstrap on the first load of every session, and Render's spin-down means a real share of first-visitors hit a cold cache on the very first request they make."
+        },
+        {
+          "title": "GET /api/brands — 2 round trips for a list the Shop sidebar opens with",
+          "file": "server/src/index.ts",
+          "line": 862,
+          "severity": "low",
+          "effort": "small",
+          "detail": "COUNT: 2. `brand.findMany({ include: { _count: { select: { products: { where: VISIBLE } } } } })` = the brand rows, then a separate filtered aggregate over Product grouped by brandId — 405 brands against ~9.5k products.\n\nCOLLAPSE: one raw statement — `SELECT b.id, b.slug, b.name, b.featured, b.sortOrder, count(p.id) FROM \"Brand\" b LEFT JOIN \"Product\" p ON p.\"brandId\" = b.id AND p.status IN ('active','unavailable') WHERE b.active GROUP BY b.id HAVING count(p.id) > 0`. 2 → 1, and it also pushes the `_count.products > 0` filter at line 869 into SQL instead of shipping 405 rows to filter three of them out in JS. SMALL. The same shape applies to index.ts:393 inside /api/site."
+        },
+        {
+          "title": "Category-tree resolution costs sequential trips at five separate call sites",
+          "file": "server/src/index.ts",
+          "line": 529,
+          "severity": "medium",
+          "effort": "medium",
+          "detail": "Not one endpoint — a shape. The category tree is ~50 rows across 12 departments, it changes only when an admin edits it or an import runs, and it is re-resolved from the database on nearly every customer request:\n\n  index.ts:529   /api/products slug→ids, 2 trips (children is a relation)\n  index.ts:834   /api/products/:slug related top-up siblings, 1 trip\n  seo.ts:242     SSR category head, 3 trips (parent + the unused _count)\n  promo.ts:62    /api/home promo scope, 2 trips\n  index.ts:391   /api/site full tree, 2 trips (inside a Promise.all, so 2 levels)\n\nCOLLAPSE: one cached tree resolver alongside the settings cache (index.ts:300) and the rail cache (picks.ts:120), invalidated on the admin category writes the same way invalidateSettings/invalidateRail already are. A 60 s TTL is right — nothing here carries money, which is the reason settings are pinned to 5 s (CLAUDE.md line 700). That takes 529 to 0 trips, 834 to 0, promo.ts:62 to 0, and lets seo.ts:242 become a single findUnique.\n\nMEDIUM: the caching mechanism is already established twice in this codebase, so the pattern is not new; the work is finding every writer that must invalidate. Do NOT cache product rows the same way — the catalogue is 9.5k rows and changes per import, which is a different problem."
+        },
+        {
+          "title": "redeemedCentsOnOrder makes two round trips over one table, inside a SERIALIZABLE transaction",
+          "file": "server/src/loyalty/ledger.ts",
+          "line": 676,
+          "severity": "low",
+          "effort": "trivial",
+          "detail": "COUNT: 2 sequential findMany calls against loyaltyLedgerEntry for the same orderId — one for `type: 'redeem'` (677), one for `type: 'redemptionReversal'` (681) — then both are summed in JS anyway.\n\nCOLLAPSE: one findMany with `type: { in: ['redeem','redemptionReversal'] }` selecting `{ type, points }`, partitioned in the existing reduce. 2 → 1, byte-identical result. TRIVIAL.\n\nWhy it is worth doing despite being small: it is called from redeemWithin (ledger.ts:727), which runs inside the checkout transaction that index.ts:1145 raises to Serializable. A round trip there is not just 145 ms of customer wait — it is 145 ms of extra window for the serialisation conflict that withSerialisationRetry exists to absorb."
+        },
+        {
+          "title": "GET /api/auth/me and GET /api/auth/orders — 2 round trips each",
+          "file": "server/src/index.ts",
+          "line": 1638,
+          "severity": "low",
+          "effort": "trivial",
+          "detail": "COUNT: 2 each.\n  /api/auth/me (1638): `customer.findUnique({ include: { addresses } })` = root + relation.\n  /api/auth/orders (1651): `order.findMany({ include: { items } })` = root + relation.\n\nCOLLAPSE: /api/auth/me → `Promise.all([customer.findUnique({ where: { id } }), address.findMany({ where: { customerId: id }, orderBy: { isDefault: 'desc' } })])`. 2 → 1, TRIVIAL.\n/api/auth/orders cannot parallelise the same way (items are keyed off the orders), but `where: { order: { customerId: id } }` makes them independent → 2 → 1.\n\nSeparately and not a round-trip issue: /api/auth/orders has no `take` and no pagination. It returns every order a customer has ever placed with every line item. Worth a limit before launch for the same reason /api/products got one."
+        },
+        {
+          "title": "POST /api/launch-signup and POST /api/auth/register — a read before a write that the catch already handles",
+          "file": "server/src/launchList.ts",
+          "line": 57,
+          "severity": "low",
+          "effort": "trivial",
+          "detail": "COUNT: 2 each, on the happy path.\n\n  launchList.ts:57 — `findUnique({ where: { email } })` then `create` (66). The create is already wrapped in a catch that returns the same result on a lost race (70–74), so the pre-read buys nothing on the new-signup path; it exists only for the unsubscribed-then-resubscribed branch (59–62). Invert: attempt the create, and on the unique violation run `updateMany({ where: { email, unsubscribedAt: { not: null } }, data: { unsubscribedAt: null } })`. Happy path 2 → 1.\n\n  index.ts:1534 — `customer.findUnique({ where: { email } })` then `customer.create` (1543). The P2002 handler at 1547 returns a byte-identical response to the pre-check at 1536, deliberately, so the anti-enumeration property is entirely carried by the catch. The pre-check is redundant for both correctness and secrecy. Dropping it is 2 → 1 with no behaviour change — but keep the P2002 branch, it is the one doing the work.\n\nLow severity because neither is on a repeated path: a customer registers once and signs the launch list once."
+        },
+        {
+          "title": "POST /api/auth/forgot — 4–6 sequential round trips, all awaited before the response",
+          "file": "server/src/index.ts",
+          "line": 1571,
+          "severity": "low",
+          "effort": "small",
+          "detail": "COUNT: getSettings 0/1 (1572) + customer.findUnique 1 (1579) + passwordReset.updateMany 1 (1585) + passwordReset.create 1 (1586) + queueMail 1–3 (1603 — an outboxEmail create, then an SMTP send, then an update, all inside the await).\n\nThe response body is a constant `{ ok: true }` (1611) and is identical whether or not the address exists. Nothing after line 1579 changes what is sent.\n\nCOLLAPSE: `void queueMail(...).catch(() => {})` and respond, exactly as POST /api/orders already does at index.ts:1195. The outbox row IS the record — that is the design stated at index.ts:1591 — so nothing is lost by not waiting for it. Removes 1–3 trips plus the SMTP handshake from the customer's wait. SMALL.\n\nCaution worth stating: a constant-time-ish response is part of this endpoint's anti-enumeration story, and making the found-address path faster narrows the gap rather than widening it, so this is safe in that direction."
+        },
+        {
+          "title": "GET /sitemap.xml — resolveRail is awaited ahead of a Promise.all it could join",
+          "file": "server/src/seo.ts",
+          "line": 359,
+          "severity": "info",
+          "effort": "trivial",
+          "detail": "COUNT: 1–3. seoContext→getSettings 0/1, then resolveRail 0/1 (359, 60 s cache), then the Promise.all of category.findMany + product.findMany (360) = 1.\n\nresolveRail is used only for `rail.href` in the URL list at 373 — it depends on nothing in the Promise.all. Move it in. 3 → 2 on a cold cache. TRIVIAL.\n\nInfo severity: this is crawler-facing, the response carries `Cache-Control: public, max-age=600` (index.ts:2799), and no customer ever waits on it. Listed for completeness of the audit, not because it should be scheduled."
+        },
+        {
+          "title": "POST /api/products/:slug/reviews — 2 round trips",
+          "file": "server/src/index.ts",
+          "line": 875,
+          "severity": "info",
+          "effort": "trivial",
+          "detail": "COUNT: 2. `product.findUnique({ where: { slug } })` (876) purely to turn a slug into an id, then `review.create` (881).\n\nCOLLAPSE: `db.review.create({ data: { product: { connect: { slug } }, author, text, ... } })` → 1 trip, with P2025 mapped to the existing 404. TRIVIAL.\n\nInfo severity: a customer submits a review once, and the two validation returns at 877/880 mean the slug lookup also short-circuits before the body checks — reordering so the cheap string validation runs first would be the better change here, and it costs nothing."
+        },
+        {
+          "title": "POST /api/loyalty/redeem-preview — 4 round trips on a checkout-page interaction",
+          "file": "server/src/index.ts",
+          "line": 1390,
+          "severity": "info",
+          "effort": "small",
+          "detail": "COUNT: 4. `loyaltyAccount.findUnique({ where: { customerId } })` (1394) + previewRedemption → load() 3 (1405; redeemedCentsOnOrder is skipped because no orderId is passed).\n\nCOLLAPSE: load() 3 → 2 per the ledger finding, and the lookup at 1394 is the same row load() re-fetches at ledger.ts:252 — giving load an optional customerId key would fold them. 4 → 2. SMALL.\n\nInfo severity today only because LOYALTY_REDEMPTION_ENABLED is off (no LOYALTY_* keys in server/.env.example, so both flags default false). It fires on the checkout page as the customer moves a points slider, so re-rank it to medium the moment TURNING-ON-POINTS.md is walked through."
+        }
+      ]
+    },
+    {
+      "summary": "The `<head>` layer is well built — real Product + BreadcrumbList JSON-LD, honest `LimitedAvailability`, 404s for missing slugs, and `sku` correctly absent from every hand-written serialiser — but it publishes a price it cannot honour: `offers.price` is `Product.priceCents`, which the Feel22 importer sets to the *lowest* variant price, so 223 of ~1,560 live products advertise a price below what checkout charges (worst: Nivea Soft Cream, $0.21 published vs $3.74 charged). Descriptions duplicate heavily (65% of Beesline products share a meta description with another product; all 27 Feel22 subcategory pages have a description that is literally the category name), and titles run to 189 characters. The sitemap and the brand allowlist cannot be made to agree by construction — the allowlist is a one-way, import-time write to `status` and the sitemap is a per-request read of `status`, with no reconciliation and no test asserting they match; separately, 51 hosted product images have the supplier SKU in their filename, which one allowlist edit would publish into `og:image` and JSON-LD.",
+      "findings": [
+        {
+          "title": "JSON-LD publishes the LOWEST variant price as the only price",
+          "file": "server/src/seo.ts",
+          "line": 224,
+          "detail": "`price: money(p.saleCents ?? p.priceCents)` emits a single Offer. But `import-feel22.ts:211-216` (`basePrice`) sets `Product.priceCents` to `Math.min(...)` of the sellable variants, and checkout charges `variant?.priceCents ?? p.saleCents ?? p.priceCents` (index.ts:938). Measured against feel22-catalogue.json restricted to allowlisted, non-hidden rows: 1,560 live products, 530 with >1 variant, **223 with a genuine price spread**. Worst case 'Nivea Soft Cream' — published $0.21, actually charged up to $3.74 (17.8x). This is a machine-readable price claim the store cannot honour, i.e. exactly the rule in CLAUDE.md 'Nothing on the storefront may state a fact it cannot check'. Google also treats a landing-page/markup price mismatch as grounds for dropping the rich result. Fix: emit `AggregateOffer` with `lowPrice`/`highPrice` (and `offerCount`) when any variant carries a non-null `priceCents`, single `Offer` otherwise. The product page has the same understatement (`web/src/pages/Product.tsx:45` shows the base price until a shade is picked, with no 'from').",
+          "severity": "blocker",
+          "effort": "medium"
+        },
+        {
+          "title": "Supplier SKU is embedded in 51 hosted product-image filenames",
+          "file": "server/prisma/import-feel22.ts",
+          "line": 446,
+          "detail": "`imageUrl: `${IMG_BASE}/${p.images[0].file}`` copies the supplier's filename verbatim. 51 of those filenames contain the product's own `variants[0].sku` — the exact value written to `Product.sku` at line 435. All 51 files are present on disk in `web/public/products/feel22/` and therefore shipped in `web/dist` and served by `express.static(WEB_DIST)` (index.ts). Examples: `D0010663.png` (sku D0010663), `PAL-4060-6.png`, `kiko_KM000000217001B_principale_47915.jpg`, `702571938170-RosyThePanda-compactpowderSoftlight_001.png`. Brands affected: Palmer's (20), Westinghouse (7), Face Facts (5), Paiter (4), Shiseido (3), Remington (3), Kiko Milano (2), Twistshake (2), + 5 more. **Currently latent**: none of those 13 brands is in `prisma/brands-we-sell.txt`, so 0 are live today — but the image URL is publicly fetchable now, and adding e.g. Palmer's to the allowlist would immediately publish 20 supplier SKUs into `og:image`, `twitter:image` and the JSON-LD `Product.image` array. `test-seo.mjs` structurally cannot catch this: it checks one `findFirst` product's own sku against its own page. Fix: hash or slug-derive the hosted filename at import, and add an assertion that no `ProductImage.url` contains its product's sku.",
+          "severity": "high",
+          "effort": "medium"
+        },
+        {
+          "title": "/track/:number answers HTTP 404 — the URL in the order-confirmation WhatsApp link",
+          "file": "server/src/seo.ts",
+          "line": 288,
+          "detail": "`track` is in `STATIC` but the lookup at line 298 is gated on `parts.length === 1`, and `track` is absent from the noindex list at line 160. So `/track/TG-000123` — a real router path (`web/src/App.tsx`, `{ path: \"/track/:number\" }`) reached from OrderSuccess and from the 404 page — falls through to `return { ...base, status: 404, noIndex: true }`. The SPA still boots and renders the timeline, so it looks fine in a browser, which is precisely how the documented `rewards`/`orders` instance of this bug survived (see the comment at seo.ts:147-159). It matters more after the Cloudflare migration: a cached 404 on a customer's tracking URL removes the page for everyone behind that edge. Sibling hunt: `/order/:number` is covered via `parts[0]` in the line-160 list; `/product/:slug` and `/category/:slug` have branches; `/track/:number` is the only remaining uncovered multi-segment public route.",
+          "severity": "high",
+          "effort": "trivial"
+        },
+        {
+          "title": "Meta descriptions duplicate at scale — measured, not estimated",
+          "file": "server/src/seo.ts",
+          "line": 192,
+          "detail": "`p.shortDesc || p.description || fallback`, and all three importers set `shortDesc = firstSentence(description)` (import-feel22.ts:437, import-beesline.ts:290, import-dali.ts:267). First sentences repeat across a product line far more than full descriptions do. Computed over the source catalogues, restricted to allowlisted + non-hidden rows, applying the real `firstSentence` + `summarise(155)`: **Beesline 173 of 265 visible products (65%) share a description with at least one other product** — one antiperspirant sentence covers 35 products, another 7, another 6. **Dali 13 of 37 (35%)** — all 13 nail polishes carry 'Discover the world of Dali Nail Polish, where every shade tells a story.' **Feel22 173 of 1,560 (11%) across 59 groups** — 13 for D'ELITES body splash, 13 for D'ELITES body lotion, 7 for Garnier Hair Food. Roughly 359 of ~1,675 live product pages (21%) carry a non-unique description. Several are degenerate rather than merely duplicated, because `firstSentence` cuts at the first period: 'What it is?' (x5), 'Touch.' (x5). Fix needs either owner-written short copy or a generated-but-distinguishing description (name + shade/size + category + price), not a change to seo.ts alone.",
+          "severity": "high",
+          "effort": "large"
+        },
+        {
+          "title": "Every Feel22 subcategory's description is literally its own name",
+          "file": "server/prisma/import-feel22.ts",
+          "line": 327,
+          "detail": "`update: { ...rest, blurb: rest.name }` / `create: { ...rest, blurb: rest.name }` for all 27 entries in `SUBS`. `seo.ts:250` then renders `summarise(c.blurb || …)`, so `/category/serums` ships `<meta name=\"description\" content=\"Serums\">` beside `<title>Serums · TulipGlam</title>` — a one-word description that adds nothing and is what Google shows in a snippet. Worse, CLAUDE.md's stated run order is 'run Feel22 last', and this is an upsert on shared slugs: it overwrites the real blurbs the other two importers wrote for the same categories — `cleansers` goes from 'Balm, gel, milk & micellar' (import-dali.ts:85) to 'Cleansers'; `nail-colors` 'Over 100 shades' and `face` 'Base, powder & cheeks' survive only because Feel22's SUBS list doesn't define them with a blurb. The 12 departments are unaffected (TOPS carry real blurbs at lines 67-79). Fix is one line plus a blurb column for the 27 subs.",
+          "severity": "high",
+          "effort": "small"
+        },
+        {
+          "title": "The sitemap and the brand allowlist cannot be kept in agreement by construction",
+          "file": "server/src/seo.ts",
+          "line": 363,
+          "detail": "`sitemapXml` reads `where: visible` = `{ status: { in: ['active','unavailable'] } }` (index.ts:144) on every request. The allowlist is a separate, one-way, import-time write: `applyBrandAllowlist` (prisma/brandAllowlist.ts:65-114) is called only from the three importers (`import-feel22.ts:509`, `import-dali.ts:344`, `import-beesline.ts:341`, each scoped `{ source }`) and from `scripts/apply-brand-allowlist.ts`. Nothing on the request path ever consults `brands-we-sell.txt`. Three concrete drift paths: (1) removing a brand from the file changes nothing until someone re-runs an import or the script — the sitemap keeps listing it and `metaForPath` keeps serving it 200 + indexable; (2) `applyBrandAllowlist` only ever sets `status: 'hidden'` (line 99-103) and never restores, so ADDING a brand back has no effect at all short of a full re-import of that source; (3) any admin edit that flips a product to `active` puts it in the sitemap regardless of brand. `test-seo.mjs` asserts nothing about this. The cheapest structural fix is a check that `sitemapXml`'s product set contains no product whose brand is off `loadAllowlist()`, run as a test (or an `/admin/pulse` counter), since the two rules are supposed to compose.",
+          "severity": "high",
+          "effort": "medium"
+        },
+        {
+          "title": "The sitemap assertion is a floor at ~58% of the real catalogue",
+          "file": "server/scripts/test-seo.mjs",
+          "line": 119,
+          "detail": "`check(\"  ...lists the catalogue\", locs > 1000)`. The live catalogue is roughly 1,675 products + ~37 active categories + 15 static URLs ≈ 1,730 `<loc>` entries (derived from the source catalogues under the 65-name allowlist, cross-checked against CLAUDE.md's independently stated 'only 15 of its 150 Oral Care products are visible' — my model reproduces 15 exactly). So ~40% of the storefront could disappear from the sitemap and this stays green. It is also the only sitemap-content check: nothing asserts that a `hidden` or `discontinued` product is ABSENT (line 123 only asserts one known-good product is present), nothing asserts every `active` product is present, and nothing asserts the count agrees with `db.product.count({ where: VISIBLE })`. Replace the constant with the actual count read from the database in the same run, so the two figures have to reconcile.",
+          "severity": "medium",
+          "effort": "small"
+        },
+        {
+          "title": "The WhatsApp preview still shows no price for ~98% of products",
+          "file": "server/src/seo.ts",
+          "line": 192,
+          "detail": "The module header (lines 8-11) states the defect this file exists to fix: 'produced the generic homepage card with no photo, no name and no price.' Name and photo are fixed. Price is only ever present when the product has NO supplier description at all, because that is the only branch that includes `$${money(price)}` — 34 of 1,560 live Feel22 rows and 2 of 265 Beesline rows. For everything else the preview shows brand marketing copy and no figure. There are also no `product:price:amount` / `product:price:currency` OG tags to carry it, despite `og:type` being set to `product` (line 62). Appending ' — $X' (or a range, per the AggregateOffer finding) to the summarised description, or adding the OG product price tags, closes it.",
+          "severity": "medium",
+          "effort": "small"
+        },
+        {
+          "title": "No aggregateRating, though approved reviews and the computed average already exist",
+          "file": "server/src/seo.ts",
+          "line": 205,
+          "detail": "The Product JSON-LD carries no `aggregateRating` and no `review`, so no product is eligible for star rich results. The data is already computed and already public: `index.ts:849` returns `ratingAvg` and `reviewCount` from `reviews: { where: { approved: true } }`, and the page renders `<Stars>` from it (`web/src/pages/Product.tsx:135-137`). Adding it is the honest kind of addition — moderated first-party reviews about the product itself — provided it is emitted ONLY when `reviewCount > 0` (Google rejects `aggregateRating` with `ratingCount: 0`, and an empty rating would be the same shape of unverifiable claim as the old 'Best sellers' rail).",
+          "severity": "medium",
+          "effort": "small"
+        },
+        {
+          "title": "26% of product titles exceed 60 characters; the longest is 189",
+          "file": "server/src/seo.ts",
+          "line": 119,
+          "detail": "`titled()` drops the site name when `main.length + tail.length > 60` but never truncates `main` itself. Over the 1,560 live Feel22 rows: **760 (49%) lose the ' · TulipGlam' tail**, and **404 (26%) still exceed 60 characters**, 251 exceed 70. Longest is 189 chars ('Mixa Urea Cica Repair Moisturizing Cream Jar - For Keratosis Pilaris, Dry, Flaky, Strawberry, Rough, & Fragile Skin & Tiny Reddish Bumps With 10% Urea and Niacinamide For Face, Hands & Body'). Half the catalogue therefore has no brand signal in the SERP title and a quarter is truncated mid-phrase by Google; the same string is the WhatsApp preview headline. The comment on line 118 states the 60-char intent, so the code does half of what it says. Use `summarise()`-style word-boundary trimming on `main` before appending the tail.",
+          "severity": "medium",
+          "effort": "small"
+        },
+        {
+          "title": "Category head computes a visible-product count and discards it",
+          "file": "server/src/seo.ts",
+          "line": 244,
+          "detail": "`include: { parent: true, _count: { select: { products: { where: ctx.visible } } } } }` — `c._count` is never read by the returned object (lines 247-256). It costs a subquery on every category head render and asserts nothing. It is also the only use of `ctx.visible` inside `metaForPath`, so the field looks load-bearing when it is not. The obvious intended guard is missing in two places: a category with zero visible products still returns 200 and indexable here, and `sitemapXml` (line 362) lists **every** `active: true` category with no regard to contents. Not currently realised — every leaf category still holds at least one allowlisted product (thinnest: `skincare-tools` 1, `intimate-care` 4, `toners` 5) — but the allowlist is the owner's to edit and one removal creates an indexed empty shelf. Either use the count (404 or noindex at zero, and skip it in the sitemap) or delete it.",
+          "severity": "medium",
+          "effort": "small"
+        },
+        {
+          "title": "Homepage declares @type Store — a physical shop — with no address",
+          "file": "server/src/seo.ts",
+          "line": 168,
+          "detail": "`\"@type\": \"Store\"` is a `LocalBusiness` subtype, which asserts a place customers can visit. This business holds no stock and has no premises (CLAUDE.md 'Business model — no inventory'), and the only address emitted is `{ \"@type\": \"PostalAddress\", addressCountry: \"LB\" }` (line 173) — no street, no locality. schema.org's `OnlineStore` (a subtype of `OnlineBusiness`, added 2022) says exactly what is true. Same class as the promo-band and 'Best sellers' fixes this codebase already made. Related, smaller: line 171 publishes `settings.whatsappNumber` as `telephone`, which asserts a voice line; `contactPoint` with `contactType: \"customer service\"` is the accurate shape for a WhatsApp-only channel.",
+          "severity": "medium",
+          "effort": "trivial"
+        },
+        {
+          "title": "lastmod says every product changed on the same day",
+          "file": "server/src/seo.ts",
+          "line": 383,
+          "detail": "`lastmod: p.updatedAt`, with the comment at line 353 presenting importer churn as a feature: 'which the importers touch, so a re-import refreshes it'. All three importers `deleteMany` + `createMany` their whole source (CLAUDE.md, 'Importers are scoped by source'), so `updatedAt` is the import timestamp for every row. The sitemap therefore tells crawlers that all ~1,675 products changed simultaneously and none has changed since — which is false in both directions, and burns the crawl budget the file exists to direct. Either omit `lastmod` for importer-owned rows (as the category entries already honestly do, line 363's sibling at 362) or carry a content hash so only genuinely changed products advertise a new date.",
+          "severity": "low",
+          "effort": "small"
+        },
+        {
+          "title": "Trailing-slash URLs serve 200 with a second self-referential canonical",
+          "file": "server/src/seo.ts",
+          "line": 136,
+          "detail": "`canonical = origin + pathname`, and `pathname.split(\"/\").filter(Boolean)` treats `/product/foo/` identically to `/product/foo`. So both URLs answer 200 with the same content and *different* self-referential canonicals, while the sitemap lists only the unslashed form — a duplicate pair that canonicalisation is specifically supposed to prevent. Same for `/category/foo/` and every STATIC path. One-line fix: normalise `pathname` (strip a trailing slash) before building `canonical`, or 301 to the canonical form.",
+          "severity": "low",
+          "effort": "trivial"
+        },
+        {
+          "title": "Product JSON-LD publishes one image and omits the recommended Offer fields",
+          "file": "server/src/seo.ts",
+          "line": 183,
+          "detail": "`images: { orderBy: { sortOrder: \"asc\" }, take: 1 }` means the JSON-LD `image` array (line 209) always has exactly one entry, though Beesline ships 555 images for 308 products and Dali 182 for 37 — Google explicitly asks for multiple images and multiple aspect ratios. The Offer (215-227) also omits `itemCondition` (`NewCondition` is checkable), `shippingDetails` and `hasMerchantReturnPolicy` — both of which the store CAN state from data it already holds (`DeliveryArea` fees, `freeDeliveryThresholdCents`, the settings-driven returns copy) and both of which Google now warns on. The Product node has no `url`/`@id`. Do NOT invent `priceValidUntil`, `gtin` or `sku` to silence the remaining warnings — the first is unknowable here and the last two are the rule this file was written to protect.",
+          "severity": "low",
+          "effort": "small"
+        },
+        {
+          "title": "apply-brand-allowlist prints reversal instructions naming a script that does not exist",
+          "file": "server/scripts/apply-brand-allowlist.ts",
+          "line": 92,
+          "detail": "After hiding products it logs 'Reversible: edit prisma/brands-we-sell.txt and run scripts/restore-brand.ts <name>.' There is no `scripts/restore-brand.ts` anywhere in the repo (only `restore-drill.ts`, which is the pg_restore drill). Combined with `applyBrandAllowlist` only ever writing `hidden` and never restoring, the true reversal is 'add the name back and re-run that source's importer' — which also recreates every row. An operator following the printed instruction gets a file-not-found and no way back. This is the same rule the codebase applies to the storefront ('a cleanup message must report the outcome, not the plan') applied to operator output.",
+          "severity": "low",
+          "effort": "trivial"
+        },
+        {
+          "title": "The SKU privacy check samples one arbitrary row and can fail spuriously",
+          "file": "server/scripts/test-seo.mjs",
+          "line": 26,
+          "detail": "`db.product.findFirst({ where: { status: \"active\", NOT: { sku: \"\" }, images: { some: {} } } })` has no `orderBy`, so Postgres may return a different row per run — the assertion at line 81 then proves 'this one product's sku is not in its own page', which is a statement about one of ~1,675 products, not about the serialiser. It is also a raw `String.includes` against the whole HTML document, so a short sku (the catalogue contains 4-character ones such as `H234`) can collide with a Vite asset hash and produce a false FAIL — noise that trains the next reader to discount the suite, which CLAUDE.md already names as the failure mode that matters. Stronger form: assert structurally over a batch — fetch N product pages and their `/api/products/:slug` responses and check each against its own sku with a word-boundary match — and separately assert no `ProductImage.url` contains its product's sku (see the image-filename finding, which this check is currently blind to).",
+          "severity": "info",
+          "effort": "small"
+        }
+      ]
+    },
+    {
+      "summary": "The only order-change mechanism that exists is `POST /api/admin/orders/:id/resolve` with `action: \"remove\"` (server/src/index.ts:2192–2286) — it drops one pre-recorded blocked line and recomputes subtotal, delivery, coupon, points and gift card server-side, then best-effort re-prices the pending loyalty earn. There is no swap, no quantity change, no add-item, and no generic order editor anywhere in the server or admin UI; `accept` (substitute) changes status only and the confirm dialog tells the operator to \"edit the order after confirming\" via a surface that does not exist. The remove path also re-validates the coupon instead of re-pricing it, so an order that consumed a `maxUses` coupon or whose coupon has since expired silently loses its own discount, and it caps `pointsDiscountCents` down without writing any redemption reversal — the two drift bugs already patched in that block (the tier delivery perk, the gift-card refund) are the same shape and confirm the design is a second, hand-rolled copy of checkout's pricing with no shared function and zero HTTP-level test coverage.",
+      "findings": [
+        {
+          "title": "No mutation exists for swapping an item or changing a quantity — only removal",
+          "file": "server/src/index.ts",
+          "line": 2169,
+          "detail": "`POST /api/admin/orders/:id/resolve` accepts exactly three actions: `accept`, `remove`, `cancel` (index.ts:2179, 2185, 2192). The only order-item write anywhere outside checkout is `db.orderItem.delete` at index.ts:2261 — a repo-wide grep for `orderItem.create|update|upsert` finds nothing but the importers nulling `productId`. `adminApi` exposes only `setOrderStatus`, `askCustomer`, `resolveOrder` (web/src/admin/adminApi.ts:243–248). So for a business where the owner sources per order and confirms every order on WhatsApp, the daily operations 'swap this for that', 'make it 2 instead of 3' and 'add one more' have no code path at all. The one supported change also requires the item to have been pre-registered via `POST /orders/:id/awaiting` first — you cannot remove a line without first moving the whole order into `awaiting_customer` and naming that line.",
+          "severity": "blocker",
+          "effort": "large"
+        },
+        {
+          "title": "The coupon is re-VALIDATED, not re-priced — an order loses its own single-use or expired coupon on removal",
+          "file": "server/src/index.ts",
+          "line": 2209,
+          "detail": "The remove path calls `evalCoupon(order.couponCode, subtotal)` (index.ts:2209). `evalCoupon` (index.ts:890–899) has four rejection branches and three of them are wrong at re-price time:\n\n- `if (c.maxUses != null && c.usedCount >= c.maxUses)` (line 895) — checkout ALREADY claimed this order's use by incrementing `usedCount` (index.ts:1023–1026). For a `maxUses: 1` coupon this is guaranteed to fire, so the order is denied the coupon it already paid a use for.\n- `if (c.expiresAt && c.expiresAt.getTime() < Date.now())` (line 894) — an order placed on the last day of a promo and sourced the next day loses its discount.\n- `if (!c || !c.active)` (line 893) — deactivating a coupon in admin retroactively strips it from every in-flight order that used it.\n\nOnly the `subtotal < c.minOrderCents` branch (line 896) is the intended behaviour, and it is the only one the confirm dialog warns about (web/src/admin/AdminOrders.tsx:406–409). Concretely: order of $70 with WELCOME10-style `maxUses: 1`, $7 off, total $63. Remove a $10 line → subtotal $60, `discount` comes back 0, new total $60 + delivery instead of $53 + delivery. The customer's total goes UP by $7, `usedCount` is never decremented so the use stays consumed, and `Order.couponCode` is left populated (index.ts:2266 writes `discountCents` but not `couponCode`) while the admin breakdown hides the coupon line because it renders only when `discountCents > 0` (AdminOrders.tsx:278). The shop keeps the coupon use and the money.",
+          "severity": "blocker",
+          "effort": "small"
+        },
+        {
+          "title": "Points are capped down on removal with no redemption reversal — the customer's points evaporate",
+          "file": "server/src/index.ts",
+          "line": 2235,
+          "detail": "`const pointsDiscount = Math.min(order.pointsDiscountCents, Math.max(0, subtotal - discount));`. The comment above it (index.ts:2222–2234) correctly establishes that points already spent stay spent, but the `Math.min` silently reduces the applied discount when the surviving merchandise is worth less than the points already redeemed, and nothing gives the difference back. The `redeem` ledger entry written by `redeemWithin` is untouched, and `reverseRedemption` (server/src/loyalty/ledger.ts:647) is called only from `onOrderStatusChanged` for cancelled/refused/unavailable (hooks.ts:177–181) — never from the remove path. Failure: order subtotal $60, 300 points redeemed for $9, total $51. The $55 line cannot be sourced and is removed → subtotal $5, `pointsDiscount = min(900, 500) = 500`. The customer paid 300 points and receives $5 of value; ~133 points of value vanish with no entry explaining it. Compare the gift card two blocks down (index.ts:2254–2257), which does exactly the right thing with an `increment` refund and a history line — the same treatment was not extended to points. The in-code justification points at 'the note in the morning document about the case where removing an item leaves less merchandise than the points already covered', and MORNING.md contains no such note.",
+          "severity": "high",
+          "effort": "medium"
+        },
+        {
+          "title": "The 'accept a substitute' resolution updates none of the three — and its dialog names an editor that does not exist",
+          "file": "server/src/index.ts",
+          "line": 2179,
+          "detail": "`if (action === \"accept\")` writes `status: \"confirmed\"` plus the awaiting-clear and an event, and nothing else (index.ts:2179–2183). Money: unchanged — the order still carries the unsourceable item's name, price and qty, so the customer is billed for a product they are not receiving and the driver's sheet (server/src/dispatch.ts:122, `itemsFaceValueCents`) describes a bag whose contents do not match. Points: unchanged — no `repricePendingEarn` call, so the pending earn is priced on the original basket. Customer total: unchanged. The confirm dialog concedes the gap in as many words: \"Use this when the customer took an alternative at the same price. If the price differs, edit the order after confirming.\" (web/src/admin/AdminOrders.tsx:398) — there is no order editor in `web/src/admin/` and no endpoint behind one. This is the swap case, and today it is handled by pretending the price did not change.",
+          "severity": "high",
+          "effort": "medium"
+        },
+        {
+          "title": "The 'Can't source an item' button is offered on five statuses where the server always rejects it",
+          "file": "web/src/admin/AdminOrders.tsx",
+          "line": 364,
+          "detail": "The button renders whenever `order.status !== \"awaiting_customer\" && !terminal`. `POST /orders/:id/awaiting` gates on `canTransition(order.status, \"awaiting_customer\")` (server/src/index.ts:2149), and server/src/status.ts:35–55 permits `awaiting_customer` only from `received`, `confirming`, `sourcing` and `on_hold`. So on `confirmed`, `packed`, `dispatched`, `out_for_delivery` and `delivered` the button is visible, opens a dialog, makes the operator pick an item and type a required note, and then 400s with 'Cannot ask the customer from “Confirmed”.' This directly violates the rule CLAUDE.md records for this screen — 'The UI offers only legal moves and the server independently rejects the rest' — which is honoured by the status Combobox (line 209–212) and not by this button. It also means the change flow is structurally unavailable at exactly the point the owner works: an order is `confirmed` or `packed` when the WhatsApp confirmation happens, and from `confirmed` the operator must first detour through `sourcing` to reach the flow at all; from `packed` there is no route back.",
+          "severity": "high",
+          "effort": "small"
+        },
+        {
+          "title": "Order pricing is implemented twice with no shared function, and has already drifted twice",
+          "file": "server/src/index.ts",
+          "line": 2198,
+          "detail": "Checkout prices an order at index.ts:1017–1146 (inside `placeOrder`); the remove path re-implements the same six-step arithmetic at index.ts:2198–2238. Nothing is shared — a grep for a pricing helper across `server/src` finds none; `freeDeliveryThresholdCents` is read independently at 951 and 2203, and the ordering rule (coupon → points → delivery → gift card) is written out twice. The two large comments inside the second copy are both post-mortems of that duplication: the tier free-delivery perk was missing so removal re-charged Bloom/Bouquet customers a fee their tier had earned (index.ts:2211–2217), and `pointsDiscountCents` was not written so the total stopped subtracting points the ledger still showed as spent (index.ts:2222–2234). This is the exact `rules.ts`/`ledger.ts` failure mode CLAUDE.md says the loyalty module was rebuilt to eliminate — two files each self-consistent and disagreeing with each other. Adding swap and quantity mutations on the current shape means a third and fourth copy.",
+          "severity": "high",
+          "effort": "large"
+        },
+        {
+          "title": "No test touches any order-mutation endpoint",
+          "file": "server/scripts/test-all.mjs",
+          "line": 1,
+          "detail": "A grep for `admin/orders` across `server/scripts/*.mjs` returns nothing, and no suite references `/resolve` or `/awaiting`. `test-checkout-money.mjs` covers placement only (delivery boundary, coupons, gift cards, races). The single piece of coverage in the whole change flow is `test-loyalty-hooks.mjs:291–316`, which calls `repricePendingEarn` directly with a hand-computed `halved` figure — it never exercises the HTTP path, so it cannot catch the coupon-revalidation bug, the points cap, or the gift-card refund arithmetic that sits between the endpoint and that function. This is the layer CLAUDE.md says the search-ranking defect lived in: 'Testing the search module alone passed the entire time.' The only mutation the shop has for changing a live order, on a database shared with production, is verified by nothing.",
+          "severity": "high",
+          "effort": "medium"
+        },
+        {
+          "title": "The loyalty re-price is best-effort and nothing ever detects a miss",
+          "file": "server/src/index.ts",
+          "line": 2283,
+          "detail": "`await safely(\"reprice earn for order ${id}\", () => repricePendingEarn(...))` runs AFTER the money transaction has committed (index.ts:2259–2284). `safely` (server/src/loyalty/hooks.ts:48–67) returns null on a 4s timeout or any throw, and logs to console only — 'There is no error-reporting service wired up'. So the money can commit while the points do not, and there is no reconciliation. Crucially the sweep cannot repair it: `load()` passes `merchandiseCentsOf(order)` into `computeState` (server/src/loyalty/ledger.ts:281–294), but `computeState` uses that map only for tier-spend via `countedMerchandise` (rules.ts:307–314) — the earn's `points` column is authoritative for the balance and is never re-derived from the order. A dropped re-price means the customer permanently earns on goods they did not receive, silently. Contrast the checkout hook, where a lost earn is recoverable from the admin ledger by hand; here nothing surfaces that the two are out of step.",
+          "severity": "medium",
+          "effort": "medium"
+        },
+        {
+          "title": "Nothing tells the customer the total changed",
+          "file": "server/src/index.ts",
+          "line": 2192,
+          "detail": "`queueMail` is called from exactly two places: checkout (index.ts:1195, order-confirmation carrying the placement total) and `PUT /orders/:id/status` (index.ts:2129). The resolve endpoint changes status on all three branches and the TOTAL on the remove branch, and queues no mail at all. Even if it did, `statusUpdateEmail` (server/src/mailer.ts:72) takes `(storeName, name, number, statusLabel, note)` and carries no money. The customer's own artefacts — the WhatsApp message they composed at checkout (web/src/pages/Checkout.tsx:115, `Total: ${usd(res.totalCents)}`) and the confirmation email — both hold the pre-change figure permanently. The new total reaches the customer only if they happen to reload /track, and reaches the door correctly only because `dispatch.ts` reads `order.totalCents` live. For a cash-on-delivery shop this is the doorstep argument `dispatch.ts` was written to prevent, arriving by a different route.",
+          "severity": "medium",
+          "effort": "medium"
+        },
+        {
+          "title": "The customer's tracking breakdown omits coupon, points and gift card, so it does not reconcile",
+          "file": "web/src/pages/Track.tsx",
+          "line": 76,
+          "detail": "The summary renders Subtotal, Delivery and Total only (Track.tsx:77–79). Any order with `discountCents`, `pointsDiscountCents` or `giftCardCents` set shows a subtotal and a total that differ by an unexplained amount — and after a remove that is precisely the state the customer is being asked to check. The server half of this fix landed and the client half did not: `GET /api/orders/:number` deliberately adds `pointsDiscountCents` to the redacted payload with the comment 'Without this the breakdown a customer sees on the tracking page does not add up' (server/src/index.ts:1500–1503), and `discountCents`/`giftCardCents` are in the allowlist too (line 1499). MORNING.md:233 flags the original gap. Account order history is thinner still — web/src/pages/Account.tsx:85 prints `totalCents` alone.",
+          "severity": "medium",
+          "effort": "trivial"
+        },
+        {
+          "title": "The 50% redemption cap is silently exceeded after a removal",
+          "file": "server/src/index.ts",
+          "line": 2235,
+          "detail": "`RATES.redeemMaxShareOfMerchandise = 0.5` (server/src/loyalty/config.ts:67) is enforced at checkout by `previewRedemption`, which refuses with the customer-facing string 'Points may cover at most 50% of the items.' (server/src/loyalty/rules.ts:542, 572–573). The remove path caps `pointsDiscount` at `subtotal - discount` — 100% of the surviving merchandise, not 50%. Order of $100 with $50 redeemed (exactly at cap); remove a $40 line → subtotal $60, points still cover $50, i.e. 83%. The rule the shop states publicly is not re-checked by the one path that can invalidate it. Whichever direction is chosen — re-cap and reverse the surplus, or grandfather it — it should be a decision written down rather than a `Math.min` bound that happens to be the wrong one.",
+          "severity": "medium",
+          "effort": "small"
+        },
+        {
+          "title": "A money-changing resolution records no operator reason",
+          "file": "web/src/admin/AdminOrders.tsx",
+          "line": 200,
+          "detail": "`await adminApi.resolveOrder(id, action, \"\")` — the note is hardcoded empty, and none of the three ConfirmDialogs (lines 394–417) contains an input for one. The server reads `str(req.body.note).trim()` (index.ts:2172) and falls back to canned text such as 'Removed “X” at the customer's request. Total recalculated.' So the order history can never say what the customer actually agreed to. `POST /orders/:id/awaiting` requires a note and refuses without one ('Say what you asked the customer — it is shown on the order.', index.ts:2152), and loyalty adjustments enforce `RATES.minAdjustmentReasonLength` (server/src/loyalty/admin.ts:291–297) — the one operation that rewrites an order's total is the one with no reason attached.",
+          "severity": "low",
+          "effort": "trivial"
+        },
+        {
+          "title": "`couponCode` and `giftCardCode` survive on the order after their amounts are zeroed",
+          "file": "server/src/index.ts",
+          "line": 2266,
+          "detail": "The remove update writes `subtotalCents, discountCents, giftCardCents, pointsDiscountCents, deliveryCents, totalCents` but leaves `couponCode` and `giftCardCode` as they were (index.ts:2264–2268). When a coupon is dropped (see the evalCoupon finding) or a gift card is fully refunded, the order keeps a code whose amount is now 0. Every consumer hides the line on the amount rather than the code — admin detail at web/src/admin/AdminOrders.tsx:278 and :289, dispatch's `whyDifferent` at server/src/dispatch.ts:83–85 — so nothing is displayed wrongly today, but the row records a promotion that was applied to nothing, which is the shape of thing a later query or export will read as truth.",
+          "severity": "low",
+          "effort": "trivial"
+        }
+      ]
+    },
+    {
+      "summary": "The reusable matcher lives in server/prisma/import-feel22.ts:218-253 (symmetric Jaccard ≥ 0.8 over brand-prefix-and-volume-stripped title tokens, gated by a bundle-only-matches-bundle rule) and is applied once, at import time, in one direction only at lines 363-392. Replaying that exact algorithm offline against the committed feeds shows it misses three whole classes: all 9 Dali duplicates never get compared at all (feed vendor \"Dali Cosmetics\" slugifies to `dali-cosmetics`, the direct brand slug is `dali`, so the candidate lookup at line 378 returns undefined), 24 genuine Beesline pairs score 0.50-0.75 and pass through, and 97 candidate intra-feel22 pairs among the 1,594 allowlisted rows are never looked for. The mundane checks are already half-built in `GET /api/admin/catalogue-health` (server/src/index.ts:2325-2352); the gaps are no upper price bound, an image count that measures database rows rather than renderable files, and no name validation on the product-update path.",
+      "findings": [
+        {
+          "title": "THE REUSABLE ALGORITHM — feel22 dedupe, precise enough to reimplement",
+          "file": "server/prisma/import-feel22.ts",
+          "line": 218,
+          "severity": "info",
+          "effort": "trivial",
+          "detail": "Lift this verbatim; do not reinvent it. Five pieces, all in import-feel22.ts:218-253.\n\n1. CONSTANTS (233-234)\n   MATCH_THRESHOLD = 0.8\n   STOP = {the, and, for, with, new, free, pack, offer, special}\n\n2. normaliseTitle(s, brand) (237-244), in this order:\n   a. strip a leading brand prefix, anchored and case-insensitive, brand regex-escaped:\n      new RegExp(\"^\\\\s*\" + escapeRe(brand) + \"\\\\s*\", \"i\")\n   b. .replace(/\\(\\s*\\d+\\s*\\+\\s*\\d+[^)]*\\)/g, \" \")                          -> kills \"(1+1 Free)\"\n   c. .replace(/\\b\\d+(\\.\\d+)?\\s*(ml|l|g|gm|gr|mg|oz|pcs|caps|tabs)\\b/gi, \" \") -> kills \"200ml\", \"50 g\"\n   d. .replace(/\\b\\d+\\b/g, \" \")                                             -> kills bare numbers\n\n3. tokens(s, brand) (245-246): normaliseTitle -> lowercase -> /[^a-z0-9 ]+/g to spaces -> split on whitespace -> keep tokens with length > 2 that are not in STOP -> Set.\n\n4. jaccard(a, b) (247-252): SYMMETRIC. i = |a n b|; union = a.size + b.size - i; return union ? i/union : 0. Two empty sets score 0, not 1.\n   WHY NOT CONTAINMENT (the load-bearing history, 225-228): containment scores a short title fully inside a longer one at 1.0, so \"Everyone Barrier Cream + Super Hydrating Serum\" matched plain \"Everyone Barrier Cream\". It would have destroyed 156 rows instead of skipping 54.\n\n5. isBundle(s) (253): /[A-Za-z)]\\s+\\+\\s+[A-Za-z]/ tested AFTER the (1+1) marker is stripped — \"1+1\" is the same product twice, an offer, not a bundle.\n\nTHE PASS ITSELF (363-392):\n   - load candidates: db.product.findMany({ where: { source: { in: [\"dali\",\"beesline\"] } }, select: { name, brand: { slug, name } } })\n   - BLOCK BY BRAND: bucket candidates into directByBrand keyed by brand.slug; candidates with no brand are dropped (line 371). This is what keeps it O(n * small) instead of 9,327 x 345.\n   - for each feed product: cands = directByBrand.get(slugify(p.brand)); pt = tokens(p.title, p.brand); pBundle = isBundle(p.title)\n   - for each candidate: `if (c.bundle !== pBundle) continue;` (383) then `if (jaccard(pt, c.toks) >= 0.8)` (384) -> record and break.\n   - the action is SKIP, not delete (415): the losing row is never created. Nothing is ever deleted.\n\nslugify is at 199-201: NFD, strip combining marks, lowercase, /[^a-z0-9]+/ -> \"-\", trim dashes, fallback \"brand\".\n\nFor a sweep over rows already in the database, the only substitutions needed are: iterate Product rows instead of feed records, use p.name instead of p.title and p.brand.name instead of p.brand, and block by brandId (or by a normalised brand key — see the Dali finding) instead of by slug."
+        },
+        {
+          "title": "BLOCKER: the Dali half of the dedupe has never executed — brand slug mismatch",
+          "file": "server/prisma/import-feel22.ts",
+          "line": 378,
+          "severity": "blocker",
+          "effort": "small",
+          "detail": "`const cands = p.brand ? directByBrand.get(slugify(p.brand)) : undefined; if (!cands) continue;`\n\ndirectByBrand is keyed by the DIRECT product's `brand.slug` (line 373). The Dali importer creates that brand as slug \"dali\" (server/prisma/import-dali.ts:231-235). Feel22's feed calls the vendor \"Dali Cosmetics\", and slugify(\"Dali Cosmetics\") = \"dali-cosmetics\". The map lookup misses, `continue` fires, and NOT ONE of the 9 Dali comparisons is ever performed. Verified by grepping the feed: 9 rows with \"brand\":\"Dali Cosmetics\", 97 with \"brand\":\"Beesline\" — which is exactly the split the importer's own header comment claims to handle (line 25).\n\nBoth names sit on the allowlist (prisma/brands-we-sell.txt has BOTH \"Dali\" and \"Dali Cosmetics\"), so both sets are live on the storefront right now. The concrete damage: the direct Dali listing \"Lip Butter Balm\" carries 9 shade variations (Cherry Glaze, Cotton Candy, Peach Sorbet, Raspberry Jam, Salted Caramel, Strawberry, Vanilla Cake, Watermelon Sugar, Pink Meringue). The feel22 feed lists those same 9 shades as 9 SEPARATE products (\"Dali Lip Butter Balm Peach Sorbet\", etc.). Ten listings for one product.\n\nFix: a brand-alias map (feed vendor name -> direct brand slug) consulted before the lookup, or key directByBrand by a normalised brand token set rather than an exact slug. An alias table is the honest one — \"Dali Cosmetics\" and \"Dali\" being the same company is a fact nobody can derive from the strings.\n\nSibling hunt: this is the only cross-source name divergence in the current data — grep of the feed shows Beesline is spelled \"Beesline\" on both sides. But the failure is silent by construction (a missing map key produces no log line, no count, no error), so the alias map should also assert that every direct brand slug is reachable from at least one feed vendor name, and print the ones that are not."
+        },
+        {
+          "title": "HIGH: 24 genuine Beesline duplicates score below 0.8 and are live on the storefront",
+          "file": "server/prisma/import-feel22.ts",
+          "line": 233,
+          "severity": "high",
+          "effort": "medium",
+          "detail": "I replayed the exact algorithm (all five pieces above) offline against server/prisma/feel22-catalogue.json and server/prisma/beesline-catalogue.json — no database touched. 97 feed rows carry vendor \"Beesline\". Matches by threshold: >=0.8 -> 54, >=0.7 -> 60, >=0.6 -> 72, >=0.5 -> 78.\n\nSo 54 are skipped and 24 more real duplicates in the 0.50-0.75 band go straight into the catalogue. Every one I read is genuine (score, feel22 title, direct title):\n\n  0.75  Beesline Express Facial Lifting Mask            <- Facial Lifting Mask\n  0.75  Beesline Kids Sunscreen Cream Spf50 60ml        <- Kids Cream SPF50\n  0.75  Beesline Express 9 Oils Hair Mask               <- Hair 9 Oils Mask\n  0.75  Beesline Whitening Roll-On Deodorant            <- Whitening Roll-on Deodorant - Fragrance-Free\n  0.75  Beesline 3 in 1 Micellar Cleansing Water        <- 3in1 Micellar Cleansing Water - 750ml\n  0.67  Beesline 100% Natural Lip Balm - Chocolate & Orange  <- 100% Natural Lip Balm - Choco Orange (1+1)\n  0.60  Beesline Ultrascreen Cream Active Protection SPF50   <- Ultrascreen Active SPF50\n  0.60  Beesline Pure Carrot Suntan Oil SPF10 200 ML    <- Carrot Suntan Oil\n  0.50  Beesline Whitening Facial Glow Toner            <- Whitening Toner\n  0.50  Beesline Honey Moisturizing Soap - Fragrance Free   <- Honey Soap\n  ... 14 more.\n\nThe losses are all the same shape: the direct listing is the SHORT clean name and feel22's is the long marketing one, so the extra tokens (\"express\", \"pure\", \"perfect radiance\", \"cream\", \"active protection\") inflate the union. That is precisely the case containment would have caught and is precisely why containment was rejected — which is why the answer is not \"lower the threshold\", it is a second, narrower rule (next finding) plus a reviewed list.\n\nRecommendation: do NOT drop MATCH_THRESHOLD globally. Keep 0.8 as the auto-skip bar and emit a REVIEW band at 0.5-0.8 into a dry-run report the owner confirms once. 24 rows is a ten-minute job; 0.6 across the whole catalogue is 554 pairs and would be abandoned."
+        },
+        {
+          "title": "HIGH: a title matcher structurally cannot see a variants-vs-rows duplicate",
+          "file": "server/prisma/import-feel22.ts",
+          "line": 384,
+          "severity": "high",
+          "effort": "medium",
+          "detail": "Even with the brand-key bug fixed, the Dali case still does not fire. Simulated with the correct brand mapping: the 9 \"Dali Lip Butter Balm <shade>\" feed rows against the 37 direct Dali names score at most j = 0.60 against \"Lip Butter Balm\" (8 of 9 score 0.50). Nothing reaches 0.8, or even 0.7.\n\nThe reason is not fuzziness, it is granularity: one direct Product with 9 ProductVariant rows versus 9 Product rows. Jaccard over titles is being asked a question about the shape of the data, and it has no way to answer.\n\nThe rule that does answer it, and its guards:\n  - same brand (after aliasing), AND\n  - the DIRECT product has variants and the FEED product does not, AND\n  - tokens(direct.name) is a strict SUBSET of tokens(feed.title), AND\n  - the residual tokens (feed minus direct) match a variant label on the direct side.\n\nThat last clause is what makes this safe. It is the containment shape rejected at line 225-228, and it is only admissible because the residue must NAME something the direct product already sells. \"Everyone Barrier Cream + Super Hydrating Serum\" cannot pass it: the residue \"super hydrating serum\" is not a variant label of \"Everyone Barrier Cream\", and the bundle guard at 383 still applies. Keep both guards; dropping either reopens the 156-row hole.\n\nVerification data if you build it: direct \"Lip Butter Balm\" variations are [Cherry Glaze, Cotton Candy, Peach Sorbet, Raspberry Jam, Salted Caramel, Strawberry, Vanilla Cake, Watermelon Sugar, Pink Meringue] and the 9 feed residues are exactly those 9 strings. A perfect 9/9 is the assertion to write."
+        },
+        {
+          "title": "HIGH: the number-stripping and 3-char token floor produce Jaccard 1.0 FALSE positives",
+          "file": "server/prisma/import-feel22.ts",
+          "line": 243,
+          "severity": "high",
+          "effort": "small",
+          "detail": "Two normalisation steps that are safe for the current cross-source use are dangerous for any wider reuse, and the evidence is in the live feed rather than hypothetical.\n\n(a) `.replace(/\\b\\d+\\b/g, \" \")` (line 243) deletes the only distinguishing token of whole product families. Grouping the 9,381 feed rows by (vendor, token set): 59 groups covering 131 rows differ ONLY in digits — 14 of those groups are on the brand allowlist and therefore visible. Real examples that would merge at j = 1.0:\n    Cosrx The Retinol 0.3 Cream        vs  Cosrx The Retinol 0.1 Cream        (different strengths)\n    Medicube Azelaic Acid Shot 2000    vs  Medicube ... Shot 7500\n    Beurer Hc 50 / Hc 55 / Hc 30 Hair Dryer                                   (three different dryers)\n    Pupa Invisible Sunscreen Spray Spf 50  vs  ... Spf 15\n    Clinique 3 Step Skin Type 2 Set    vs  Skin Type 3 Set\n  Note the spacing decides: \"SPF50\" survives as one token (no word boundary before the 5) while \"Spf 50\" loses its tier. Two products that mean the same thing normalise differently.\n\n(b) `w.length > 2` (line 246) drops 1- and 2-character tokens. Confirmed collisions at j = 1.0:\n    Flormar BB Cream  vs  Flormar CC Cream            -> both reduce to {cream}\n    Lancome Renergie H.C.F. Triple Serum  vs  Renergie C.R.X Triple Serum  -> both {renergie, triple, serum}\n\nWhy the live importer gets away with it: the direct Beesline and Dali catalogues happen to contain no SPF-tier or numbered-shade families, so no false positive has ever had a candidate to hit. That is luck, not design — the same shape as the Windows file lock recorded in verify-sources.mjs.\n\nFix before reusing this for intra-feed or manual-source matching: keep numeric tokens that are NOT immediately followed by a volume unit (step (c) at line 242 already removed those), and lower the token floor to length >= 2. Then re-verify the 54 Beesline matches still all fire — that is the regression test."
+        },
+        {
+          "title": "MEDIUM: the check runs once, at import, in one direction — nothing ever re-examines existing rows",
+          "file": "server/prisma/import-feel22.ts",
+          "line": 363,
+          "severity": "medium",
+          "effort": "medium",
+          "detail": "Three separate reasons it cannot catch everything, independent of any threshold:\n\n1. ONE DIRECTION. Line 364-367 queries `source in [\"dali\",\"beesline\"]` as candidates and feel22 as the subject. import-dali.ts and import-beesline.ts contain no comparable pass — grep for jaccard/dedupe/duplicate in both files returns only an unrelated comment about supplier product_type values. So the guarantee is \"feel22 does not add a twin of something already there\", never \"the catalogue holds no twins\".\n\n2. ORDER-DEPENDENT AND UNENFORCED. CLAUDE.md:75 says \"run Feel22 last\". Nothing checks. Re-run `npm run import:beesline` after feel22 and beesline's 308 rows are deleted and recreated (import-beesline.ts:266) while feel22's twins sit untouched — no comparison runs, because the comparison lives in the other importer. Any product the Beesline supplier ADDS later whose feel22 twin already exists is permanently unreconciled.\n\n3. SKIP, NOT SWEEP. The action is `continue` at line 415 — the row is never created. There is no code path anywhere that examines rows already in the Product table. So every duplicate created before the matcher existed, every one missed by a threshold or a brand-key bug, and every one introduced by the Excel importer (server/src/index.ts:2700-2749, which sets no `source` at all and upserts on slugify(brand + name), so \"Dali Cosmetics\"+name and \"Dali\"+name are two different rows) is invisible forever.\n\nThe sweep should therefore be a standalone dry-run script, not a fourth importer hook. Model it on server/scripts/apply-brand-allowlist.ts: dry run by default, `--write` to act, prints the full projection first, refuses to proceed when its own inputs do not reconcile, and never deletes (status change to `hidden` is the reversible move — and deleting an importer-owned row is undone by the next import anyway, the lesson already recorded in CLAUDE.md:449 and warned about in the admin delete dialog)."
+        },
+        {
+          "title": "MEDIUM: duplicates WITHIN a single feed are not looked for at all",
+          "file": "server/prisma/import-feel22.ts",
+          "line": 375,
+          "severity": "medium",
+          "effort": "medium",
+          "detail": "The skip loop only ever compares feed-to-direct. Two rows of the same feed are never compared to each other, and the feed contains plenty.\n\nMeasured over the 1,594 allowlisted feel22 rows (the ones that are actually visible), blocked by vendor: 24 pairs at j = 1.0, 27 at >= 0.9, 97 at >= 0.8, 195 at >= 0.7, 554 at >= 0.6. The j >= 0.8 list is 97 pairs — a reviewable morning, and it reuses the existing threshold so no new number has to be justified.\n\nGenuine examples found at 1.0:\n    Nivea Soft Cream  ||  Nivea Soft Cream            (identical title, two product_ids: 1720041766958 under \"Day and Night Cream\", 7838532501642 under \"Body Lotion and Oil\")\n    Kiehl's Ultra Facial Cream 28ml  ||  Kiehl's Ultra Facial Cream\n    Collistar Magic Drops Self-Tanning Concentrate 50ml  ||  ... Concentrate\n    Garnier Ultra Doux Camomile Conditioner  ||  ... Conditioner - 200ml\n\nBut the same list also contains the Flormar BB/CC and Lancome H.C.F./C.R.X false positives above, so an intra-feed sweep MUST have the numeric/short-token fix applied first or it will propose merging different products. Run it as review-only output; never auto-hide.\n\nAlso not compared: dali-to-beesline. Those two catalogues share no brand, so the brand blocking would find nothing — I checked and there are no cross-brand candidates. Recording it as \"none found\" per the standing sibling-hunt rule rather than leaving it unstated."
+        },
+        {
+          "title": "MUNDANE CHECK 1 — active products with no image",
+          "file": "server/src/index.ts",
+          "line": 2329,
+          "severity": "medium",
+          "effort": "small",
+          "detail": "THE QUERY ALREADY EXISTS. server/src/index.ts:2329 in GET /api/admin/catalogue-health:\n\n    const visible = { status: { in: [\"active\", \"unavailable\"] } };\n    db.product.count({ where: { AND: [visible, { images: { none: {} } }] } })\n\nand the clickable filter that reproduces it exactly is `visible=1&hasImage=0` (line 2341), served by index.ts:1757 (`{ images: { none: {} } }`) and 1729. Reuse both; do not write a new one — the two agreeing is the reason the count is clickable.\n\nThreshold: ZERO. This is not a tolerance band. Feed evidence: beesline 0 rows with no images, dali 0, feel22 7 — of which exactly 1 is both visible and on the brand allowlist (\"Lattafa Sheikh Shuyukh Supreme Eau De Parfum\"). Any number above single digits means an importer's image step failed, not that suppliers are sloppy.\n\nTHE GAP WORTH REPORTING: this counts ProductImage ROWS, not renderable files. web/src/lib/img.ts:41-46 rewrites /products/<src>/<file>.<ext> to /i/<slot>/<src>/<file>.webp with no existence check, and hasDerivative (49-51) tests the URL SHAPE only. If web/scripts/image-build.mjs could not process a source (it flags \"FAILED to process\" at line 197 and writes no derivative), the product has an image row, passes this query, and renders the fallback glyph. IMAGE-SUSPECTS.txt currently lists 2 such files. I traced both: LipContourLipStainFor12-HourWearRosewood.png (Huda Beauty, active, 13 images) and Packshotstemp-Lynn_*.png (MAC, hidden, its only image). Both brands are OFF the allowlist today, so the current visible exposure is 0 — but the comment at web/src/components/ProductImage.tsx:26-30 records that one of them was an active product's only image before the allowlist landed, and adding either brand back re-creates that. Add a second check that intersects visible products' image URLs against the derivative files on disk; it is a directory listing, not a query."
+        },
+        {
+          "title": "MUNDANE CHECK 2 — zero or absurd prices (no upper bound exists anywhere)",
+          "file": "server/src/index.ts",
+          "line": 2331,
+          "severity": "medium",
+          "effort": "small",
+          "detail": "THE ZERO CHECK EXISTS: index.ts:2331, `db.product.count({ where: { AND: [visible, { priceCents: { lte: 0 } }] } })`, filter `visible=1&priceMax=0` (2343). Keep it, threshold ZERO. Feed evidence says it should read 0 today: every zero-price row in all three feeds is already forced to `hidden` by its supplier quality flag (feel22 price_zero -> hidden via productStatus at import-feel22.ts:204-208; beesline's 6 zero-price rows likewise). A non-zero count therefore means a manually created or Excel-imported row, which is the useful signal.\n\nTHERE IS NO UPPER BOUND ANYWHERE. Add one. Grounded thresholds, measured from the feeds rather than guessed:\n  - dali: 37 products, $2.10-$6.50\n  - feel22, allowlisted AND visible (1,560 rows): min > 0, exactly 1 row under $1.00, 21 rows in $1-$2, p50 $18.16, p99 $230, max $589 (Braun IPL PL5054). Only 4 rows above $300, all legitimate (Braun IPL, Oral-B iO 9, Lancome set, Bassam Fattouh box).\n  - beesline (raw feed): max 767910 — Lebanese pounds left in after the store moved to USD. 24 rows above 1000, 13 at exactly 500.00 (placeholder), 6 at 0.00. All 43 are already `hidden`.\n\nSo:\n  priceCents <= 0                 -> BLOCKER, expect 0\n  priceCents < 100      ($1.00)   -> REVIEW. Currently returns exactly 1 row and it is a real error: \"Nivea Soft Cream\" at $0.21. Nothing legitimate is that cheap; even Dali's floor is $2.10.\n  priceCents === 50000  ($500.00) -> the Beesline flat-placeholder fingerprint; an exact-equality check, worth its own line because it looks plausible.\n  priceCents > 60000    ($600)    -> REVIEW. Above the real visible ceiling of $589. Returns 0 today, which is what makes it a usable alarm.\n  priceCents > 100000   ($1,000)  -> BLOCKER, currency error. Any un-hidden Beesline LBP row lands here (767910 -> 76,791,000 cents).\nAlso worth adding, cheap: saleCents >= priceCents. Both write paths enforce sale < price (index.ts:1903 and 2728) so this only catches legacy rows, but it is one predicate."
+        },
+        {
+          "title": "MEDIUM: basePrice takes the MINIMUM variant price, so one broken variant sets the listing price",
+          "file": "server/prisma/import-feel22.ts",
+          "line": 211,
+          "severity": "medium",
+          "effort": "small",
+          "detail": "`basePrice` filters to variants with price_regular > 0, prefers the sellable ones, and returns Math.min over the pool. That is the mechanism behind the absurd-low price found above, and it is worth checking as its own class rather than only catching the output.\n\nWorked example, feed product_id 1720041766958 \"Nivea Soft Cream\", variants:\n    50ml=0.21  75ml=0.30  100ml=0.37  200ml=3.74  300ml=0.70   (all out_of_stock)\nMin is 0.21, so the stored priceCents is 21 and the card advertises a Nivea Soft Cream for twenty-one cents. The 200ml at $3.74 is the only plausible figure in the row; the four small ones are supplier data errors, and taking the minimum guarantees the worst of them wins.\n\nThe detector: for each product, compare the cheapest and dearest priced variant. `max/min >= 10` with more than one priced variant is a supplier data error, not a size ladder — a 300ml is not 18x the price of a 50ml. Run it as a report over ProductVariant.priceCents joined to Product.priceCents; there is no need to change basePrice until the owner has seen the list."
+        },
+        {
+          "title": "MUNDANE CHECK 3 — empty names, and the write path that can create one",
+          "file": "server/src/index.ts",
+          "line": 1946,
+          "severity": "medium",
+          "effort": "trivial",
+          "detail": "QUERY: `where: { AND: [{ status: { in: [\"active\",\"unavailable\"] } }, { OR: [{ name: \"\" }, { name: { equals: \" \" } }] }] }` — or, since Prisma cannot express trim(), raw SQL: `SELECT id, slug, source FROM \"Product\" WHERE btrim(name) = '' AND status IN ('active','unavailable')`. Threshold ZERO, with a review band at `length(btrim(name)) < 3` (the same floor web/src/lib/productName.ts:56 already uses when deciding a trimmed name is too short to be an improvement).\n\nNONE OF THE THREE FEEDS CAN PRODUCE ONE — I checked all 9,726 records: 0 empty or under-3-character names in feel22, beesline or dali, and 0 feel22 titles under 8 characters. So this check is not about suppliers.\n\nTHE PATH THAT CAN: `admin.put(\"/products/:id\")` at server/src/index.ts:1946-1965 does NOT validate the name. `admin.post(\"/products\")` does — line 1938, `if (!str(b.name).trim() || !num(b.categoryId)) return 400`. The update handler goes straight to productData() (which does `name: str(b.name).trim()`, line 1899) and then db.product.update. Clearing the name field in the admin editor and saving writes name = \"\" with a 200 OK. The Excel importer is safe (index.ts:2712-2713 skips nameless rows).\n\nSo the finding has two halves: run the query to see whether it has already happened, and add the same one-line guard to PUT that POST already has. A check that can only ever find damage a fixable endpoint keeps causing is half a control."
+        },
+        {
+          "title": "INFO: Product fields available for matching, and which are indexed",
+          "file": "server/prisma/schema.prisma",
+          "line": 59,
+          "severity": "info",
+          "effort": "trivial",
+          "detail": "Product, server/prisma/schema.prisma:59-130. Usable for duplicate detection:\n\n  name        String  (62)  — the primary signal. @@index([name]) at 127.\n  slug        String  @unique (61) — NOT a duplicate signal here, see the separate finding.\n  sku         String  (63)  — supplier reorder code. Cross-source useless (each supplier's own numbering) but exact-match within a source is a hard identity, and it is ADMIN-ONLY: never serialise it, and never put it in JSON-LD (CLAUDE.md rule, asserted by scripts/test-seo.mjs).\n  source      String  (68)  — \"dali\" | \"beesline\" | \"feel22\" | \"\" (manual/Excel). The partition the whole sweep is organised around. @@index at 124.\n  brandId     Int?    (106) — the blocking key. @@index at 123. Nullable, and the current matcher silently drops null-brand candidates (import-feel22.ts:371).\n  categoryId  Int     (104) — @@index at 122. A useful secondary guard: two products in unrelated departments are not the same product. Note departments hold no products directly, so any rollup must include children.\n  priceCents  Int     (84)  — @@index at 125. A tie-breaker, not a matcher; the same product legitimately differs in price between a direct listing and a retailer.\n  status      String  (83)  — active|hidden|unavailable|discontinued. @@index at 121. Scope the sweep to active+unavailable to match what a shopper sees.\n  searchText  String  (99)  — ALREADY normalised: name + brand + category + parent + tags, accents folded, punctuation dropped, plus a space-stripped copy (server/src/search.ts:57-72). There is a GIN trigram index on it (server/src/searchIndex.ts:29-31), so `similarity(a.\"searchText\", b.\"searchText\")` gives a fast in-database pre-filter to generate candidate pairs before running the Jaccard rule in TypeScript. Best available accelerator if the sweep needs to scale past brand blocking. It is never serialised to anyone.\n  shortDesc / description (86-87), concerns / attributes (100,102), images[] (111), variants[] (112), createdAt/updatedAt (116-117, indexed).\n\nProductVariant (146-160): type (shade|size), label, sku, hex, imageUrl, priceCents, available, sortOrder. `variants.length` is the field that makes the granularity rule possible. `available` is a per-shade flag, NOT a quantity — there is no stock anywhere in this schema and there must never be.\nProductImage (132-141): url, alt, sortOrder."
+        },
+        {
+          "title": "INFO: slug collision is NOT a duplicate signal here — verified, none found",
+          "file": "server/prisma/import-feel22.ts",
+          "line": 424,
+          "severity": "info",
+          "effort": "trivial",
+          "detail": "Worth recording so nobody builds the sweep on it. import-feel22.ts:424-431 re-slugs a colliding handle to `<handle>-f22`, then `-f22-2` and so on, and counts it in `reslugged`. That counter looks like a free duplicate detector.\n\nIt is not. I compared the feeds directly: 0 of the 9,381 feel22 handles collide with any beesline handle (import-beesline.ts:295 uses `slug: p.handle`) or any dali slug (import-dali.ts:272 uses `slug: p.slug`), and there are 0 duplicate handles within the feel22 feed itself. So the re-slug branch has never executed and `reslugged` is always 0.\n\nThe reason is structural: each supplier mints handles in its own namespace, and the 9 Dali duplicates are \"dali-lip-butter-balm-peach-sorbet\" against a direct slug of \"lip-butter-balm\". Real duplicates do not collide on slug, so slug uniqueness provides no protection at all. Recording \"none found\" as information, per the standing sibling-hunt rule."
+        },
+        {
+          "title": "INFO: three recorded figures for the same quantity disagree — resolve before publishing any sweep",
+          "file": "CLAUDE.md",
+          "line": 95,
+          "severity": "info",
+          "effort": "trivial",
+          "detail": "The repo's own rule (\"a sum that does not reconcile is a confession\", CLAUDE.md:929) applies to this feature's own documentation.\n\n  CLAUDE.md:89     \"54 products skipped\"\n  CLAUDE.md:95     \"would have deleted 156 products instead of skipping 54\"\n  import-feel22.ts:228  \"would have deleted 156 products instead of 80\"\n  import-feel22.ts:25   \"Feel22 resells brands we already buy direct (97 Beesline, 9 Dali products)\"\n\n54 and 80 cannot both be the skip count. My offline replay of the exact algorithm resolves it: 54 at threshold 0.8, which is 54 of the 97 Beesline rows and 0 of the 9 Dali rows — the Dali zero being the brand-key blocker above. So CLAUDE.md is right and the code comment at line 228 is stale by 26.\n\nThis matters beyond tidiness: the next person sizing this work reads \"80 of 106 already handled, 26 to go\" when the truth is \"54 of 106 handled, 52 to go\", and sets the scope of the sweep from a wrong number. Correct line 228 to 54 as the first commit of the sweep, before any behaviour changes."
+        }
+      ]
+    }
+  ]
+}

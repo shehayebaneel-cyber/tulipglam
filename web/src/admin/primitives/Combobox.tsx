@@ -208,7 +208,11 @@ export function Combobox({
                   aria-selected={isSel}
                   onMouseEnter={() => setActive(i)}
                   onClick={() => pick(i)}
-                  className={`flex cursor-pointer items-center gap-2 px-3 py-2 text-[13px] ${i === active ? "bg-plum-soft text-plum" : "text-ink"}`}
+                  // 44px rows on a phone, the original 36px from `sm:` up. All three admin-phone
+                  // agents reported this and none could reach it from a call site — the trigger
+                  // can be sized with `buttonClassName`, the OPTION ROWS cannot. On the order
+                  // screen this list is the most-pressed control there is.
+                  className={`flex min-h-11 cursor-pointer items-center gap-2 px-3 py-2 text-[13px] sm:min-h-0 ${i === active ? "bg-plum-soft text-plum" : "text-ink"}`}
                   style={o.depth ? { paddingLeft: `${0.75 + o.depth * 0.85}rem` } : undefined}
                 >
                   <span className="min-w-0 flex-1 cell-truncate">{o.label}</span>

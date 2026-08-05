@@ -1,0 +1,19 @@
+{
+  "at": "2026-08-05T02:50:12.824Z",
+  "friction": [
+    {
+      "where": "homepage",
+      "what": "Our Picks rail is empty — nothing is flagged, so the homepage opens with no curated products",
+      "severity": "high",
+      "fixable": "owner picks 8 products in admin"
+    },
+    {
+      "where": "homepage",
+      "what": "No approved reviews, so the social-proof rail is absent on launch day",
+      "severity": "low",
+      "fixable": "expected before any customer has ordered"
+    }
+  ],
+  "pass": 20,
+  "fail": 0
+}

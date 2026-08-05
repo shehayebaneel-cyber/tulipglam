@@ -67,7 +67,7 @@ export function ConfirmDialog({
       >
         <div className="flex items-start justify-between gap-3">
           <h2 id={titleId} className="serif text-lg font-medium text-ink">{title}</h2>
-          <button type="button" onClick={onCancel} aria-label="Close" className="focus-ring -mr-1 -mt-1 grid h-8 w-8 shrink-0 place-items-center rounded-full text-muted-strong hover:bg-soft hover:text-ink">
+          <button type="button" onClick={onCancel} aria-label="Close" className="focus-ring -mr-1 -mt-1 grid h-11 w-11 shrink-0 place-items-center rounded-full text-muted-strong hover:bg-soft hover:text-ink sm:h-8 sm:w-8">
             <CloseIcon className="h-4 w-4" />
           </button>
         </div>
@@ -75,13 +75,13 @@ export function ConfirmDialog({
         <div className="mt-2.5 space-y-2 text-[13px] leading-relaxed text-ink/80">{children}</div>
 
         <div className="mt-5 flex justify-end gap-2">
-          <button type="button" onClick={onCancel} disabled={busy} className="btn btn-ghost focus-ring px-5 py-2.5">Cancel</button>
+          <button type="button" onClick={onCancel} disabled={busy} className="btn btn-ghost focus-ring min-h-11 px-5 py-2.5 sm:min-h-0">Cancel</button>
           <button
             ref={confirmRef}
             type="button"
             onClick={onConfirm}
             disabled={busy}
-            className={`btn focus-ring px-5 py-2.5 text-white ${destructive ? "bg-sale hover:brightness-95" : "btn-ink"}`}
+            className={`btn focus-ring min-h-11 px-5 py-2.5 text-white sm:min-h-0 ${destructive ? "bg-sale hover:brightness-95" : "btn-ink"}`}
           >
             {busy ? "Working…" : confirmLabel}
           </button>
